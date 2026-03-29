@@ -3792,7 +3792,7 @@ function StaffDetail({s, store, isMgr, onBack, onEdit}){
         </div>
         <div style={{flex:1}}>
           <div style={{fontSize:20,fontWeight:900,marginBottom:2}}>{s.name}</div>
-          <div style={{fontSize:12,opacity:.85}}>{fac?.name} ／ {s.role==="manager"?"施設管理者":"一般職員"} ／ {s.employmentType||"正社員"}</div>
+          <div style={{fontSize:12,opacity:.85}}>{fac?.name} ／ {s.role==="manager"?"管理者":s.role==="cdsm"?"児童発達支援管理責任者":s.role==="specialist"?"専門職員":s.role==="part_qual"?"パート（指導員）":s.role==="part_noqual"?"パート（資格なし）":s.role==="consultant"?"相談支援員":"支援員"} ／ {s.employmentType||"正社員"}</div>
           {s.dob&&<div style={{fontSize:11,opacity:.75,marginTop:2}}>{s.dob}生（{age}歳）</div>}
         </div>
       </div>
@@ -3986,7 +3986,7 @@ function RegisterStaff({init, isEdit, user, store, onBack, onSave}){
       <FormField form={form} upd={upd} errors={errors}  label="所属施設" fkey="facilityId" required
         options={[{value:"",label:"選択してください"},...FACILITIES.map(f=>({value:f.id,label:f.name}))]}/>
       <FormField form={form} upd={upd} errors={errors}  label="役職・権限" fkey="role"
-        options={[{value:"staff",label:"一般職員"},{value:"manager",label:"施設管理者"}]}/>
+        options={[{value:"staff",label:"支援員"},{value:"specialist",label:"専門職員"},{value:"cdsm",label:"児童発達支援管理責任者"},{value:"manager",label:"管理者"},{value:"part_qual",label:"パート（指導員）"},{value:"part_noqual",label:"パート（資格なし）"},{value:"consultant",label:"相談支援員"}]}/>
       <FormField form={form} upd={upd} errors={errors}  label="雇用形態" fkey="employmentType"
         options={["正社員","パート・アルバイト","契約社員","派遣","業務委託"].map(v=>({value:v,label:v}))}/>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
@@ -4107,7 +4107,7 @@ export default function App(){
     case "admin":return <AdminScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
     default:return <HomeScreen user={user} onNav={setScreen} store={store}/>;
   }};
-  return <><style>{CSS}</style><div className="app"><nav className="nav"><div className="nbrand">GO <span>GROUP</span></div><div className="nr"><div className="nu"><strong>{user.displayName}</strong><span className="rbadge">{{staff:"一般職員",manager:"施設管理者",admin:"本部管理者"}[user.role]}</span></div><button className="blg" onClick={logout}>ログアウト</button></div></nav><div className="wrap">{render()}</div></div></>;
+  return <><style>{CSS}</style><div className="app"><nav className="nav"><div className="nbrand">GO <span>GROUP</span></div><div className="nr"><div className="nu"><strong>{user.displayName}</strong><span className="rbadge">{{staff:"支援員",specialist:"専門職員",cdsm:"児童発達支援管理責任者",manager:"管理者",part_qual:"パート（指導員）",part_noqual:"パート（資格なし）",consultant:"相談支援員",admin:"本部管理者"}[user.role]}</span></div><button className="blg" onClick={logout}>ログアウト</button></div></nav><div className="wrap">{render()}</div></div></>;
 }
 
 // エントリーポイント
