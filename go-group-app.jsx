@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { createRoot } from "react-dom/client";
 
 // ==================== SUPABASE CLIENT ====================
 const SUPABASE_URL = "https://ctqnxvgfysoegxmpequa.supabase.co";
@@ -4129,4 +4130,11 @@ export default function App(){
     default:return <HomeScreen user={user} onNav={setScreen} store={store}/>;
   }};
   return <><style>{CSS}</style><div className="app"><nav className="nav"><div className="nbrand">GO <span>GROUP</span></div><div className="nr"><div className="nu"><strong>{user.displayName}</strong><span className="rbadge">{{staff:"一般職員",manager:"施設管理者",admin:"本部管理者"}[user.role]}</span></div><button className="blg" onClick={logout}>ログアウト</button></div></nav><div className="wrap">{render()}</div></div></>;
+}
+
+
+// エントリーポイント
+const rootEl = document.getElementById('root');
+if(rootEl) {
+  createRoot(rootEl).render(<App/>);
 }
