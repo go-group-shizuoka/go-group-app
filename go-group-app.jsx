@@ -1459,30 +1459,34 @@ function StaffClockOut({user,onBack,store}){
   </FlowWrap>;
 }
 function UserArrive({user,onBack,store}){
-  const [sel,setSel]=useState(null);const [cap,setCap]=useState(false);const [temp,setTemp]=useState("");const [tr,setTr]=useState("あり");const [note,setNote]=useState("");const [time,setTime]=useState(nowHM());const [done,setDone]=useState(false);const [saved,setSaved]=useState("");
+  const [sel,setSel]=useState(null);const [cap,setCap]=useState(false);const [temp,setTemp]=useState("");const [tr,setTr]=useState("あり");const [note,setNote]=useState("");const [time,setTime]=useState(nowHM());const [done,setDone]=useState(false);const [saved,setSaved]=useState("");const [dayType,setDayType]=useState("放課後");
   const users=store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false);const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
-  const save=()=>{const t=buildDT(time);store.addRec({id:genId(),type:"user_in",userId:sel.id,userName:sel.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:t,temp,transport:tr,photo:true,note,createdBy:user.displayName,history:[]});setSaved(t);setDone(true);};
-  if(done)return <div className="succ"><div className="si">🌟</div><div className="st">来所登録完了</div><div className="sd">{sel?.name} さんの来所を記録しました<br/>体温: {temp}℃　送迎: {tr}</div><div className="sm">{saved}</div><button className="bpri" style={{maxWidth:200,marginTop:8}} onClick={onBack}>ホームに戻る</button></div>;
+  const save=()=>{const t=buildDT(time);store.addRec({id:genId(),type:"user_in",userId:sel.id,userName:sel.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:t,temp,transport:tr,dayType,photo:true,note,createdBy:user.displayName,history:[]});setSaved(t);setDone(true);};
+  if(done)return <div className="succ"><div className="si">🌟</div><div className="st">来所登録完了</div><div className="sd">{sel?.name} さんの来所を記録しました<br/>体温: {temp}℃　送迎: {tr}　区分: {dayType}</div><div className="sm">{saved}</div><button className="bpri" style={{maxWidth:200,marginTop:8}} onClick={onBack}>ホームに戻る</button></div>;
   return <FlowWrap title="🌟 利用者 来所" onBack={onBack}>
     <div className="slbl">STEP 1 — 利用者を選択</div><div className="ng">{users.map(u=><button key={u.id} className={`nb ${sel?.id===u.id?"s":""}`} onClick={()=>setSel(u)}>{u.name}</button>)}</div>
-    <hr className="div"/><div className="slbl">STEP 2 — 来所時刻</div><div className="tr"><TimePicker value={time} onChange={setTime} label="来所時刻"/></div>
-    <hr className="div"/><div className="slbl">STEP 3 — 写真撮影</div><Cam cap={cap} onCap={()=>setCap(!cap)}/>
-    <hr className="div"/><div className="slbl">STEP 4 — 体温</div><div className="tr"><input className="ti" type="number" placeholder="36.5" step="0.1" min="35" max="42" value={temp} onChange={e=>setTemp(e.target.value)}/><span className="tunit">℃</span></div>
-    <hr className="div"/><div className="slbl">STEP 5 — 送迎</div><div className="togr">{["あり","なし"].map(v=><button key={v} className={`tg ${tr===v?"on":""}`} onClick={()=>setTr(v)}>送迎{v}</button>)}</div>
+    <hr className="div"/><div className="slbl">STEP 2 — 日区分</div>
+    <div className="togr">{["放課後","休日"].map(v=><button key={v} className={`tg ${dayType===v?"on":""}`} onClick={()=>setDayType(v)}>{v==="休日"?"🎌 休日":"🏫 放課後"}</button>)}</div>
+    <hr className="div"/><div className="slbl">STEP 3 — 来所時刻</div><div className="tr"><TimePicker value={time} onChange={setTime} label="来所時刻"/></div>
+    <hr className="div"/><div className="slbl">STEP 4 — 写真撮影</div><Cam cap={cap} onCap={()=>setCap(!cap)}/>
+    <hr className="div"/><div className="slbl">STEP 5 — 体温</div><div className="tr"><input className="ti" type="number" placeholder="36.5" step="0.1" min="35" max="42" value={temp} onChange={e=>setTemp(e.target.value)}/><span className="tunit">℃</span></div>
+    <hr className="div"/><div className="slbl">STEP 6 — 送迎</div><div className="togr">{["あり","なし"].map(v=><button key={v} className={`tg ${tr===v?"on":""}`} onClick={()=>setTr(v)}>送迎{v}</button>)}</div>
     <hr className="div"/><div className="slbl">備考（任意）</div><textarea className="fta" value={note} onChange={e=>setNote(e.target.value)}/>
     <button className="bsave" disabled={!sel||!cap||!temp||!time} onClick={save} style={{marginTop:14}}>保存する</button>
   </FlowWrap>;
 }
 function UserDepart({user,onBack,store}){
-  const [sel,setSel]=useState(null);const [cap,setCap]=useState(false);const [tr,setTr]=useState("あり");const [note,setNote]=useState("");const [time,setTime]=useState(nowHM());const [done,setDone]=useState(false);const [saved,setSaved]=useState("");
+  const [sel,setSel]=useState(null);const [cap,setCap]=useState(false);const [tr,setTr]=useState("あり");const [note,setNote]=useState("");const [time,setTime]=useState(nowHM());const [done,setDone]=useState(false);const [saved,setSaved]=useState("");const [dayType,setDayType]=useState("放課後");
   const users=store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false);const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
-  const save=()=>{const t=buildDT(time);store.addRec({id:genId(),type:"user_out",userId:sel.id,userName:sel.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:t,transport:tr,photo:cap,note,createdBy:user.displayName,history:[]});setSaved(t);setDone(true);};
-  if(done)return <div className="succ"><div className="si">🏠</div><div className="st">退所登録完了</div><div className="sd">{sel?.name} さんの退所を記録しました<br/>送迎: {tr}</div><div className="sm">{saved}</div><button className="bpri" style={{maxWidth:200,marginTop:8}} onClick={onBack}>ホームに戻る</button></div>;
+  const save=()=>{const t=buildDT(time);store.addRec({id:genId(),type:"user_out",userId:sel.id,userName:sel.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:t,transport:tr,dayType,photo:cap,note,createdBy:user.displayName,history:[]});setSaved(t);setDone(true);};
+  if(done)return <div className="succ"><div className="si">🏠</div><div className="st">退所登録完了</div><div className="sd">{sel?.name} さんの退所を記録しました<br/>送迎: {tr}　区分: {dayType}</div><div className="sm">{saved}</div><button className="bpri" style={{maxWidth:200,marginTop:8}} onClick={onBack}>ホームに戻る</button></div>;
   return <FlowWrap title="🏠 利用者 退所" onBack={onBack}>
     <div className="slbl">STEP 1 — 利用者を選択</div><div className="ng">{users.map(u=><button key={u.id} className={`nb ${sel?.id===u.id?"s":""}`} onClick={()=>setSel(u)}>{u.name}</button>)}</div>
-    <hr className="div"/><div className="slbl">STEP 2 — 退所時刻</div><div className="tr"><TimePicker value={time} onChange={setTime} label="退所時刻"/></div>
-    <hr className="div"/><div className="slbl">STEP 3 — 写真（任意）</div><Cam cap={cap} onCap={()=>setCap(!cap)}/>
-    <hr className="div"/><div className="slbl">STEP 4 — 送迎</div><div className="togr">{["あり","なし"].map(v=><button key={v} className={`tg ${tr===v?"on":""}`} onClick={()=>setTr(v)}>送迎{v}</button>)}</div>
+    <hr className="div"/><div className="slbl">STEP 2 — 日区分</div>
+    <div className="togr">{["放課後","休日"].map(v=><button key={v} className={`tg ${dayType===v?"on":""}`} onClick={()=>setDayType(v)}>{v==="休日"?"🎌 休日":"🏫 放課後"}</button>)}</div>
+    <hr className="div"/><div className="slbl">STEP 3 — 退所時刻</div><div className="tr"><TimePicker value={time} onChange={setTime} label="退所時刻"/></div>
+    <hr className="div"/><div className="slbl">STEP 4 — 写真（任意）</div><Cam cap={cap} onCap={()=>setCap(!cap)}/>
+    <hr className="div"/><div className="slbl">STEP 5 — 送迎</div><div className="togr">{["あり","なし"].map(v=><button key={v} className={`tg ${tr===v?"on":""}`} onClick={()=>setTr(v)}>送迎{v}</button>)}</div>
     <hr className="div"/><div className="slbl">備考（任意）</div><textarea className="fta" value={note} onChange={e=>setNote(e.target.value)}/>
     <button className="bsave" disabled={!sel||!time} onClick={save} style={{marginTop:14}}>保存する</button>
   </FlowWrap>;
@@ -1560,18 +1564,51 @@ function AttendanceScreen({user,store,onBack}){
   const cnt=date=>({p:users.filter(u=>store.getAtt(u.id,date)==="出席").length,a:users.filter(u=>store.getAtt(u.id,date)==="欠席").length,s:users.filter(u=>store.getAtt(u.id,date)==="予定").length});
   const sc=cnt(sel);const STATS=["予定","出席","欠席","未定"];const scls={"出席":"sbtn sp","欠席":"sbtn sab","予定":"sbtn sc","未定":"sbtn sn2"};
   const facName=FACILITIES.find(f=>f.id===user.selectedFacilityId)?.name||"";
+
+  // 日付ごとの区分（放課後/休日）管理
+  const dayTypeKey = date => "daytype_"+user.selectedFacilityId+"_"+date;
+  const getDayType = date => {
+    try { return localStorage.getItem(dayTypeKey(date)) || "放課後"; } catch(e) { return "放課後"; }
+  };
+  const setDayType = (date, type) => {
+    try { localStorage.setItem(dayTypeKey(date), type); } catch(e) {}
+  };
+  const [dayTypeRefresh, setDayTypeRefresh] = useState(0);
+  const currentDayType = getDayType(sel);
+
   return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">📅 出欠管理</div><button className="bexp" style={{marginLeft:"auto",background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={()=>printAttendance(users,vm,days,store.getAtt,facName)}>🖨️ 印刷</button></div>
     <div><div className="panel" style={{marginBottom:12}}>
       <div className="ch"><button className="cn" onClick={()=>setVm(v=>v.m===1?{y:v.y-1,m:12}:{y:v.y,m:v.m-1})}>‹</button><div className="cm">{vm.y}年 {vm.m}月</div><button className="cn" onClick={()=>setVm(v=>v.m===12?{y:v.y+1,m:1}:{y:v.y,m:v.m+1})}>›</button></div>
       <div className="cgrid">
         {["日","月","火","水","木","金","土"].map((d,i)=><div key={d} className={`cdow ${i===0?"su":""} ${i===6?"sa":""}`}>{d}</div>)}
         {Array.from({length:fw}).map((_,i)=><div key={"e"+i} className="cday emp"/>)}
-        {Array.from({length:days}).map((_,i)=>{const d=i+1;const ds=mk(d);const dow=new Date(vm.y,vm.m-1,d).getDay();const we=dow===0||dow===6;const c=cnt(ds);
-          return <div key={d} className={`cday ${ds===td?"td":""} ${ds===sel?"sel":""} ${we?"we":""}`} onClick={()=>!we&&setSel(ds)}><span style={{fontSize:10}}>{d}</span>{!we&&(c.p>0||c.s>0||c.a>0)&&<div className="dots">{c.p>0&&<div className="dot dg"/>}{c.s>0&&<div className="dot da"/>}{c.a>0&&<div className="dot dr"/>}</div>}</div>;
+        {Array.from({length:days}).map((_,i)=>{const d=i+1;const ds=mk(d);const dow=new Date(vm.y,vm.m-1,d).getDay();const we=dow===0||dow===6;const c=cnt(ds);const dtype=getDayType(ds);
+          return <div key={d} className={`cday ${ds===td?"td":""} ${ds===sel?"sel":""} ${we?"we":""}`} onClick={()=>!we&&setSel(ds)}>
+            <span style={{fontSize:10}}>{d}</span>
+            {!we&&dtype==="休日"&&<div style={{fontSize:7,color:"var(--am)",fontWeight:700,lineHeight:1}}>休</div>}
+            {!we&&(c.p>0||c.s>0||c.a>0)&&<div className="dots">{c.p>0&&<div className="dot dg"/>}{c.s>0&&<div className="dot da"/>}{c.a>0&&<div className="dot dr"/>}</div>}
+          </div>;
         })}
       </div>
     </div>
-    <div style={{marginBottom:10}}><div style={{fontSize:14,fontWeight:900,marginBottom:9}}>{dlabel(sel)} の出欠状況</div>
+    <div style={{marginBottom:10}}>
+      <div style={{fontSize:14,fontWeight:900,marginBottom:9}}>{dlabel(sel)} の出欠状況</div>
+      {/* 放課後/休日 切替 */}
+      <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+        <span style={{fontSize:12,fontWeight:700,color:"var(--tx2)"}}>日区分：</span>
+        {["放課後","休日"].map(type=>(
+          <button key={type} onClick={()=>{setDayType(sel,type);setDayTypeRefresh(p=>p+1);}}
+            style={{padding:"6px 16px",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",
+              borderColor:currentDayType===type?(type==="休日"?"var(--am)":"var(--tl)"):"var(--bd)",
+              background:currentDayType===type?(type==="休日"?"#fff8ec":"#cce6f5"):"var(--bg)",
+              color:currentDayType===type?(type==="休日"?"var(--am)":"var(--tl)"):"var(--tx3)"}}>
+            {type==="休日"?"🎌 休日":"🏫 放課後"}
+          </button>
+        ))}
+        <span style={{fontSize:11,color:currentDayType==="休日"?"var(--am)":"var(--tl)",fontWeight:700,marginLeft:4}}>
+          現在：{currentDayType}（{currentDayType==="休日"?"休日単価適用":"放課後単価適用"}）
+        </span>
+      </div>
       <div className="chips"><div className="chip cg">出席 {sc.p}名</div><div className="chip cr">欠席 {sc.a}名</div><div className="chip cb2">予定 {sc.s}名</div><div className="chip cw">未定 {users.length-sc.p-sc.a-sc.s}名</div></div>
     </div>
     <div className="panel"><div className="ptit">利用者 出欠一覧</div>
@@ -4073,6 +4110,7 @@ function HomeScreen({user,onNav,store}){
     {id:"photo",icon:"📸",title:"写真ギャラリー",desc:"撮影・活動記録・一覧",cls:"c5"},
     {id:"service",icon:"📋",title:"サービス提供記録",desc:"日々の支援内容",cls:"c3"},
     {id:"messages",icon:"💬",title:"保護者連絡"+(unread>0?` (${unread})`:``),desc:"メッセージ・連絡帳",cls:"c9"},
+    {id:"schedule",icon:"📅",title:"生徒予定表",desc:"月間予定・来所管理",cls:"c6"},
     {id:"daily",icon:"📓",title:"業務日報",desc:"日報作成・職員・利用者一覧",cls:"c8"},
     {id:"paidleave",icon:"🌴",title:"有給管理",desc:"申請・残日数・承認",cls:"c3"},
     {id:"users",icon:"👤",title:"利用者管理",desc:"フェイスシート・計画・モニタリング",cls:"c4"},
@@ -4091,6 +4129,206 @@ function HomeScreen({user,onNav,store}){
 }
 
 // ==================== APP ROOT ====================
+
+// ==================== 生徒予定表 ====================
+const SCHEDULE_STATUS = {
+  "来所": {label:"来所", color:"#005a8a", bg:"#cce6f5", short:"来"},
+  "欠席": {label:"欠席", color:"#a02818", bg:"#fad4d0", short:"欠"},
+  "体調不良": {label:"体調不良", color:"#8a6200", bg:"#fef8e6", short:"体"},
+  "キャンセル": {label:"キャンセル", color:"#555", bg:"#e8e8e8", short:"キャ"},
+  "休所": {label:"休所", color:"#555", bg:"#f0f0f0", short:"休"},
+};
+
+function ScheduleScreen({user, store, onBack}){
+  const today = new Date();
+  const [vm, setVm] = useState({y: today.getFullYear(), m: today.getMonth()+1});
+  const [selFac, setSelFac] = useState(user.selectedFacilityId || "all");
+  const [schedule, setSchedule] = useState({}); // {userId_date: status}
+  const [editCell, setEditCell] = useState(null);
+  const [printMode, setPrintMode] = useState(false);
+  const isAdmin = user.role === "admin";
+  const isMgr = user.role === "manager" || user.role === "admin";
+
+  const days = daysInMonth(vm.y, vm.m);
+  const dayList = Array.from({length: days}, (_, i) => i + 1);
+
+  const facOptions = isAdmin
+    ? [{id:"all", name:"全店舗"}, ...FACILITIES]
+    : FACILITIES.filter(f => f.id === user.selectedFacilityId);
+
+  const users = store.dynUsers.filter(u => {
+    if(u.active === false) return false;
+    if(selFac === "all") return true;
+    return u.facilityId === selFac;
+  });
+
+  const getKey = (uid, day) => uid + "_" + vm.y + "_" + String(vm.m).padStart(2,"0") + "_" + String(day).padStart(2,"0");
+
+  const getStatus = (uid, day) => schedule[getKey(uid, day)] || "";
+
+  const setStatus = (uid, day, status) => {
+    const key = getKey(uid, day);
+    setSchedule(p => {
+      const next = {...p};
+      if(status === "") delete next[key];
+      else next[key] = status;
+      return next;
+    });
+    setEditCell(null);
+  };
+
+  const getDow = (day) => new Date(vm.y, vm.m-1, day).getDay();
+  const isWe = (day) => getDow(day) === 0 || getDow(day) === 6;
+  const dowLabel = ["日","月","火","水","木","金","土"];
+
+  // 月の来所予定日数カウント
+  const countCome = (uid) => dayList.filter(d => getStatus(uid,d) === "来所").length;
+
+  const printSchedule = () => {
+    const facName = selFac === "all" ? "全店舗" : FACILITIES.find(f=>f.id===selFac)?.name || "";
+    const html = \`<html><head><meta charset="UTF-8"/><style>
+      body{font-family:'Noto Sans JP',sans-serif;font-size:8pt;margin:10mm;}
+      h2{font-size:12pt;margin-bottom:8px;}
+      table{border-collapse:collapse;width:100%;}
+      th,td{border:1px solid #ccc;padding:2px 3px;text-align:center;white-space:nowrap;}
+      th{background:#f0f5ff;font-weight:700;font-size:7pt;}
+      .we{background:#f8f8f8;color:#aaa;}
+      .come{background:#cce6f5;color:#005a8a;font-weight:700;}
+      .absent{background:#fad4d0;color:#a02818;}
+      .sick{background:#fef8e6;color:#8a6200;}
+      .cancel{background:#e8e8e8;color:#555;}
+    </style></head><body>
+    <h2>📅 生徒予定表 - \${facName} \${vm.y}年\${vm.m}月</h2>
+    <table>
+      <thead><tr>
+        <th style="min-width:80px;text-align:left">利用者名</th>
+        \${dayList.map(d=>\`<th class="\${isWe(d)?"we":""}">\${d}<br/>\${dowLabel[getDow(d)]}</th>\`).join("")}
+        <th>来所数</th>
+      </tr></thead>
+      <tbody>
+        \${users.map(u=>\`<tr>
+          <td style="text-align:left;font-weight:700">\${u.name}</td>
+          \${dayList.map(d=>{
+            const st = getStatus(u.id, d);
+            const cls = st==="来所"?"come":st==="欠席"?"absent":st==="体調不良"?"sick":st==="キャンセル"?"cancel":"";
+            const stObj = SCHEDULE_STATUS[st];
+            return \`<td class="\${isWe(d)?"we":""} \${cls}">\${stObj?stObj.short:""}</td>\`;
+          }).join("")}
+          <td style="font-weight:700">\${countCome(u.id)}</td>
+        </tr>\`).join("")}
+      </tbody>
+    </table>
+    <div style="margin-top:8px;font-size:7pt;color:#888;">
+      凡例: 来=来所 欠=欠席 体=体調不良 キャ=キャンセル 休=休所 ／ 出力: \${new Date().toLocaleString("ja-JP")}
+    </div>
+    </body></html>\`;
+    const win = window.open("","_blank");
+    win.document.write(html);
+    win.document.close();
+    win.print();
+  };
+
+  return (
+    <div className="fl-wrap">
+      <div className="fl-hd">
+        <button className="bback" onClick={onBack}>← 戻る</button>
+        <div className="fl-title">📅 生徒予定表</div>
+        <button className="bexp" style={{marginLeft:"auto",background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={printSchedule}>🖨️ 印刷</button>
+      </div>
+
+      {/* 操作バー */}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+        {isAdmin && (
+          <select className="fsm" value={selFac} onChange={e=>setSelFac(e.target.value)}>
+            {facOptions.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        )}
+        <button className="fsm" onClick={()=>setVm(p=>p.m===1?{y:p.y-1,m:12}:{y:p.y,m:p.m-1})}>◀</button>
+        <span style={{fontWeight:700,fontSize:14}}>{vm.y}年{vm.m}月</span>
+        <button className="fsm" onClick={()=>setVm(p=>p.m===12?{y:p.y+1,m:1}:{y:p.y,m:p.m+1})}>▶</button>
+        <button className="fsm" onClick={()=>setVm({y:today.getFullYear(),m:today.getMonth()+1})}>今月</button>
+      </div>
+
+      {/* 凡例 */}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+        {Object.entries(SCHEDULE_STATUS).map(([k,v])=>(
+          <span key={k} style={{padding:"3px 10px",borderRadius:8,background:v.bg,color:v.color,fontSize:11,fontWeight:700}}>{v.label}</span>
+        ))}
+        <span style={{padding:"3px 10px",borderRadius:8,background:"var(--bg)",color:"var(--tx3)",fontSize:11}}>（空白）未定</span>
+      </div>
+
+      {/* 予定表 */}
+      {users.length === 0 ? (
+        <div style={{textAlign:"center",color:"var(--tx3)",padding:32}}>利用者が登録されていません</div>
+      ) : (
+        <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+          <table style={{borderCollapse:"collapse",fontSize:11,minWidth:"max-content"}}>
+            <thead>
+              <tr>
+                <th style={{border:"1px solid var(--bd)",padding:"6px 10px",background:"var(--bg2)",textAlign:"left",minWidth:90,position:"sticky",left:0,zIndex:2}}>利用者名</th>
+                {dayList.map(d=>(
+                  <th key={d} style={{border:"1px solid var(--bd)",padding:"4px 3px",background:isWe(d)?"#f5f5f5":"var(--bg2)",color:isWe(d)?"#aaa":"var(--tx2)",minWidth:32,textAlign:"center"}}>
+                    <div>{d}</div>
+                    <div style={{fontSize:9,color:getDow(d)===0?"var(--ro)":getDow(d)===6?"#0050a0":"inherit"}}>{dowLabel[getDow(d)]}</div>
+                  </th>
+                ))}
+                <th style={{border:"1px solid var(--bd)",padding:"4px 6px",background:"var(--bg2)",minWidth:45}}>来所数</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map(u=>(
+                <tr key={u.id}>
+                  <td style={{border:"1px solid var(--bd)",padding:"5px 8px",fontWeight:700,fontSize:12,background:"var(--wh)",position:"sticky",left:0,zIndex:1,whiteSpace:"nowrap"}}>
+                    {u.name}
+                    {selFac==="all"&&<div style={{fontSize:9,color:"var(--tx3)",fontWeight:400}}>{FACILITIES.find(f=>f.id===u.facilityId)?.name}</div>}
+                  </td>
+                  {dayList.map(d=>{
+                    const st = getStatus(u.id, d);
+                    const stObj = SCHEDULE_STATUS[st];
+                    return (
+                      <td key={d}
+                        onClick={()=>isMgr&&setEditCell({uid:u.id,day:d,name:u.name})}
+                        style={{border:"1px solid var(--bd)",padding:"3px 2px",textAlign:"center",background:stObj?stObj.bg:isWe(d)?"#fafafa":"var(--wh)",cursor:isMgr?"pointer":"default",minWidth:32,transition:"all .1s"}}>
+                        {stObj&&<span style={{fontSize:10,fontWeight:700,color:stObj.color}}>{stObj.short}</span>}
+                      </td>
+                    );
+                  })}
+                  <td style={{border:"1px solid var(--bd)",padding:"4px 6px",textAlign:"center",fontWeight:700,color:"var(--tl)",background:"#eef8f2"}}>
+                    {countCome(u.id)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* セル編集モーダル */}
+      {editCell&&(
+        <div style={{position:"fixed",top:0,right:0,bottom:0,left:0,background:"rgba(0,0,0,0.45)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}}
+          onClick={e=>e.target===e.currentTarget&&setEditCell(null)}>
+          <div style={{background:"var(--wh)",borderRadius:"16px 16px 0 0",width:"100%",maxWidth:400,padding:"20px 18px 32px"}}>
+            <div style={{fontWeight:900,fontSize:15,marginBottom:4}}>{editCell.name}</div>
+            <div style={{fontSize:12,color:"var(--tx3)",marginBottom:14}}>{vm.y}年{vm.m}月{editCell.day}日（{dowLabel[getDow(editCell.day)]}）</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+              {Object.entries(SCHEDULE_STATUS).map(([k,v])=>(
+                <button key={k} onClick={()=>setStatus(editCell.uid,editCell.day,k)}
+                  style={{padding:"12px 8px",borderRadius:10,background:v.bg,color:v.color,border:"2px solid "+v.color,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                  {v.label}
+                </button>
+              ))}
+            </div>
+            <button onClick={()=>setStatus(editCell.uid,editCell.day,"")}
+              style={{width:"100%",padding:"10px",borderRadius:10,background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx3)",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+              ✕ クリア（未定に戻す）
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App(){
   const [user,setUser]=useState(()=>{
     try {
@@ -4125,6 +4363,7 @@ export default function App(){
     case "users":return <UserManagement user={user} store={store} onBack={()=>setScreen("home")}/>;
     case "kokuho":return <KokuhoScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
     case "paidleave":return <PaidLeaveScreen user={user} store={store} onBack={()=>setScreen("home")}/>
+    case "schedule":return <ScheduleScreen user={user} store={store} onBack={()=>setScreen("home")}/>
     case "staffmgmt":return <StaffManagement user={user} store={store} onBack={()=>setScreen("home")}/>
     case "admin":return <AdminScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
     default:return <HomeScreen user={user} onNav={setScreen} store={store}/>;
