@@ -1777,17 +1777,17 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
       </div>
 
       {/* 基本情報 */}
-      <Section title="■ 基本情報" color="var(--tl)">
-        <Field label="氏名（フルネーム）" fkey="name" placeholder="山田 花子" required/>
+      <FormSection title="■ 基本情報" color="var(--tl)">
+        <FormField form={form} upd={upd} errors={errors}  label="氏名（フルネーム）" fkey="name" placeholder="山田 花子" required/>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
-          <Field label="生年月日" fkey="dob" type="date" required/>
-          <Field label="性別" fkey="gender" options={[{value:"",label:"選択してください"},{value:"男",label:"男"},{value:"女",label:"女"},{value:"その他",label:"その他"}]}/>
+          <FormField form={form} upd={upd} errors={errors}  label="生年月日" fkey="dob" type="date" required/>
+          <FormField form={form} upd={upd} errors={errors}  label="性別" fkey="gender" options={[{value:"",label:"選択してください"},{value:"男",label:"男"},{value:"女",label:"女"},{value:"その他",label:"その他"}]}/>
         </div>
-        <Field label="所属施設" fkey="facilityId" required
+        <FormField form={form} upd={upd} errors={errors}  label="所属施設" fkey="facilityId" required
           options={[{value:"",label:"選択してください"},...FACILITIES.map(f=>({value:f.id,label:f.name}))]}/>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
-          <Field label="診断名" fkey="diagnosis" placeholder="自閉スペクトラム症"/>
-          <Field label="障害種別・等級" fkey="disabilityGrade" placeholder="療育手帳 B1"/>
+          <FormField form={form} upd={upd} errors={errors}  label="診断名" fkey="diagnosis" placeholder="自閉スペクトラム症"/>
+          <FormField form={form} upd={upd} errors={errors}  label="障害種別・等級" fkey="disabilityGrade" placeholder="療育手帳 B1"/>
         </div>
         <div style={{marginBottom:12}}>
           <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,display:"block",marginBottom:7}}>送迎</label>
@@ -1799,19 +1799,19 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
-          <Field label="利用開始日" fkey="enrollDate" type="date"/>
-          <Field label="利用状況" fkey="active"
+          <FormField form={form} upd={upd} errors={errors}  label="利用開始日" fkey="enrollDate" type="date"/>
+          <FormField form={form} upd={upd} errors={errors}  label="利用状況" fkey="active"
             options={[{value:true,label:"在籍中"},{value:false,label:"退所・無効"}]}/>
         </div>
-      </Section>
+      </FormSection>
 
       {/* 受給者証情報 */}
-      <Section title="■ 受給者証情報" color="var(--pu)">
+      <FormSection title="■ 受給者証情報" color="var(--pu)">
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
-          <Field label="受給者証番号" fkey="jukyushaNo" placeholder="0000000000" required/>
-          <Field label="有効期限" fkey="jukyushaExpiry" type="date"/>
+          <FormField form={form} upd={upd} errors={errors}  label="受給者証番号" fkey="jukyushaNo" placeholder="0000000000" required/>
+          <FormField form={form} upd={upd} errors={errors}  label="有効期限" fkey="jukyushaExpiry" type="date"/>
         </div>
-        <Field label="支給自治体（市区町村）" fkey="jukyushaCity" placeholder="○○市"/>
+        <FormField form={form} upd={upd} errors={errors}  label="支給自治体（市区町村）" fkey="jukyushaCity" placeholder="○○市"/>
         {/* 受給者証コピー */}
         <div style={{marginBottom:8}}>
           <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,display:"block",marginBottom:6}}>受給者証コピー</label>
@@ -1834,33 +1834,33 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
             <span style={{fontSize:11,color:"var(--tx3)"}}>登録日: {todayISO()}</span>
           </div>}
         </div>
-      </Section>
+      </FormSection>
 
       {/* 保護者情報 */}
-      <Section title="■ 保護者情報" color="var(--ac)">
+      <FormSection title="■ 保護者情報" color="var(--ac)">
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
-          <Field label="保護者氏名" fkey="parentName" placeholder="山田 次郎"/>
-          <Field label="続柄" fkey="parentRelation" options={["母","父","祖母","祖父","その他"].map(v=>({value:v,label:v}))}/>
-          <Field label="連絡先（携帯）" fkey="parentTel" placeholder="090-XXXX-XXXX" type="tel"/>
-          <Field label="緊急連絡先" fkey="emergencyTel" placeholder="090-XXXX-XXXX" type="tel"/>
+          <FormField form={form} upd={upd} errors={errors}  label="保護者氏名" fkey="parentName" placeholder="山田 次郎"/>
+          <FormField form={form} upd={upd} errors={errors}  label="続柄" fkey="parentRelation" options={["母","父","祖母","祖父","その他"].map(v=>({value:v,label:v}))}/>
+          <FormField form={form} upd={upd} errors={errors}  label="連絡先（携帯）" fkey="parentTel" placeholder="090-XXXX-XXXX" type="tel"/>
+          <FormField form={form} upd={upd} errors={errors}  label="緊急連絡先" fkey="emergencyTel" placeholder="090-XXXX-XXXX" type="tel"/>
         </div>
-        <Field label="住所" fkey="address" placeholder="○○市△△1-2-3"/>
-      </Section>
+        <FormField form={form} upd={upd} errors={errors}  label="住所" fkey="address" placeholder="○○市△△1-2-3"/>
+      </FormSection>
 
       {/* 学校情報 */}
-      <Section title="■ 学校情報" color="var(--gr)">
+      <FormSection title="■ 学校情報" color="var(--gr)">
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
-          <Field label="学校名" fkey="school" placeholder="○○小学校 特別支援学級"/>
-          <Field label="学年" fkey="schoolYear" placeholder="4年生"/>
-          <Field label="担任・支援員" fkey="schoolContact" placeholder="鈴木 先生"/>
+          <FormField form={form} upd={upd} errors={errors}  label="学校名" fkey="school" placeholder="○○小学校 特別支援学級"/>
+          <FormField form={form} upd={upd} errors={errors}  label="学年" fkey="schoolYear" placeholder="4年生"/>
+          <FormField form={form} upd={upd} errors={errors}  label="担任・支援員" fkey="schoolContact" placeholder="鈴木 先生"/>
         </div>
-      </Section>
+      </FormSection>
 
       {/* 医療情報 */}
-      <Section title="■ 医療情報" color="var(--ro)">
+      <FormSection title="■ 医療情報" color="var(--ro)">
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
-          <Field label="医療機関名" fkey="medicalInstitution" placeholder="○○クリニック"/>
-          <Field label="主治医" fkey="doctor" placeholder="田中 医師"/>
+          <FormField form={form} upd={upd} errors={errors}  label="医療機関名" fkey="medicalInstitution" placeholder="○○クリニック"/>
+          <FormField form={form} upd={upd} errors={errors}  label="主治医" fkey="doctor" placeholder="田中 医師"/>
         </div>
         <div style={{marginBottom:12}}>
           <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,display:"block",marginBottom:5}}>服薬状況</label>
@@ -1870,12 +1870,12 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
           <label style={{fontSize:10,fontWeight:700,color:"var(--ro)",letterSpacing:1,display:"block",marginBottom:5}}>⚠ アレルギー・禁忌事項</label>
           <textarea className="fta" style={{minHeight:56,borderColor:"rgba(200,48,40,0.3)"}} placeholder="例）卵アレルギー（重篤）" value={form.allergies||""} onChange={e=>upd("allergies",e.target.value)}/>
         </div>
-      </Section>
+      </FormSection>
 
       {/* 備考 */}
-      <Section title="■ 備考" color="var(--tx3)">
+      <FormSection title="■ 備考" color="var(--tx3)">
         <textarea className="fta" style={{minHeight:72}} placeholder="その他、支援員が把握すべき情報" value={form.note||""} onChange={e=>upd("note",e.target.value)}/>
-      </Section>
+      </FormSection>
 
       {/* 無効化（編集時のみ） */}
       {isEdit&&<div style={{background:"#fdf5f4",border:"1px solid #f0a090",borderRadius:11,padding:14,marginBottom:12}}>
@@ -2079,53 +2079,53 @@ function FacesheetTab({u,myFS,user,store}){
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"16px",marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:11,fontWeight:700,color:"var(--ac)",letterSpacing:2,marginBottom:12,paddingBottom:8,borderBottom:"2px solid var(--ac)"}}>基本情報</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
-        <Field label="生年月日" fkey="dob2" placeholder="2015-04-10"/>
-        <Field label="性別" fkey="gender" placeholder="男・女・その他"/>
-        <Field label="障害種別・等級" fkey="disabilityGrade" placeholder="例）療育手帳 B1"/>
-        <Field label="診断名" fkey="diagDetail" placeholder="例）自閉スペクトラム症（ASD）"/>
+        <FormField form={form} upd={upd} errors={errors}  label="生年月日" fkey="dob2" placeholder="2015-04-10"/>
+        <FormField form={form} upd={upd} errors={errors}  label="性別" fkey="gender" placeholder="男・女・その他"/>
+        <FormField form={form} upd={upd} errors={errors}  label="障害種別・等級" fkey="disabilityGrade" placeholder="例）療育手帳 B1"/>
+        <FormField form={form} upd={upd} errors={errors}  label="診断名" fkey="diagDetail" placeholder="例）自閉スペクトラム症（ASD）"/>
       </div>
-      <Field label="障害の特記事項" fkey="disabilityNote" multi placeholder="手帳番号、診断詳細など"/>
+      <FormField form={form} upd={upd} errors={errors}  label="障害の特記事項" fkey="disabilityNote" multi placeholder="手帳番号、診断詳細など"/>
     </div>
     {/* 保護者情報 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"16px",marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:2,marginBottom:12,paddingBottom:8,borderBottom:"2px solid var(--tl)"}}>保護者情報</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
-        <Field label="保護者氏名" fkey="parentName" placeholder="山田 花子"/>
-        <Field label="続柄" fkey="parentRelation" placeholder="母"/>
-        <Field label="連絡先（携帯）" fkey="parentTel" placeholder="090-XXXX-XXXX"/>
-        <Field label="緊急連絡先" fkey="emergencyTel" placeholder="090-XXXX-XXXX"/>
-        <Field label="緊急連絡先氏名" fkey="emergencyName" placeholder="山田 太郎"/>
-        <Field label="緊急連絡先続柄" fkey="emergencyRelation" placeholder="父"/>
+        <FormField form={form} upd={upd} errors={errors}  label="保護者氏名" fkey="parentName" placeholder="山田 花子"/>
+        <FormField form={form} upd={upd} errors={errors}  label="続柄" fkey="parentRelation" placeholder="母"/>
+        <FormField form={form} upd={upd} errors={errors}  label="連絡先（携帯）" fkey="parentTel" placeholder="090-XXXX-XXXX"/>
+        <FormField form={form} upd={upd} errors={errors}  label="緊急連絡先" fkey="emergencyTel" placeholder="090-XXXX-XXXX"/>
+        <FormField form={form} upd={upd} errors={errors}  label="緊急連絡先氏名" fkey="emergencyName" placeholder="山田 太郎"/>
+        <FormField form={form} upd={upd} errors={errors}  label="緊急連絡先続柄" fkey="emergencyRelation" placeholder="父"/>
       </div>
-      <Field label="住所" fkey="address" placeholder="○○市△△1-2-3"/>
+      <FormField form={form} upd={upd} errors={errors}  label="住所" fkey="address" placeholder="○○市△△1-2-3"/>
     </div>
     {/* 学校情報 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"16px",marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:11,fontWeight:700,color:"var(--gr)",letterSpacing:2,marginBottom:12,paddingBottom:8,borderBottom:"2px solid var(--gr)"}}>学校情報</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
-        <Field label="学校名" fkey="school" placeholder="○○小学校 特別支援学級"/>
-        <Field label="学年" fkey="schoolYear" placeholder="4年生"/>
-        <Field label="担任・支援員" fkey="schoolContact" placeholder="鈴木 先生"/>
+        <FormField form={form} upd={upd} errors={errors}  label="学校名" fkey="school" placeholder="○○小学校 特別支援学級"/>
+        <FormField form={form} upd={upd} errors={errors}  label="学年" fkey="schoolYear" placeholder="4年生"/>
+        <FormField form={form} upd={upd} errors={errors}  label="担任・支援員" fkey="schoolContact" placeholder="鈴木 先生"/>
       </div>
     </div>
     {/* 医療情報 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"16px",marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:11,fontWeight:700,color:"var(--ro)",letterSpacing:2,marginBottom:12,paddingBottom:8,borderBottom:"2px solid var(--ro)"}}>医療情報</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
-        <Field label="医療機関名" fkey="medicalInstitution" placeholder="○○クリニック"/>
-        <Field label="主治医" fkey="doctor" placeholder="田中 医師"/>
+        <FormField form={form} upd={upd} errors={errors}  label="医療機関名" fkey="medicalInstitution" placeholder="○○クリニック"/>
+        <FormField form={form} upd={upd} errors={errors}  label="主治医" fkey="doctor" placeholder="田中 医師"/>
       </div>
-      <Field label="服薬状況" fkey="medications" placeholder="例）リスパダール 0.5mg 朝・夕食後"/>
-      <Field label="アレルギー・禁忌事項" fkey="allergies" placeholder="例）卵アレルギー（重篤）、蜂毒アレルギー"/>
+      <FormField form={form} upd={upd} errors={errors}  label="服薬状況" fkey="medications" placeholder="例）リスパダール 0.5mg 朝・夕食後"/>
+      <FormField form={form} upd={upd} errors={errors}  label="アレルギー・禁忌事項" fkey="allergies" placeholder="例）卵アレルギー（重篤）、蜂毒アレルギー"/>
     </div>
     {/* 特性・支援情報 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"16px",marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:11,fontWeight:700,color:"var(--pu)",letterSpacing:2,marginBottom:12,paddingBottom:8,borderBottom:"2px solid var(--pu)"}}>特性・支援情報</div>
-      <Field label="得意なこと・強み" fkey="strengths" multi placeholder="例）記憶力が高い、電車の知識が豊富、手先が器用"/>
-      <Field label="苦手なこと・課題" fkey="challenges" multi placeholder="例）突然の予定変更が苦手、大きな音が苦手"/>
-      <Field label="パニックのきっかけ" fkey="triggers" multi placeholder="例）急な予定変更、大きな声、特定の感触"/>
-      <Field label="落ち着くための方法" fkey="calming" multi placeholder="例）一人になれる静かな空間、好きな音楽を聴く"/>
-      <Field label="支援上の特記事項" fkey="notes" multi placeholder="その他、支援員が把握すべき情報"/>
+      <FormField form={form} upd={upd} errors={errors}  label="得意なこと・強み" fkey="strengths" multi placeholder="例）記憶力が高い、電車の知識が豊富、手先が器用"/>
+      <FormField form={form} upd={upd} errors={errors}  label="苦手なこと・課題" fkey="challenges" multi placeholder="例）突然の予定変更が苦手、大きな音が苦手"/>
+      <FormField form={form} upd={upd} errors={errors}  label="パニックのきっかけ" fkey="triggers" multi placeholder="例）急な予定変更、大きな声、特定の感触"/>
+      <FormField form={form} upd={upd} errors={errors}  label="落ち着くための方法" fkey="calming" multi placeholder="例）一人になれる静かな空間、好きな音楽を聴く"/>
+      <FormField form={form} upd={upd} errors={errors}  label="支援上の特記事項" fkey="notes" multi placeholder="その他、支援員が把握すべき情報"/>
     </div>
     {/* 受給者証期限アラート */}
     {(u.jukyushaExpiry||(myFS?.jukyushaExpiry))&&(()=>{
@@ -3997,51 +3997,51 @@ function RegisterStaff({init, isEdit, user, store, onBack, onSave}){
       <div className="fl-title">{isEdit?"✏️ スタッフ情報 編集":"➕ スタッフ 新規登録"}</div>
     </div>
 
-    <Section title="■ 基本情報" color="var(--tl)">
-      <Field label="氏名（フルネーム）" fkey="name" placeholder="田中 美穂" required/>
+    <FormSection title="■ 基本情報" color="var(--tl)">
+      <FormField form={form} upd={upd} errors={errors}  label="氏名（フルネーム）" fkey="name" placeholder="田中 美穂" required/>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
-        <Field label="生年月日" fkey="dob" type="date"/>
-        <Field label="性別" fkey="gender" options={[{value:"",label:"選択"},{value:"男",label:"男"},{value:"女",label:"女"},{value:"その他",label:"その他"}]}/>
+        <FormField form={form} upd={upd} errors={errors}  label="生年月日" fkey="dob" type="date"/>
+        <FormField form={form} upd={upd} errors={errors}  label="性別" fkey="gender" options={[{value:"",label:"選択"},{value:"男",label:"男"},{value:"女",label:"女"},{value:"その他",label:"その他"}]}/>
       </div>
-      <Field label="所属施設" fkey="facilityId" required
+      <FormField form={form} upd={upd} errors={errors}  label="所属施設" fkey="facilityId" required
         options={[{value:"",label:"選択してください"},...FACILITIES.map(f=>({value:f.id,label:f.name}))]}/>
-      <Field label="役職・権限" fkey="role"
+      <FormField form={form} upd={upd} errors={errors}  label="役職・権限" fkey="role"
         options={[{value:"staff",label:"一般職員"},{value:"manager",label:"施設管理者"}]}/>
-      <Field label="雇用形態" fkey="employmentType"
+      <FormField form={form} upd={upd} errors={errors}  label="雇用形態" fkey="employmentType"
         options={["正社員","パート・アルバイト","契約社員","派遣","業務委託"].map(v=>({value:v,label:v}))}/>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
-        <Field label="入職日" fkey="hireDate" type="date"/>
-        <Field label="資格・保有免許" fkey="qualification" placeholder="保育士・社会福祉士 など"/>
+        <FormField form={form} upd={upd} errors={errors}  label="入職日" fkey="hireDate" type="date"/>
+        <FormField form={form} upd={upd} errors={errors}  label="資格・保有免許" fkey="qualification" placeholder="保育士・社会福祉士 など"/>
       </div>
-    </Section>
+    </FormSection>
 
-    <Section title="■ 連絡先情報" color="var(--ac)">
+    <FormSection title="■ 連絡先情報" color="var(--ac)">
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
-        <Field label="携帯電話" fkey="tel" placeholder="090-XXXX-XXXX" type="tel"/>
-        <Field label="メールアドレス" fkey="email" placeholder="xxx@example.com" type="email"/>
+        <FormField form={form} upd={upd} errors={errors}  label="携帯電話" fkey="tel" placeholder="090-XXXX-XXXX" type="tel"/>
+        <FormField form={form} upd={upd} errors={errors}  label="メールアドレス" fkey="email" placeholder="xxx@example.com" type="email"/>
       </div>
-      <Field label="住所" fkey="address" placeholder="○○市△△1-2-3"/>
+      <FormField form={form} upd={upd} errors={errors}  label="住所" fkey="address" placeholder="○○市△△1-2-3"/>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 12px"}}>
-        <Field label="緊急連絡先 氏名" fkey="emergencyName" placeholder="田中 次郎"/>
-        <Field label="続柄" fkey="emergencyRelation" placeholder="父"/>
-        <Field label="緊急連絡先 電話" fkey="emergencyTel" placeholder="090-XXXX-XXXX" type="tel"/>
+        <FormField form={form} upd={upd} errors={errors}  label="緊急連絡先 氏名" fkey="emergencyName" placeholder="田中 次郎"/>
+        <FormField form={form} upd={upd} errors={errors}  label="続柄" fkey="emergencyRelation" placeholder="父"/>
+        <FormField form={form} upd={upd} errors={errors}  label="緊急連絡先 電話" fkey="emergencyTel" placeholder="090-XXXX-XXXX" type="tel"/>
       </div>
-    </Section>
+    </FormSection>
 
-    <Section title="■ 給与振込口座" color="var(--gr)">
+    <FormSection title="■ 給与振込口座" color="var(--gr)">
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
-        <Field label="銀行名" fkey="bankName" placeholder="○○銀行"/>
-        <Field label="支店名" fkey="bankBranch" placeholder="○○支店"/>
-        <Field label="口座種別" fkey="bankAccountType"
+        <FormField form={form} upd={upd} errors={errors}  label="銀行名" fkey="bankName" placeholder="○○銀行"/>
+        <FormField form={form} upd={upd} errors={errors}  label="支店名" fkey="bankBranch" placeholder="○○支店"/>
+        <FormField form={form} upd={upd} errors={errors}  label="口座種別" fkey="bankAccountType"
           options={["普通","当座"].map(v=>({value:v,label:v}))}/>
-        <Field label="口座番号" fkey="bankAccountNo" placeholder="1234567"/>
+        <FormField form={form} upd={upd} errors={errors}  label="口座番号" fkey="bankAccountNo" placeholder="1234567"/>
       </div>
-      <Field label="口座名義（カタカナ）" fkey="bankAccountName" placeholder="タナカ ミホ"/>
-    </Section>
+      <FormField form={form} upd={upd} errors={errors}  label="口座名義（カタカナ）" fkey="bankAccountName" placeholder="タナカ ミホ"/>
+    </FormSection>
 
-    <Section title="■ 備考" color="var(--tx3)">
+    <FormSection title="■ 備考" color="var(--tx3)">
       <textarea className="fta" style={{minHeight:72}} placeholder="特記事項・備考など" value={form.note||""} onChange={e=>upd("note",e.target.value)}/>
-    </Section>
+    </FormSection>
 
     {isEdit&&<div style={{background:"#fdf5f4",border:"1px solid #f0a090",borderRadius:11,padding:14,marginBottom:12}}>
       <div style={{fontSize:11,fontWeight:700,color:"var(--ro)",marginBottom:8}}>⚠ 在籍状況の変更</div>
