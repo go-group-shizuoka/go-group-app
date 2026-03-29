@@ -3611,6 +3611,8 @@ const QUAL_CATEGORIES = [
   "精神保健福祉士",
   "介護福祉士",
   "児童指導員",
+  "児童発達支援管理責任者",
+  "管理者",
   "臨床心理士・公認心理師",
   "作業療法士",
   "理学療法士",
@@ -3906,7 +3908,7 @@ function StaffManagement({user, store, onBack}){
       id:"", name:"", facilityId:user.selectedFacilityId||"f1",
       role:"staff", dob:"", gender:"", tel:"", email:"",
       address:"", emergencyName:"", emergencyTel:"", emergencyRelation:"",
-      qualification:"", hireDate:todayISO(), employmentType:"正社員",
+      qualification:"", qualifications:[], hireDate:todayISO(), employmentType:"正社員",
       bankName:"", bankBranch:"", bankAccountType:"普通", bankAccountNo:"", bankAccountName:"",
       note:"", active:true
     };
@@ -3945,7 +3947,9 @@ function StaffManagement({user, store, onBack}){
       <div style={{display:"flex",gap:8,flexWrap:"wrap",fontSize:11,color:"var(--tx3)"}}>
         {s.employmentType&&<span style={{padding:"2px 7px",borderRadius:7,background:"var(--bg)",border:"1px solid var(--bd)"}}>{s.employmentType}</span>}
         {s.hireDate&&<span>入職: {s.hireDate}</span>}
-        {s.qualification&&<span style={{padding:"2px 7px",borderRadius:7,background:"#eef6fc",border:"1px solid #90c8e8",color:"#005a8a"}}>{s.qualification}</span>}
+        {(s.qualifications&&s.qualifications.length>0)
+        ? s.qualifications.map(q=><span key={q} style={{padding:"2px 7px",borderRadius:7,background:"#eef6fc",border:"1px solid #90c8e8",color:"#005a8a",marginRight:4,marginBottom:4,display:"inline-block"}}>{q}</span>)
+        : s.qualification&&<span style={{padding:"2px 7px",borderRadius:7,background:"#eef6fc",border:"1px solid #90c8e8",color:"#005a8a"}}>{s.qualification}</span>}
         {s.tel&&<span>📞 {s.tel}</span>}
       </div>
       <div style={{marginTop:7,padding:"6px 10px",background:"var(--bg)",borderRadius:7,display:"flex",gap:12,fontSize:11}}>
@@ -4011,7 +4015,21 @@ function RegisterStaff({init, isEdit, user, store, onBack, onSave}){
         options={["正社員","パート・アルバイト","契約社員","派遣","業務委託"].map(v=>({value:v,label:v}))}/>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
         <FormField form={form} upd={upd} errors={errors}  label="入職日" fkey="hireDate" type="date"/>
-        <FormField form={form} upd={upd} errors={errors}  label="資格・保有免許" fkey="qualification" placeholder="保育士・社会福祉士 など"/>
+      </div>
+      <div style={{marginBottom:12}}>
+        <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,marginBottom:6}}>資格・役職（複数選択可）</label>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {QUAL_CATEGORIES.map(c=>{
+            const selected = (form.qualifications||[]).includes(c);
+            return <button key={c} type="button" onClick={()=>{
+              const cur = form.qualifications||[];
+              upd("qualifications", selected ? cur.filter(x=>x!==c) : [...cur, c]);
+            }} style={{padding:"6px 12px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:selected?"var(--tl)":"var(--bd)",background:selected?"#cce6f5":"var(--bg)",color:selected?"var(--tl)":"var(--tx2)"}}>
+              {selected?"✓ ":""}{c}
+            </button>;
+          })}
+        </div>
+        {(form.qualifications||[]).length>0&&<div style={{marginTop:8,fontSize:11,color:"var(--tx3)"}}>選択中: {(form.qualifications||[]).join("・")}</div>}
       </div>
     </FormSection>
 
