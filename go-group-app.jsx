@@ -64,32 +64,8 @@ const FACILITIES = [
   { id: "f3", name: "GO TOWN 1ST" },
   { id: "f4", name: "GO TOWN 2ND" },
 ];
-const INITIAL_STAFF = [
-  { id: "s1", name: "田中 美穂", facilityId: "f1", role: "staff" },
-  { id: "s2", name: "佐藤 健太", facilityId: "f1", role: "staff" },
-  { id: "s3", name: "鈴木 花子", facilityId: "f1", role: "manager" },
-  { id: "s4", name: "山田 太郎", facilityId: "f2", role: "staff" },
-  { id: "s5", name: "中村 あい", facilityId: "f2", role: "staff" },
-  { id: "s6", name: "林 直樹", facilityId: "f2", role: "manager" },
-  { id: "s7", name: "伊藤 誠", facilityId: "f3", role: "staff" },
-  { id: "s8", name: "加藤 由美", facilityId: "f3", role: "staff" },
-  { id: "s9", name: "小林 恵", facilityId: "f3", role: "manager" },
-  { id: "s10", name: "渡辺 拓也", facilityId: "f4", role: "staff" },
-  { id: "s11", name: "吉田 さくら", facilityId: "f4", role: "staff" },
-  { id: "s12", name: "松本 浩二", facilityId: "f4", role: "manager" },
-];
-const INITIAL_USERS = [
-  { id: "u1", name: "利用者 A", facilityId: "f1", hasTransport: true, dob: "2015-04-10", diagnosis: "自閉スペクトラム症" },
-  { id: "u2", name: "利用者 B", facilityId: "f1", hasTransport: false, dob: "2014-08-22", diagnosis: "注意欠如多動症" },
-  { id: "u3", name: "利用者 C", facilityId: "f1", hasTransport: true, dob: "2016-01-15", diagnosis: "知的障害" },
-  { id: "u4", name: "利用者 D", facilityId: "f2", hasTransport: true, dob: "2013-11-03", diagnosis: "自閉スペクトラム症" },
-  { id: "u5", name: "利用者 E", facilityId: "f2", hasTransport: false, dob: "2015-06-28", diagnosis: "学習障害" },
-  { id: "u6", name: "利用者 F", facilityId: "f2", hasTransport: true, dob: "2014-03-17", diagnosis: "発達性協調運動障害" },
-  { id: "u7", name: "利用者 G", facilityId: "f3", hasTransport: true, dob: "2016-09-05", diagnosis: "自閉スペクトラム症" },
-  { id: "u8", name: "利用者 H", facilityId: "f3", hasTransport: false, dob: "2015-12-20", diagnosis: "知的障害" },
-  { id: "u9", name: "利用者 I", facilityId: "f4", hasTransport: true, dob: "2013-07-14", diagnosis: "注意欠如多動症" },
-  { id: "u10", name: "利用者 J", facilityId: "f4", hasTransport: true, dob: "2014-10-30", diagnosis: "自閉スペクトラム症" },
-];
+const INITIAL_STAFF = [];
+const INITIAL_USERS = [];
 const ACCOUNTS = [
   { id: "a1", username: "home_staff", password: "pass", role: "staff", staffId: "s1", facilityId: "f1", displayName: "田中 美穂（GO HOME）" },
   { id: "a2", username: "room_staff", password: "pass", role: "staff", staffId: "s4", facilityId: "f2", displayName: "山田 太郎（GO ROOM）" },
