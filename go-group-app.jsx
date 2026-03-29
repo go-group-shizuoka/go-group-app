@@ -1273,6 +1273,8 @@ function useStore() {
   const addQualDoc = d => setQualDocs(p=>[...p,d]);
   const updQualDoc = (id,ch) => setQualDocs(p=>p.map(d=>d.id===id?{...d,...ch}:d));
   const delQualDoc = id => setQualDocs(p=>p.filter(d=>d.id!==id));
+  const delStaff = id => setDynStaff(p=>p.filter(s=>s.id!==id));
+  const delUser = id => setDynUsers(p=>p.filter(u=>u.id!==id));
   const [paidLeaveReqs, setPaidLeaveReqs] = useState([]);
   const addPaidLeaveReq = r => setPaidLeaveReqs(p=>[...p,r]);
   const updPaidLeaveReq = (id,ch) => setPaidLeaveReqs(p=>p.map(r=>r.id===id?{...r,...ch}:r));
@@ -1281,7 +1283,7 @@ function useStore() {
     loadFromSupabase(setRecs, setMsgs, setDailyReports, setDynUsers, setDynStaff);
   }, []);
 
-  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,dynStaff,addStaff,updStaff2,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc};
+  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc};
 }
 
 
@@ -3783,6 +3785,12 @@ function StaffDetail({s, store, isMgr, onBack, onEdit}){
         <button className="bback" onClick={onBack}>← 戻る</button>
         <div className="fl-title">👤 {s.name}</div>
         {isMgr&&<button className="bexp" style={{marginLeft:"auto"}} onClick={onEdit}>✏️ 編集</button>}
+        {isMgr&&<button onClick={()=>{
+          if(window.confirm(s.name+"さんのデータを完全に削除しますか？\nこの操作は取り消せません。")){
+            store.delStaff(s.id);
+            onBack();
+          }
+        }} style={{padding:"6px 12px",borderRadius:8,background:"#fad4d0",border:"1.5px solid #f0a090",color:"#a02818",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",marginLeft:6}}>🗑️ 削除</button>}
       </div>
 
       {/* プロフィール */}
