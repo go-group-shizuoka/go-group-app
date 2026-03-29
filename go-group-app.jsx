@@ -1719,6 +1719,36 @@ function ParentMessages({user,store,onBack}){
 // ==================== 個別支援計画 ====================
 
 // ==================== 利用者登録・編集フォーム ====================
+
+// ===== 共通フォームコンポーネント（関数外で定義） =====
+function FormSection({title, color="var(--tl)", children}) {
+  return (
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,marginBottom:12,boxShadow:"var(--sh)"}}>
+      <div style={{fontSize:11,fontWeight:700,color:color,letterSpacing:2,marginBottom:12,paddingBottom:8,borderBottom:"2px solid "+color}}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function FormField({label, fkey, placeholder="", required=false, type="text", options=null, half=false, form, upd, errors={}}) {
+  return (
+    <div style={{marginBottom:12, ...(half?{display:"inline-block",width:"calc(50% - 6px)",marginRight:12}:{})}}>
+      <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,marginBottom:5}}>
+        {label}{required&&<span style={{color:"var(--ro)",marginLeft:3}}>*</span>}
+      </label>
+      {options
+        ? <select className="fi" value={form[fkey]||""} onChange={e=>upd(fkey,e.target.value)}>
+            {options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
+          </select>
+        : <input className="fi" type={type} value={form[fkey]||""} placeholder={placeholder}
+            onChange={e=>upd(fkey,e.target.value)}
+            style={errors[fkey]?{borderColor:"var(--ro)"}:{}}/>
+      }
+      {errors[fkey]&&<div style={{fontSize:10,color:"var(--ro)",marginTop:3}}>{errors[fkey]}</div>}
+    </div>
+  );
+}
+
 function RegisterUser({init, isEdit, user, store, onBack, onSave}){
   const [form, setForm] = useState({...init});
   const upd = (k,v) => setForm(p=>({...p,[k]:v}));
@@ -1738,30 +1768,7 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
     onSave(form);
   };
 
-  const Section = ({title, color="var(--tl)", children}) => (
-    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,marginBottom:12,boxShadow:"var(--sh)"}}>
-      <div style={{fontSize:11,fontWeight:700,color,letterSpacing:2,marginBottom:12,paddingBottom:8,borderBottom:"2px solid "+color}}>{title}</div>
-      {children}
-    </div>
-  );
-
-  const Field = ({label, fkey, placeholder="", required=false, type="text", options=null, half=false}) => (
-    <div style={{marginBottom:12, ...(half?{display:"inline-block",width:"calc(50% - 6px)",marginRight:12}:{})}}>
-      <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,marginBottom:5}}>
-        {label}{required&&<span style={{color:"var(--ro)",marginLeft:3}}>*</span>}
-      </label>
-      {options
-        ? <select className="fi" value={form[fkey]||""} onChange={e=>upd(fkey,e.target.value)}>
-            {options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
-          </select>
-        : <input className="fi" type={type} value={form[fkey]||""} placeholder={placeholder}
-            onChange={e=>upd(fkey,e.target.value)}
-            style={errors[fkey]?{borderColor:"var(--ro)"}:{}}/>
-      }
-      {errors[fkey]&&<div style={{fontSize:11,color:"var(--ro)",marginTop:3}}>{errors[fkey]}</div>}
-    </div>
-  );
-
+  // FormSection・FormFieldは外部定義を使用
   return (
     <div className="fl-wrap">
       <div className="fl-hd">
@@ -3983,30 +3990,7 @@ function RegisterStaff({init, isEdit, user, store, onBack, onSave}){
     return Object.keys(e).length === 0;
   };
 
-  const Section = ({title, color="var(--tl)", children}) => (
-    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,marginBottom:12,boxShadow:"var(--sh)"}}>
-      <div style={{fontSize:11,fontWeight:700,color,letterSpacing:2,marginBottom:12,paddingBottom:8,borderBottom:"2px solid "+color}}>{title}</div>
-      {children}
-    </div>
-  );
-
-  const Field = ({label, fkey, placeholder="", required=false, type="text", options=null}) => (
-    <div style={{marginBottom:12}}>
-      <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,marginBottom:5}}>
-        {label}{required&&<span style={{color:"var(--ro)",marginLeft:3}}>*</span>}
-      </label>
-      {options
-        ? <select className="fi" value={form[fkey]||""} onChange={e=>upd(fkey,e.target.value)}>
-            {options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
-          </select>
-        : <input className="fi" type={type} value={form[fkey]||""} placeholder={placeholder}
-            onChange={e=>upd(fkey,e.target.value)}
-            style={errors[fkey]?{borderColor:"var(--ro)"}:{}}/>
-      }
-      {errors[fkey]&&<div style={{fontSize:11,color:"var(--ro)",marginTop:3}}>{errors[fkey]}</div>}
-    </div>
-  );
-
+  // FormSection・FormFieldは外部定義を使用
   return <div className="fl-wrap">
     <div className="fl-hd">
       <button className="bback" onClick={onBack}>← 戻る</button>
@@ -4132,9 +4116,8 @@ export default function App(){
   return <><style>{CSS}</style><div className="app"><nav className="nav"><div className="nbrand">GO <span>GROUP</span></div><div className="nr"><div className="nu"><strong>{user.displayName}</strong><span className="rbadge">{{staff:"一般職員",manager:"施設管理者",admin:"本部管理者"}[user.role]}</span></div><button className="blg" onClick={logout}>ログアウト</button></div></nav><div className="wrap">{render()}</div></div></>;
 }
 
-
 // エントリーポイント
-const rootEl = document.getElementById('root');
-if(rootEl) {
-  createRoot(rootEl).render(<App/>);
+const _root = document.getElementById("root");
+if (_root) {
+  createRoot(_root).render(<App />);
 }
