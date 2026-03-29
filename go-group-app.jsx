@@ -4084,9 +4084,23 @@ function HomeScreen({user,onNav,store}){
 
 // ==================== APP ROOT ====================
 export default function App(){
-  const [user,setUser]=useState(null);const [screen,setScreen]=useState("home");const store=useStore();
-  const logout=()=>{setUser(null);setScreen("home");};
-  if(!user)return <><style>{CSS}</style><div className="app"><LoginScreen onLogin={u=>{setUser(u);setScreen("home");}}/></div></>;
+  const [user,setUser]=useState(()=>{
+    try {
+      const saved = localStorage.getItem('gogroup_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch(e) { return null; }
+  });
+  const [screen,setScreen]=useState("home");
+  const store=useStore();
+  const logout=()=>{
+    localStorage.removeItem('gogroup_user');
+    setUser(null);
+    setScreen("home");
+  };
+  if(!user)return <><style>{CSS}</style><div className="app"><LoginScreen onLogin={u=>{
+    try { localStorage.setItem('gogroup_user', JSON.stringify(u)); } catch(e) {}
+    setUser(u);setScreen("home");
+  }}/></div></>;
   const render=()=>{switch(screen){
     case "home":return <HomeScreen user={user} onNav={setScreen} store={store}/>;
     case "clock_in":return <StaffClockIn user={user} onBack={()=>setScreen("home")} store={store}/>;
