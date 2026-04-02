@@ -4362,7 +4362,7 @@ function ScheduleScreen({ user, store, onBack }) {
     </div>
   );
 
-  const EditModalComp = () => {
+  const EditModal = () => {
     if (!editCell) return null;
     const [tmpStatus, setTmpStatus] = useState(editCell.status||"");
     const [tmpTo, setTmpTo] = useState(editCell.transportTo||false);
@@ -4409,15 +4409,14 @@ function ScheduleScreen({ user, store, onBack }) {
           <span key={k} style={{padding:"3px 9px",borderRadius:8,background:v.bg,color:v.color,fontSize:10,fontWeight:700}}>{v.label}</span>
         ))}
       </div>
-
-  
       {users.length===0
         ? <div style={{textAlign:"center",color:"var(--tx3)",padding:32,background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11}}>利用者が登録されていません</div>
         : viewMode==="calendar" ? <CalendarView /> : <TableView />
       }
-      <EditModalComp />
+      <EditModal />
     </div>
- 
+  );
+}
 export default function App(){
   const [user,setUser]=useState(()=>{
     try {
