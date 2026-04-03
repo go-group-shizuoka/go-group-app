@@ -86,6 +86,8 @@ const SHIFT_TYPES = [
   { key: "C", label: "通常", time: "9:00〜18:00", color: "rgba(244,162,97,0.22)", text: "#f4a261" },
   { key: "off", label: "公休", time: "休み", color: "rgba(255,255,255,0.05)", text: "#64748b" },
   { key: "holiday", label: "有休", time: "有給", color: "rgba(199,125,255,0.18)", text: "#c77dff" },
+  { key: "P1", label: "パート①", time: "13:00〜18:00", color: "rgba(255,182,193,0.3)", text: "#e75480" },
+  { key: "P2", label: "パート②", time: "14:00〜18:00", color: "rgba(255,160,122,0.3)", text: "#e8734a" },
 ];
 // ==================== 静岡県 放課後等デイサービス 単価マスター ====================
 // 令和6年度報酬改定 ＋ 静岡県地域区分
@@ -1048,7 +1050,7 @@ select.fi option{background:var(--wh);color:var(--tx);}
 .scB{background:#d0eedd;color:#186838;border-color:#98d8b0;}
 .scC{background:#fce8c8;color:#a06010;border-color:#e8b870;}
 .scoff{background:var(--bg);color:var(--tx3);}
-.schol{background:#e8d4f4;color:#5820a0;border-color:#c088d8;}
+.schol{background:#e8d4f4;color:#5820a0;border-color:#c088d8;} .scP1{background:#ffe4e8;color:#e75480;border-color:#ffb6c1;} .scP2{background:#ffe8e0;color:#e8734a;border-color:#ffa07a;}
 .scnone{background:var(--bg2);color:var(--bda);}
 .sleg{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:11px;}
 .leg{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--tx2);}
@@ -1645,7 +1647,7 @@ function ShiftScreen({user,store,onBack}){
   const dcol=d=>{const dow=new Date(vm.y,vm.m-1,d).getDay();return dow===0?{color:"var(--ro)"}:dow===6?{color:"var(--tl)"}:{};};
   const csv=()=>{const h=["氏名",...Array.from({length:days},(_,i)=>i+1)];const rows=fStaff.map(s=>[s.name,...Array.from({length:days},(_,i)=>store.getShift(s.id,mk(i+1)))]);const c=[h,...rows].map(r=>r.join(",")).join("\n");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿"+c],{type:"text/csv"}));a.download=`shift_${vm.y}${String(vm.m).padStart(2,"0")}.csv`;a.click();};
   // 月間勤務時間計算
-  const calcHours=sid=>{const shiftHours={A:9,B:9,C:9,off:0,holiday:0,none:0};let h=0;for(let i=1;i<=days;i++){h+=shiftHours[store.getShift(sid,mk(i))]||0;}return h;};
+  const calcHours=sid=>{const shiftHours={A:9,B:9,C:9,off:0,holiday:0,P1:5,P2:4,none:0};let h=0;for(let i=1;i<=days;i++){h+=shiftHours[store.getShift(sid,mk(i))]||0;}return h;};
   return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">📆 シフト管理</div></div>
     <div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
@@ -1663,7 +1665,7 @@ function ShiftScreen({user,store,onBack}){
         {fStaff.map(s=><tr key={s.id}>
           <td className="nc">{s.name}</td>
           {Array.from({length:days},(_,i)=>{const date=mk(i+1);const type=store.getShift(s.id,date);const dow=new Date(vm.y,vm.m-1,i+1).getDay();const we=dow===0||dow===6;
-            return <td key={i}><div className={`scell sc${we?"off":type||"none"}`} onClick={()=>!we&&setCell({staffId:s.id,date})}>{we?"":type==="none"||!type?"-":type==="off"?"休":type==="holiday"?"有":type}</div></td>;
+            return <td key={i}><div className={`scell sc${we?"off":type||"none"}`} onClick={()=>!we&&setCell({staffId:s.id,date})}>{we?"":type==="none"||!type?"-":type==="off"?"休":type==="holiday"?"有":type==="P1"?"P1":type==="P2"?"P2":type}</div></td>;
           })}
           <td style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:"var(--tb)",paddingRight:8}}>{calcHours(s.id)}h</td>
         </tr>)}
