@@ -88,6 +88,7 @@ const SHIFT_TYPES = [
   { key: "holiday", label: "有休", time: "有給", color: "rgba(199,125,255,0.18)", text: "#c77dff" },
   { key: "P1", label: "パート①", time: "13:00〜18:00", color: "rgba(255,182,193,0.3)", text: "#e75480" },
   { key: "P2", label: "パート②", time: "14:00〜18:00", color: "rgba(255,160,122,0.3)", text: "#e8734a" },
+  { key: "P3", label: "午前パート", time: "9:00〜13:00", color: "rgba(173,216,230,0.3)", text: "#4682b4" },
 ];
 // ==================== 静岡県 放課後等デイサービス 単価マスター ====================
 // 令和6年度報酬改定 ＋ 静岡県地域区分
@@ -1050,7 +1051,7 @@ select.fi option{background:var(--wh);color:var(--tx);}
 .scB{background:#d0eedd;color:#186838;border-color:#98d8b0;}
 .scC{background:#fce8c8;color:#a06010;border-color:#e8b870;}
 .scoff{background:var(--bg);color:var(--tx3);}
-.schol{background:#e8d4f4;color:#5820a0;border-color:#c088d8;} .scP1{background:#ffe4e8;color:#e75480;border-color:#ffb6c1;} .scP2{background:#ffe8e0;color:#e8734a;border-color:#ffa07a;}
+.schol{background:#e8d4f4;color:#5820a0;border-color:#c088d8;} .scP1{background:#ffe4e8;color:#e75480;border-color:#ffb6c1;} .scP2{background:#ffe8e0;color:#e8734a;border-color:#ffa07a;} .scP3{background:#e0f0ff;color:#4682b4;border-color:#add8e6;}
 .scnone{background:var(--bg2);color:var(--bda);}
 .sleg{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:11px;}
 .leg{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--tx2);}
@@ -1647,7 +1648,7 @@ function ShiftScreen({user,store,onBack}){
   const dcol=d=>{const dow=new Date(vm.y,vm.m-1,d).getDay();return dow===0?{color:"var(--ro)"}:dow===6?{color:"var(--tl)"}:{};};
   const csv=()=>{const h=["氏名",...Array.from({length:days},(_,i)=>i+1)];const rows=fStaff.map(s=>[s.name,...Array.from({length:days},(_,i)=>store.getShift(s.id,mk(i+1)))]);const c=[h,...rows].map(r=>r.join(",")).join("\n");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿"+c],{type:"text/csv"}));a.download=`shift_${vm.y}${String(vm.m).padStart(2,"0")}.csv`;a.click();};
   // 月間勤務時間計算
-  const calcHours=sid=>{const shiftHours={A:9,B:9,C:9,off:0,holiday:0,P1:5,P2:4,none:0};let h=0;for(let i=1;i<=days;i++){h+=shiftHours[store.getShift(sid,mk(i))]||0;}return h;};
+  const calcHours=sid=>{const shiftHours={A:9,B:9,C:9,off:0,holiday:0,P1:5,P2:4,P3:4,none:0};let h=0;for(let i=1;i<=days;i++){h+=shiftHours[store.getShift(sid,mk(i))]||0;}return h;};
   return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">📆 シフト管理</div></div>
     <div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
