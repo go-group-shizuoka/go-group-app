@@ -1310,9 +1310,10 @@ function useStore() {
         setShifts(p => ({...p, ...newShifts}));
       }
     });
-  
-    }
     loadSchedules();
+  
+  
+  
 
     
   }, []);
