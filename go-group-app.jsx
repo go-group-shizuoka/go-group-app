@@ -1220,7 +1220,7 @@ function useStore() {
     setHist(h2=>[...h2,{id:genId(),recordId:id,...h}]);
     return {...r,...ch,history:[...(r.history||[]),h]};
   }));
-  const setShift = (sid,date,type) => setShifts(p=>({...p,[sid]:{...(p[sid]||{}),[date]:type}}));
+  const setShift = (sid,date,type) => {setShifts(p=>({...p,[sid]:{...(p[sid]||{}),[date]:type}}));sbSave("shifts",{id:sid+"_"+date,staff_id:sid,date:date,shift_type:type});};
   const getShift = (sid,date) => shifts[sid]?.[date]||"none";
   const setAtt = (uid,date,status) => setAtt2(p=>({...p,[uid]:{...(p[uid]||{}),[date]:status}}));
   const getAtt = (uid,date) => att[uid]?.[date]||"未定";
@@ -1300,6 +1300,15 @@ function useStore() {
   // 起動時にSupabaseからデータ読み込み
   useEffect(() => {
     loadFromSupabase(setRecs, setMsgs, setDailyReports, setDynUsers, setDynStaff);
+    const shiftsData = await sbLoad("shifts");
+    if(shiftsData && shiftsData.length > 0) {
+      const newShifts = {};
+      shiftsData.forEach(s => {
+        if(!newShifts[s.staff_id]) newShifts[s.staff_id] = {};
+        newShifts[s.staff_id][s.date] = s.shift_type;
+      });
+      setShifts(p => ({...p, ...newShifts}));
+    }
     loadSchedules();
 
     
