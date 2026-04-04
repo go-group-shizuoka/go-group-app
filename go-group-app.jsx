@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 
 // ==================== SUPABASE CLIENT ====================
-const SUPABASE_URL = "https://ctqnxvgfysoegxmpequa.supabase.co";
+const SUPABASE_URL = "https://jjouwtsjykxnmvuaqhbc.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN0cW54dmdmeXNvZWd4bXBlcXVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2Nzg0NzEsImV4cCI6MjA5MDI1NDQ3MX0.5ghhbuG-SEaaunQIP_kY16ezAy265nxvPyDMjpLSkFE"; 
 
 const sb = {
