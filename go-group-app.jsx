@@ -1300,14 +1300,17 @@ function useStore() {
   // 起動時にSupabaseからデータ読み込み
   useEffect(() => {
     loadFromSupabase(setRecs, setMsgs, setDailyReports, setDynUsers, setDynStaff);
-    const shiftsData = await sbLoad("shifts");
-    if(shiftsData && shiftsData.length > 0) {
-      const newShifts = {};
-      shiftsData.forEach(s => {
-        if(!newShifts[s.staff_id]) newShifts[s.staff_id] = {};
-        newShifts[s.staff_id][s.date] = s.shift_type;
-      });
-      setShifts(p => ({...p, ...newShifts}));
+    sbLoad("shifts").then(shiftsData => {
+      if(shiftsData && shiftsData.length > 0) {
+        const newShifts = {};
+        shiftsData.forEach(s => {
+          if(!newShifts[s.staff_id]) newShifts[s.staff_id] = {};
+          newShifts[s.staff_id][s.date] = s.shift_type;
+        });
+        setShifts(p => ({...p, ...newShifts}));
+      }
+    });
+  
     }
     loadSchedules();
 
