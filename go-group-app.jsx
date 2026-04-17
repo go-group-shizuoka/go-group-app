@@ -1317,7 +1317,7 @@ function useStore() {
 
     
   }, []);
-  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc};
+  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow};
 }
 
 
