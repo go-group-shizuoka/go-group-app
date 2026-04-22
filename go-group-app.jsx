@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 
 // ==================== SUPABASE CLIENT ====================
 const SUPABASE_URL = "https://jjouwtsjykxnmvuaqhbc.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN0cW54dmdmeXNvZWd4bXBlcXVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2Nzg0NzEsImV4cCI6MjA5MDI1NDQ3MX0.5ghhbuG-SEaaunQIP_kY16ezAy265nxvPyDMjpLSkFE"; 
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impqb3V3dHNqeWt4bm12dWFxaGJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyMTg1OTgsImV4cCI6MjA5MDc5NDU5OH0.pLWwbpsVTtS5-6iyJXjcUhrX_vXutd7dhRKjqHR4Knc";
 
 const sb = {
   from: function(table) {
@@ -54,6 +54,12 @@ async function sbSave(table, data) {
 }
 async function sbLoad(table) {
   try { return await sb.from(table).select("*"); } catch(e) { console.error("Load error:", e); return []; }
+}
+async function sbDelete(table, id) {
+  try {
+    const headers = {"apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY};
+    await fetch(SUPABASE_URL + "/rest/v1/" + table + "?id=eq." + encodeURIComponent(id), {method:"DELETE", headers});
+  } catch(e) { console.error("SB delete error:", e); }
 }
 
 
@@ -1222,7 +1228,7 @@ function useStore() {
   }));
   const setShift = (sid,date,type) => {setShifts(p=>({...p,[sid]:{...(p[sid]||{}),[date]:type}}));sbSave("shifts",{id:sid+"_"+date,staff_id:sid,date:date,shift_type:type});};
   const getShift = (sid,date) => shifts[sid]?.[date]||"none";
-  const setAtt = (uid,date,status) => setAtt2(p=>({...p,[uid]:{...(p[uid]||{}),[date]:status}}));
+  const setAtt = (uid,date,status) => { setAtt2(p=>({...p,[uid]:{...(p[uid]||{}),[date]:status}})); sbSave("att_data",{id:uid+"_"+date,data:{userId:uid,date,status}}); };
   const getAtt = (uid,date) => att[uid]?.[date]||"未定";
   const addMsg = m => {
     setMsgs(p=>[...p,m]);
@@ -1232,17 +1238,17 @@ function useStore() {
   };
   const replyMsg = (id,txt) => setMsgs(p=>p.map(m=>m.id===id?{...m,replies:[...m.replies,txt],read:true}:m));
   const markRead = id => setMsgs(p=>p.map(m=>m.id===id?{...m,read:true}:m));
-  const updTr = data => setTrData(data);
-  const addIsp = isp => setIsps(p=>[...p,isp]);
-  const updIsp = (id,ch) => setIsps(p=>p.map(x=>x.id===id?{...x,...ch}:x));
-  const updKokuho = (id,ch) => setKokuho(p=>p.map(x=>x.id===id?{...x,...ch}:x));
+  const updTr = data => { setTrData(data); data.forEach(t=>sbSave("transport_data",{id:t.id,facility_id:t.facilityId||null,data:t})); };
+  const addIsp = isp => { setIsps(p=>[...p,isp]); sbSave("isps",{id:isp.id,facility_id:isp.facilityId||null,data:isp}); };
+  const updIsp = (id,ch) => setIsps(p=>p.map(x=>{ if(x.id!==id) return x; const u={...x,...ch}; sbSave("isps",{id,facility_id:u.facilityId||null,data:u}); return u; }));
+  const updKokuho = (id,ch) => setKokuho(p=>p.map(x=>{ if(x.id!==id) return x; const u={...x,...ch}; sbSave("kokuho_data",{id,facility_id:u.facilityId||null,data:u}); return u; }));
 
   const [dynUsers, setDynUsers] = useState(INITIAL_USERS);
   const [dynStaff, setDynStaff] = useState(INITIAL_STAFF);
   const [dailyReports, setDailyReports] = useState([]);
-  const saveFS = fs => setFacesheets(p=>[...p.filter(x=>x.userId!==fs.userId),fs]);
-  const addAssessment = a => setAssessments(p=>[...p,a]);
-  const addMonitoring = m => setMonitorings(p=>[...p,m]);
+  const saveFS = fs => { setFacesheets(p=>[...p.filter(x=>x.userId!==fs.userId),fs]); sbSave("facesheets",{id:fs.userId,facility_id:fs.facilityId||null,data:fs}); };
+  const addAssessment = a => { setAssessments(p=>[...p,a]); sbSave("assessments",{id:a.id,facility_id:a.facilityId||null,data:a}); };
+  const addMonitoring = m => { setMonitorings(p=>[...p,m]); sbSave("monitorings",{id:m.id,facility_id:m.facilityId||null,data:m}); };
 
   const addDailyReport = r => {
     setDailyReports(p=>[...p.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId)),r]);
@@ -1273,13 +1279,13 @@ function useStore() {
     }));
   };
   const [qualDocs, setQualDocs] = useState([]);
-  const addQualDoc = d => setQualDocs(p=>[...p,d]);
-  const updQualDoc = (id,ch) => setQualDocs(p=>p.map(d=>d.id===id?{...d,...ch}:d));
-  const delQualDoc = id => setQualDocs(p=>p.filter(d=>d.id!==id));
-  const delStaff = id => setDynStaff(p=>p.filter(s=>s.id!==id));
-  const delUser = id => setDynUsers(p=>p.filter(u=>u.id!==id));
+  const addQualDoc = d => { setQualDocs(p=>[...p,d]); sbSave("qual_docs",{id:d.id,facility_id:d.facilityId||null,data:d}); };
+  const updQualDoc = (id,ch) => setQualDocs(p=>p.map(d=>{ if(d.id!==id) return d; const u={...d,...ch}; sbSave("qual_docs",{id,facility_id:u.facilityId||null,data:u}); return u; }));
+  const delQualDoc = id => { setQualDocs(p=>p.filter(d=>d.id!==id)); sbDelete("qual_docs",id); };
+  const delStaff = id => { setDynStaff(p=>p.filter(s=>s.id!==id)); sbDelete("staff_data",id); };
+  const delUser = id => { setDynUsers(p=>p.filter(u=>u.id!==id)); sbDelete("users_data",id); };
   const [paidLeaveReqs, setPaidLeaveReqs] = useState([]);
-  const addPaidLeaveReq = r => setPaidLeaveReqs(p=>[...p,r]);const [scheduleData, setScheduleData] = useState({});
+  const addPaidLeaveReq = r => { setPaidLeaveReqs(p=>[...p,r]); sbSave("paid_leave_reqs",{id:r.id,facility_id:r.facilityId||null,data:r}); };const [scheduleData, setScheduleData] = useState({});
   const saveScheduleRow = async (row) => {
     try {
       await fetch(SUPABASE_URL + "/rest/v1/schedules", {
@@ -1296,7 +1302,7 @@ function useStore() {
     } catch(e) {}
   };
   
-  const updPaidLeaveReq = (id,ch) => setPaidLeaveReqs(p=>p.map(r=>r.id===id?{...r,...ch}:r));
+  const updPaidLeaveReq = (id,ch) => setPaidLeaveReqs(p=>p.map(r=>{ if(r.id!==id) return r; const u={...r,...ch}; sbSave("paid_leave_reqs",{id,facility_id:u.facilityId||null,data:u}); return u; }));
   // 起動時にSupabaseからデータ読み込み
   useEffect(() => {
     loadFromSupabase(setRecs, setMsgs, setDailyReports, setDynUsers, setDynStaff);
@@ -1311,11 +1317,15 @@ function useStore() {
       }
     });
     loadSchedules();
-  
-  
-  
-
-    
+    sbLoad("facesheets").then(d=>{ if(d?.length) setFacesheets(d.map(x=>x.data||x)); });
+    sbLoad("assessments").then(d=>{ if(d?.length) setAssessments(d.map(x=>x.data||x)); });
+    sbLoad("monitorings").then(d=>{ if(d?.length) setMonitorings(d.map(x=>x.data||x)); });
+    sbLoad("isps").then(d=>{ if(d?.length) setIsps(p=>{ const ids=d.map(x=>x.id); return [...p.filter(x=>!ids.includes(x.id)),...d.map(x=>x.data||x)]; }); });
+    sbLoad("paid_leave_reqs").then(d=>{ if(d?.length) setPaidLeaveReqs(d.map(x=>x.data||x)); });
+    sbLoad("qual_docs").then(d=>{ if(d?.length) setQualDocs(d.map(x=>x.data||x)); });
+    sbLoad("att_data").then(d=>{ if(d?.length){ const map={}; d.forEach(a=>{ const r=a.data||a; if(!map[r.userId]) map[r.userId]={}; map[r.userId][r.date]=r.status; }); setAtt2(p=>({...p,...map})); }});
+    sbLoad("transport_data").then(d=>{ if(d?.length) setTrData(d.map(x=>x.data||x)); });
+    sbLoad("kokuho_data").then(d=>{ if(d?.length) setKokuho(p=>{ const ids=d.map(x=>x.id); return [...p.filter(x=>!ids.includes(x.id)),...d.map(x=>x.data||x)]; }); });
   }, []);
   return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow};
 }
