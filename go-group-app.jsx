@@ -424,6 +424,144 @@ function printISP(u, isp, facilityName) {
   printHTML(html, `個別支援計画_${u.name}_${isp.period}`);
 }
 
+// 個別支援計画（原案）印刷
+function printIspDraft(u, d, facilityName) {
+  const WD = ["月","火","水","木","金","土","日・祝"];
+  const WK = ["mon","tue","wed","thu","fri","sat","sun"];
+  const goalRows = (d.goals||[]).map((g,i)=>`
+    <tr>
+      <td style="font-size:11px;padding:6px 5px;border:1px solid #ccc;text-align:center;vertical-align:top;">${g.priority||""}</td>
+      <td style="font-size:11px;padding:6px 5px;border:1px solid #ccc;vertical-align:top;">${(g.achievement||"").replace(/\n/g,"<br/>")}</td>
+      <td style="font-size:11px;padding:6px 5px;border:1px solid #ccc;vertical-align:top;">${(g.domains||[]).join("、")}</td>
+      <td style="font-size:11px;padding:6px 5px;border:1px solid #ccc;text-align:center;vertical-align:top;">${g.period||""}</td>
+      <td style="font-size:11px;padding:6px 5px;border:1px solid #ccc;vertical-align:top;">${(g.reflection||"").replace(/\n/g,"<br/>")}</td>
+      <td style="font-size:11px;padding:6px 5px;border:1px solid #ccc;text-align:center;vertical-align:top;">${i+1}</td>
+    </tr>`).join("");
+  const schedRows = WD.map((wd,i)=>{
+    const k=WK[i]; const sc=d.schedule?.[k]||{};
+    return `<td style="border:1px solid #ccc;padding:4px;text-align:center;font-size:10px;">${sc.start||""}<br/>〜<br/>${sc.end||""}</td>`;
+  }).join("");
+  const extBeforeRows = WD.map((_,i)=>{const k=WK[i];return `<td style="border:1px solid #ccc;padding:4px;text-align:center;font-size:10px;">${(d.extBefore||{})[k]||""}</td>`;}).join("");
+  const extAfterRows = WD.map((_,i)=>{const k=WK[i];return `<td style="border:1px solid #ccc;padding:4px;text-align:center;font-size:10px;">${(d.extAfter||{})[k]||""}</td>`;}).join("");
+  const html=`<div style="font-family:'Noto Sans JP',sans-serif;max-width:900px;margin:0 auto;padding:20px;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+    <h2 style="font-size:17px;font-weight:900;margin:0;">${u.name}さんの個別支援計画（原案）</h2>
+    <div style="text-align:right;font-size:11px;color:#555;">
+      <div>施設名：${facilityName}</div>
+      <div>利用サービス：放課後等デイサービス</div>
+      <div>作成日：${d.createdAt||""}</div>
+    </div>
+  </div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
+    <tr>
+      <td style="border:1px solid #ccc;padding:5px 8px;font-size:11px;font-weight:700;background:#f0f0f0;width:120px;">受給者証番号</td>
+      <td style="border:1px solid #ccc;padding:5px 8px;font-size:12px;">${d.jukyushaCertNo||""}</td>
+      <td style="border:1px solid #ccc;padding:5px 8px;font-size:11px;font-weight:700;background:#f0f0f0;width:80px;">開始日</td>
+      <td style="border:1px solid #ccc;padding:5px 8px;font-size:12px;">${d.startDate||""}</td>
+      <td style="border:1px solid #ccc;padding:5px 8px;font-size:11px;font-weight:700;background:#f0f0f0;width:80px;">有効期限</td>
+      <td style="border:1px solid #ccc;padding:5px 8px;font-size:12px;">${d.expiryDate||""}</td>
+      <td style="border:1px solid #ccc;padding:5px 8px;font-size:11px;font-weight:700;background:#f0f0f0;width:80px;">作成回数</td>
+      <td style="border:1px solid #ccc;padding:5px 8px;font-size:12px;">${d.creationCount||1}</td>
+    </tr>
+  </table>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
+    <tr>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;font-weight:700;background:#f0f0f0;width:160px;vertical-align:top;">利用児及び家族の<br/>生活に対する意向</td>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;vertical-align:top;">
+        <div style="margin-bottom:4px;font-weight:700;color:#555;">〜 本人 〜</div>
+        <div style="white-space:pre-wrap;margin-bottom:8px;">${d.childWish||""}</div>
+        <div style="margin-bottom:4px;font-weight:700;color:#555;">〜 家族 〜</div>
+        <div style="white-space:pre-wrap;">${d.familyWish||""}</div>
+      </td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;font-weight:700;background:#f0f0f0;vertical-align:top;">総合的な支援の方針</td>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;white-space:pre-wrap;">${d.overallPolicy||""}</td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;font-weight:700;background:#f0f0f0;vertical-align:top;">長期目標<br/>（内容・期間等）</td>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;vertical-align:top;">
+        <div style="white-space:pre-wrap;">${d.longTermGoal||""}</div>
+        <div style="font-size:10px;color:#666;margin-top:4px;">期間：${d.longTermPeriod||""}</div>
+      </td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;font-weight:700;background:#f0f0f0;vertical-align:top;">支援の標準的な<br/>提供時間帯</td>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;white-space:pre-wrap;">${d.supportTimeSlot||""}</td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;font-weight:700;background:#f0f0f0;vertical-align:top;">短期目標<br/>（内容・期間等）</td>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;vertical-align:top;">
+        <div style="white-space:pre-wrap;">${d.shortTermGoal||""}</div>
+        <div style="font-size:10px;color:#666;margin-top:4px;">期間：${d.shortTermPeriod||""}</div>
+      </td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;font-weight:700;background:#f0f0f0;">利用日数</td>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;">${d.usageDays||""}</td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;font-weight:700;background:#f0f0f0;vertical-align:top;">送迎</td>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;">
+        <div>迎え：${d.pickupNote||""}</div>
+        <div>送り：${d.dropoffNote||""}</div>
+      </td>
+    </tr>
+  </table>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+    <thead>
+      <tr style="background:#f0f0f0;">
+        <th style="border:1px solid #ccc;padding:5px;font-size:10px;width:70px;">優先順位<br/>（本人のニーズ）</th>
+        <th style="border:1px solid #ccc;padding:5px;font-size:10px;">具体的な達成目標</th>
+        <th style="border:1px solid #ccc;padding:5px;font-size:10px;width:130px;">支援内容<br/>（5領域との関連）</th>
+        <th style="border:1px solid #ccc;padding:5px;font-size:10px;width:60px;">達成見込</th>
+        <th style="border:1px solid #ccc;padding:5px;font-size:10px;">振り返り欄</th>
+        <th style="border:1px solid #ccc;padding:5px;font-size:10px;width:30px;">番号</th>
+      </tr>
+    </thead>
+    <tbody>${goalRows}</tbody>
+  </table>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+    <tr>
+      <td style="border:1px solid #ccc;padding:8px;font-size:11px;width:50%;">説明同意日　令和　　年　　月　　日<br/><br/>保護者氏名　　　　　　　　　　　　　㊞</td>
+      <td style="border:1px solid #ccc;padding:8px;font-size:11px;">${facilityName}<br/><br/>児童発達支援管理責任者　${d.staffName||""}</td>
+    </tr>
+  </table>
+  <div style="page-break-before:always;"></div>
+  <h3 style="font-size:14px;font-weight:900;margin:16px 0 8px;">個別支援計画案別表</h3>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:6px;">
+    <tr>
+      <td style="border:1px solid #ccc;padding:5px 8px;font-size:11px;font-weight:700;background:#f0f0f0;width:100px;">利用児氏名</td>
+      <td style="border:1px solid #ccc;padding:5px 8px;font-size:12px;">${u.name}</td>
+      <td style="border:1px solid #ccc;padding:5px 8px;font-size:11px;font-weight:700;background:#f0f0f0;width:100px;">利用開始日</td>
+      <td style="border:1px solid #ccc;padding:5px 8px;font-size:12px;">${d.startDate||""}</td>
+    </tr>
+  </table>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:10px;">
+    <thead>
+      <tr style="background:#f0f0f0;">
+        <th style="border:1px solid #ccc;padding:4px;width:80px;"></th>
+        ${WD.map(w=>`<th style="border:1px solid #ccc;padding:4px;text-align:center;">${w}</th>`).join("")}
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td style="border:1px solid #ccc;padding:4px;font-size:10px;font-weight:700;background:#f8f8f8;">提供時間</td>${schedRows}</tr>
+      <tr><td style="border:1px solid #ccc;padding:4px;font-size:10px;font-weight:700;background:#f8f8f8;">特記事項</td><td colspan="7" style="border:1px solid #ccc;padding:4px;">${d.specialNote||""}</td></tr>
+      <tr><td style="border:1px solid #ccc;padding:4px;font-size:10px;font-weight:700;background:#f8f8f8;">延長支援<br/>（支援前）</td>${extBeforeRows}</tr>
+      <tr><td style="border:1px solid #ccc;padding:4px;font-size:10px;font-weight:700;background:#f8f8f8;">延長支援<br/>（支援後）</td>${extAfterRows}</tr>
+      <tr><td style="border:1px solid #ccc;padding:4px;font-size:10px;font-weight:700;background:#f8f8f8;">延長理由<br/>及び時数</td><td colspan="7" style="border:1px solid #ccc;padding:4px;">${d.extReason||""}</td></tr>
+    </tbody>
+  </table>
+  <table style="width:100%;border-collapse:collapse;">
+    <tr>
+      <td style="border:1px solid #ccc;padding:8px;font-size:11px;width:50%;">説明同意日　令和　　年　　月　　日<br/><br/>保護者氏名　　　　　　　　　　　　　㊞</td>
+      <td style="border:1px solid #ccc;padding:8px;font-size:11px;">${facilityName}<br/><br/>児童発達支援管理責任者　${d.staffName||""}</td>
+    </tr>
+  </table>
+</div>`;
+  printHTML(html, `個別支援計画原案_${u.name}_${d.createdAt}`);
+}
+
 // モニタリング印刷
 function printMonitoring(u, m, facilityName) {
   const RESULT_COLORS={"達成":["#186838","#d0eedd"],"概ね達成":["#005a8a","#cce6f5"],"一部達成":["#a06010","#fce8c8"],"未達成":["#a02818","#fad4d0"],"継続":["#4a1880","#e8d4f4"]};
@@ -1303,6 +1441,10 @@ function useStore() {
   };
   
   const updPaidLeaveReq = (id,ch) => setPaidLeaveReqs(p=>p.map(r=>{ if(r.id!==id) return r; const u={...r,...ch}; sbSave("paid_leave_reqs",{id,facility_id:u.facilityId||null,data:u}); return u; }));
+  const [ispDrafts, setIspDrafts] = useState([]);
+  const addIspDraft = d => { setIspDrafts(p=>[...p,d]); sbSave("isp_drafts",{id:d.id,facility_id:d.facilityId||null,data:d}); };
+  const updIspDraft = (id,ch) => setIspDrafts(p=>p.map(d=>{ if(d.id!==id) return d; const u={...d,...ch}; sbSave("isp_drafts",{id,facility_id:u.facilityId||null,data:u}); return u; }));
+  const delIspDraft = id => { setIspDrafts(p=>p.filter(d=>d.id!==id)); sbDelete("isp_drafts",id); };
   // 起動時にSupabaseからデータ読み込み
   useEffect(() => {
     loadFromSupabase(setRecs, setMsgs, setDailyReports, setDynUsers, setDynStaff);
@@ -1326,8 +1468,9 @@ function useStore() {
     sbLoad("att_data").then(d=>{ if(d?.length){ const map={}; d.forEach(a=>{ const r=a.data||a; if(!map[r.userId]) map[r.userId]={}; map[r.userId][r.date]=r.status; }); setAtt2(p=>({...p,...map})); }});
     sbLoad("transport_data").then(d=>{ if(d?.length) setTrData(d.map(x=>x.data||x)); });
     sbLoad("kokuho_data").then(d=>{ if(d?.length) setKokuho(p=>{ const ids=d.map(x=>x.id); return [...p.filter(x=>!ids.includes(x.id)),...d.map(x=>x.data||x)]; }); });
+    sbLoad("isp_drafts").then(d=>{ if(d?.length) setIspDrafts(d.map(x=>x.data||x)); });
   }, []);
-  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow};
+  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft};
 }
 
 
@@ -2057,9 +2200,11 @@ function UserManagement({user,store,onBack}){
     const myFS=store.facesheets.find(f=>f.userId===u.id)||null;
     const myAssessments=store.assessments.filter(a=>a.userId===u.id);
     const myMonitorings=store.monitorings.filter(m=>m.userId===u.id);
+    const myIspDrafts=(store.ispDrafts||[]).filter(d=>d.userId===u.id).sort((a,b)=>b.createdAt>a.createdAt?1:-1);
     const TABS=[
       {k:"facesheet",l:"フェイスシート",ic:"📋"},
       {k:"assessment",l:"アセスメント",ic:"📊"},
+      {k:"isp_draft",l:"個別支援計画（原案）",ic:"📄"},
       {k:"isp",l:"個別支援計画",ic:"📝"},
       {k:"monitoring",l:"モニタリング",ic:"🔍"},
     ];
@@ -2094,6 +2239,8 @@ function UserManagement({user,store,onBack}){
         {hubTab==="assessment"&&<AssessmentTab u={u} myAssessments={myAssessments} user={user} store={store}/>}
         {/* ===== 個別支援計画 ===== */}
         {hubTab==="isp"&&<IspTab u={u} myIsps={myIsps} user={user} store={store}/>}
+        {/* ===== 個別支援計画（原案） ===== */}
+        {hubTab==="isp_draft"&&<IspDraftTab u={u} myIspDrafts={myIspDrafts} user={user} store={store}/>}
         {/* ===== モニタリング ===== */}
         {hubTab==="monitoring"&&<MonitoringTab u={u} myMonitorings={myMonitorings} myIsps={myIsps} user={user} store={store}/>}
       </div>
@@ -2533,6 +2680,214 @@ function MonitoringTab({u,myMonitorings,myIsps,user,store}){
       </div>;
     })}
   </div>;
+}
+
+// ==================== 個別支援計画（原案）タブ ====================
+const ISP_DOMAINS = ["健康・生活","運動・感覚","認知・行動","言語・コミュニケーション","人間関係・社会性"];
+const ISP_PRIORITY_TYPES = ["本人支援","家族支援","地域支援"];
+const WEEKDAY_LABELS = ["月","火","水","木","金","土","日・祝"];
+const WEEKDAY_KEYS2 = ["mon","tue","wed","thu","fri","sat","sun"];
+
+function newDraftForm(displayName) {
+  return {
+    jukyushaCertNo:"", startDate:"", expiryDate:"", creationCount:1,
+    childWish:"", familyWish:"", overallPolicy:"",
+    longTermGoal:"", longTermPeriod:"12ヶ月",
+    supportTimeSlot:"", shortTermGoal:"", shortTermPeriod:"6ヶ月",
+    usageDays:"", pickupNote:"", dropoffNote:"",
+    goals:[{id:genId(),priority:"本人支援",achievement:"",domains:[],period:"12ヶ月",reflection:"",no:1}],
+    staffName: displayName||"",
+    schedule:{mon:{start:"",end:""},tue:{start:"",end:""},wed:{start:"",end:""},thu:{start:"",end:""},fri:{start:"",end:""},sat:{start:"",end:""},sun:{start:"",end:""}},
+    specialNote:"",
+    extBefore:{mon:"",tue:"",wed:"",thu:"",fri:"",sat:"",sun:""},
+    extAfter:{mon:"",tue:"",wed:"",thu:"",fri:"",sat:"",sun:""},
+    extReason:""
+  };
+}
+
+function IspDraftTab({u, myIspDrafts, user, store}) {
+  const [mode, setMode] = useState("list");
+  const [viewItem, setViewItem] = useState(null);
+  const [form, setForm] = useState(()=>newDraftForm(user.displayName));
+  const facName = FACILITIES.find(f=>f.id===u.facilityId)?.name||"";
+
+  const upd = (k,v) => setForm(p=>({...p,[k]:v}));
+  const updSched = (day,k,v) => setForm(p=>({...p,schedule:{...p.schedule,[day]:{...p.schedule[day],[k]:v}}}));
+  const updExt = (type,day,v) => setForm(p=>({...p,[type]:{...p[type],[day]:v}}));
+  const addGoalRow = () => setForm(p=>({...p,goals:[...p.goals,{id:genId(),priority:"本人支援",achievement:"",domains:[],period:"12ヶ月",reflection:"",no:p.goals.length+1}]}));
+  const removeGoalRow = id => setForm(p=>({...p,goals:p.goals.filter(g=>g.id!==id)}));
+  const updGoal = (id,k,v) => setForm(p=>({...p,goals:p.goals.map(g=>g.id===id?{...g,[k]:v}:g)}));
+  const togDomain = (id,dom) => setForm(p=>({...p,goals:p.goals.map(g=>g.id!==id?g:{...g,domains:g.domains.includes(dom)?g.domains.filter(d=>d!==dom):[...g.domains,dom]})}));
+
+  const save = () => {
+    const draft={...form,id:genId(),userId:u.id,facilityId:u.facilityId,createdAt:todayISO()};
+    store.addIspDraft(draft);
+    setForm(newDraftForm(user.displayName));
+    setMode("list");
+  };
+
+  // --- 詳細表示 ---
+  if(mode==="view"&&viewItem) return (
+    <div style={{paddingBottom:28}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <button className="bback" onClick={()=>{setViewItem(null);setMode("list");}}>← 戻る</button>
+          <div style={{fontSize:15,fontWeight:900}}>📋 個別支援計画（原案）</div>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button className="bexp" onClick={()=>printIspDraft(u,viewItem,facName)} style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}}>🖨️ 印刷・PDF</button>
+          <button onClick={()=>{store.delIspDraft(viewItem.id);setViewItem(null);setMode("list");}} style={{padding:"7px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid #f0a090",background:"#fdf5f4",color:"#a02818"}}>削除</button>
+        </div>
+      </div>
+      {[
+        ["受給者証番号",viewItem.jukyushaCertNo],["開始日",viewItem.startDate],["有効期限",viewItem.expiryDate],["作成回数",viewItem.creationCount],
+      ].map(([l,v])=><div key={l} style={{display:"flex",gap:8,marginBottom:6,fontSize:12}}><span style={{color:"var(--tx3)",minWidth:100}}>{l}</span><span style={{fontWeight:700}}>{v}</span></div>)}
+      {[["本人の意向",viewItem.childWish],["家族の意向",viewItem.familyWish],["総合的な支援の方針",viewItem.overallPolicy],
+        ["長期目標",viewItem.longTermGoal],["支援の標準的な提供時間帯",viewItem.supportTimeSlot],["短期目標",viewItem.shortTermGoal],
+        ["利用日数",viewItem.usageDays],["迎え",viewItem.pickupNote],["送り",viewItem.dropoffNote],
+      ].map(([l,v])=>v&&<div key={l} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:9,padding:"10px 13px",marginBottom:8}}>
+        <div style={{fontSize:10,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:4}}>{l}</div>
+        <div style={{fontSize:12,color:"var(--tx2)",whiteSpace:"pre-wrap",lineHeight:1.7}}>{v}</div>
+      </div>)}
+      <div style={{fontSize:12,fontWeight:700,margin:"12px 0 8px"}}>支援目標</div>
+      {(viewItem.goals||[]).map((g,i)=>(
+        <div key={g.id||i} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:9,padding:"10px 13px",marginBottom:8}}>
+          <div style={{display:"flex",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+            <span style={{padding:"2px 8px",borderRadius:7,fontSize:10,fontWeight:700,background:"#cce6f5",color:"#006090"}}>{g.priority}</span>
+            <span style={{padding:"2px 8px",borderRadius:7,fontSize:10,fontWeight:700,background:"#f0f0f0",color:"#555"}}>No.{i+1}</span>
+            <span style={{padding:"2px 8px",borderRadius:7,fontSize:10,fontWeight:700,background:"#fce8c8",color:"#a06010"}}>{g.period}</span>
+          </div>
+          <div style={{fontSize:11,color:"var(--tx2)",marginBottom:4}}><b>達成目標:</b> {g.achievement}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:4}}>{(g.domains||[]).map(d=><span key={d} style={{padding:"2px 7px",borderRadius:6,fontSize:10,background:"#e8d4f4",color:"#4a1880",fontWeight:700}}>{d}</span>)}</div>
+          {g.reflection&&<div style={{fontSize:11,color:"var(--tx3)"}}>振り返り: {g.reflection}</div>}
+        </div>
+      ))}
+    </div>
+  );
+
+  // --- 新規作成フォーム ---
+  if(mode==="new") return (
+    <div style={{paddingBottom:32}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+        <button className="bback" onClick={()=>setMode("list")}>← 戻る</button>
+        <div style={{fontSize:15,fontWeight:900}}>📋 個別支援計画（原案）作成</div>
+      </div>
+
+      {/* 基本情報 */}
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:10}}>■ 基本情報</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+          <div style={{marginBottom:10}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>受給者証番号</label><input className="fi" value={form.jukyushaCertNo} onChange={e=>upd("jukyushaCertNo",e.target.value)} placeholder="例）22341001 50"/></div>
+          <div style={{marginBottom:10}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>作成回数</label><input className="fi" type="number" min="1" value={form.creationCount} onChange={e=>upd("creationCount",+e.target.value)}/></div>
+          <div style={{marginBottom:10}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>開始日</label><input className="fi" type="date" value={form.startDate} onChange={e=>upd("startDate",e.target.value)}/></div>
+          <div style={{marginBottom:10}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>有効期限</label><input className="fi" type="date" value={form.expiryDate} onChange={e=>upd("expiryDate",e.target.value)}/></div>
+        </div>
+        <div style={{marginBottom:10}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>児童発達支援管理責任者</label><input className="fi" value={form.staffName} onChange={e=>upd("staffName",e.target.value)}/></div>
+      </div>
+
+      {/* 意向 */}
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:10}}>■ 利用児及び家族の生活に対する意向</div>
+        <div style={{marginBottom:10}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>〜 本人 〜</label><textarea className="fta" style={{minHeight:70}} value={form.childWish} onChange={e=>upd("childWish",e.target.value)} placeholder="本人の希望・意向を記入"/></div>
+        <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>〜 家族 〜</label><textarea className="fta" style={{minHeight:70}} value={form.familyWish} onChange={e=>upd("familyWish",e.target.value)} placeholder="保護者の希望・意向を記入"/></div>
+      </div>
+
+      {/* 方針・目標 */}
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:10}}>■ 支援方針・目標</div>
+        <div style={{marginBottom:10}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>総合的な支援の方針</label><textarea className="fta" style={{minHeight:60}} value={form.overallPolicy} onChange={e=>upd("overallPolicy",e.target.value)}/></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 120px",gap:"0 10px",marginBottom:10}}>
+          <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>長期目標（内容）</label><textarea className="fta" style={{minHeight:60}} value={form.longTermGoal} onChange={e=>upd("longTermGoal",e.target.value)}/></div>
+          <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>期間</label><input className="fi" value={form.longTermPeriod} onChange={e=>upd("longTermPeriod",e.target.value)} placeholder="12ヶ月"/></div>
+        </div>
+        <div style={{marginBottom:10}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>支援の標準的な提供時間帯（曜日・頻度・時間）</label><textarea className="fta" style={{minHeight:50}} value={form.supportTimeSlot} onChange={e=>upd("supportTimeSlot",e.target.value)} placeholder="例）毎週月曜日から金曜日（長期休暇も利用）"/></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 120px",gap:"0 10px",marginBottom:10}}>
+          <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>短期目標（内容）</label><textarea className="fta" style={{minHeight:60}} value={form.shortTermGoal} onChange={e=>upd("shortTermGoal",e.target.value)}/></div>
+          <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>期間</label><input className="fi" value={form.shortTermPeriod} onChange={e=>upd("shortTermPeriod",e.target.value)} placeholder="6ヶ月"/></div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 12px"}}>
+          <div style={{marginBottom:10}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>利用日数</label><input className="fi" value={form.usageDays} onChange={e=>upd("usageDays",e.target.value)} placeholder="例）月〜金 週5日"/></div>
+          <div style={{marginBottom:10}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>迎え</label><input className="fi" value={form.pickupNote} onChange={e=>upd("pickupNote",e.target.value)} placeholder="あり 学校・自宅"/></div>
+          <div style={{marginBottom:10}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>送り</label><input className="fi" value={form.dropoffNote} onChange={e=>upd("dropoffNote",e.target.value)} placeholder="あり 自宅"/></div>
+        </div>
+      </div>
+
+      {/* 支援目標テーブル */}
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:1}}>■ 支援目標</div>
+          <button onClick={addGoalRow} style={{padding:"5px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--tl)",background:"#eef6fc",color:"var(--tl)"}}>＋ 行を追加</button>
+        </div>
+        {form.goals.map((g,i)=>(
+          <div key={g.id} style={{border:"1px solid var(--bd)",borderRadius:9,padding:12,marginBottom:10,background:"var(--bg)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <span style={{fontSize:12,fontWeight:700,color:"var(--tl)"}}>No.{i+1}</span>
+              {form.goals.length>1&&<button onClick={()=>removeGoalRow(g.id)} style={{padding:"3px 9px",borderRadius:7,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1px solid #f0a090",background:"#fdf5f4",color:"#a02818",fontWeight:700}}>削除</button>}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px",marginBottom:8}}>
+              <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>優先順位（種別）</label>
+                <div style={{display:"flex",gap:6}}>{ISP_PRIORITY_TYPES.map(t=><button key={t} onClick={()=>updGoal(g.id,"priority",t)} style={{padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:g.priority===t?"var(--tl)":"var(--bd)",background:g.priority===t?"#cce6f5":"var(--bg)",color:g.priority===t?"var(--tl)":"var(--tx3)"}}>{t}</button>)}</div>
+              </div>
+              <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>達成見込</label><input className="fi" value={g.period} onChange={e=>updGoal(g.id,"period",e.target.value)} placeholder="12ヶ月"/></div>
+            </div>
+            <div style={{marginBottom:8}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>具体的な達成目標</label><textarea className="fta" style={{minHeight:60}} value={g.achievement} onChange={e=>updGoal(g.id,"achievement",e.target.value)}/></div>
+            <div style={{marginBottom:8}}>
+              <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:6}}>支援内容（5領域との関連　複数選択可）</label>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{ISP_DOMAINS.map(d=><button key={d} onClick={()=>togDomain(g.id,d)} style={{padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:g.domains.includes(d)?"#7030b8":"var(--bd)",background:g.domains.includes(d)?"#e8d4f4":"var(--bg)",color:g.domains.includes(d)?"#4a1880":"var(--tx3)"}}>{d}</button>)}</div>
+            </div>
+            <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>振り返り欄</label><textarea className="fta" style={{minHeight:50}} value={g.reflection} onChange={e=>updGoal(g.id,"reflection",e.target.value)} placeholder="支援後の振り返り・変化を記入"/></div>
+          </div>
+        ))}
+      </div>
+
+      {/* 別表：週間予定 */}
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:10}}>■ 別表：週間提供時間</div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
+            <thead>
+              <tr style={{background:"var(--bg2)"}}><th style={{border:"1px solid var(--bd)",padding:"5px 4px",fontSize:10}}></th>
+                {WEEKDAY_LABELS.map(w=><th key={w} style={{border:"1px solid var(--bd)",padding:"5px 4px",fontSize:10,textAlign:"center"}}>{w}</th>)}</tr>
+            </thead>
+            <tbody>
+              <tr><td style={{border:"1px solid var(--bd)",padding:"4px 6px",fontSize:10,fontWeight:700,background:"var(--bg2)",whiteSpace:"nowrap"}}>開始時間</td>
+                {WEEKDAY_KEYS2.map(k=><td key={k} style={{border:"1px solid var(--bd)",padding:3}}><input style={{width:"100%",border:"none",background:"transparent",textAlign:"center",fontSize:11,fontFamily:"'Noto Sans JP',sans-serif"}} value={form.schedule[k].start} onChange={e=>updSched(k,"start",e.target.value)} placeholder="--:--"/></td>)}</tr>
+              <tr><td style={{border:"1px solid var(--bd)",padding:"4px 6px",fontSize:10,fontWeight:700,background:"var(--bg2)",whiteSpace:"nowrap"}}>終了時間</td>
+                {WEEKDAY_KEYS2.map(k=><td key={k} style={{border:"1px solid var(--bd)",padding:3}}><input style={{width:"100%",border:"none",background:"transparent",textAlign:"center",fontSize:11,fontFamily:"'Noto Sans JP',sans-serif"}} value={form.schedule[k].end} onChange={e=>updSched(k,"end",e.target.value)} placeholder="--:--"/></td>)}</tr>
+              <tr><td style={{border:"1px solid var(--bd)",padding:"4px 6px",fontSize:10,fontWeight:700,background:"var(--bg2)",whiteSpace:"nowrap"}}>延長（支援前）</td>
+                {WEEKDAY_KEYS2.map(k=><td key={k} style={{border:"1px solid var(--bd)",padding:3}}><input style={{width:"100%",border:"none",background:"transparent",textAlign:"center",fontSize:11,fontFamily:"'Noto Sans JP',sans-serif"}} value={form.extBefore[k]} onChange={e=>updExt("extBefore",k,e.target.value)} placeholder=""/></td>)}</tr>
+              <tr><td style={{border:"1px solid var(--bd)",padding:"4px 6px",fontSize:10,fontWeight:700,background:"var(--bg2)",whiteSpace:"nowrap"}}>延長（支援後）</td>
+                {WEEKDAY_KEYS2.map(k=><td key={k} style={{border:"1px solid var(--bd)",padding:3}}><input style={{width:"100%",border:"none",background:"transparent",textAlign:"center",fontSize:11,fontFamily:"'Noto Sans JP',sans-serif"}} value={form.extAfter[k]} onChange={e=>updExt("extAfter",k,e.target.value)} placeholder=""/></td>)}</tr>
+            </tbody>
+          </table>
+        </div>
+        <div style={{marginTop:10}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>特記事項</label><textarea className="fta" style={{minHeight:50}} value={form.specialNote} onChange={e=>upd("specialNote",e.target.value)}/></div>
+        <div style={{marginTop:8}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>延長を必要とする理由及び時数</label><textarea className="fta" style={{minHeight:50}} value={form.extReason} onChange={e=>upd("extReason",e.target.value)}/></div>
+      </div>
+
+      <button className="bsave" onClick={save}>保存する</button>
+    </div>
+  );
+
+  // --- 一覧 ---
+  return (
+    <div style={{paddingBottom:28}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontSize:13,fontWeight:700}}>📋 個別支援計画（原案）一覧</div>
+        <button className="bsave" style={{width:"auto",padding:"7px 16px",marginTop:0}} onClick={()=>setMode("new")}>＋ 新規作成</button>
+      </div>
+      {myIspDrafts.length===0
+        ? <div style={{textAlign:"center",color:"var(--tx3)",padding:"36px 0",fontSize:13}}>個別支援計画（原案）がありません</div>
+        : myIspDrafts.map(d=>(
+          <div key={d.id} className="isp-card" onClick={()=>{setViewItem(d);setMode("view");}}>
+            <div className="isp-name">第{d.creationCount}回　作成日：{d.createdAt}</div>
+            <div className="isp-date">開始日：{d.startDate}　有効期限：{d.expiryDate}</div>
+            {d.longTermGoal&&<div className="isp-goal">{d.longTermGoal.slice(0,50)}{d.longTermGoal.length>50?"…":""}</div>}
+          </div>
+        ))
+      }
+    </div>
+  );
 }
 
 // ==================== 国保連請求 ====================
