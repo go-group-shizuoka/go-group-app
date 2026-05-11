@@ -1288,8 +1288,30 @@ function useStore() {
         sbLoad("staff_data"),
       ]);
       if(recs && recs.length > 0) setRecs(recs.map(r => ({...r, ...(r.data||{})})));
-      if(msgs && msgs.length > 0) setMsgs(msgs.map(m => ({...m, ...(m.data||{})})));
-      if(reports && reports.length > 0) setDailyReports(reports.map(r => r.data||r));
+      if(msgs && msgs.length > 0) setMsgs(msgs.map(m => {
+        // DBカラム名(snake_case) → アプリ変数名(camelCase) のマッピング
+        const base = {
+          id: m.id,
+          userId: m.user_id || m.userId,
+          userName: m.user_name || m.userName,
+          facilityId: m.facility_id || m.facilityId,
+          from: m.from_name || m.from,
+          body: m.body,
+          time: m.time,
+          read: m.read,
+          replies: m.replies || [],
+        };
+        return {...base, ...(m.data||{})};
+      }));
+      if(reports && reports.length > 0) setDailyReports(reports.map(r => {
+        // dataフィールドが存在する場合はそちらを優先、なければDB列を使う
+        const d = r.data || {};
+        return {
+          ...d,
+          date: d.date || r.date,
+          facilityId: d.facilityId || r.facility_id,
+        };
+      }));
       if(users && users.length > 0) setDynUsers(p => {
         const sbIds = users.map(u => u.id);
         const existing = p.filter(u => !sbIds.includes(u.id));
@@ -1374,8 +1396,22 @@ function useStore() {
       facility_id: m.facilityId, from_name: m.from, body: m.body,
       time: m.time, read: m.read, replies: m.replies, data: m});
   };
-  const replyMsg = (id,txt) => setMsgs(p=>p.map(m=>m.id===id?{...m,replies:[...m.replies,txt],read:true}:m));
-  const markRead = id => setMsgs(p=>p.map(m=>m.id===id?{...m,read:true}:m));
+  const replyMsg = (id,txt) => setMsgs(p=>p.map(m=>{
+    if(m.id!==id) return m;
+    const updated={...m,replies:[...(m.replies||[]),txt],read:true};
+    sbSave("messages",{id:updated.id,user_id:updated.userId,user_name:updated.userName,
+      facility_id:updated.facilityId,from_name:updated.from,body:updated.body,
+      time:updated.time,read:true,replies:updated.replies,data:updated});
+    return updated;
+  }));
+  const markRead = id => setMsgs(p=>p.map(m=>{
+    if(m.id!==id||m.read) return m;
+    const updated={...m,read:true};
+    sbSave("messages",{id:updated.id,user_id:updated.userId,user_name:updated.userName,
+      facility_id:updated.facilityId,from_name:updated.from,body:updated.body,
+      time:updated.time,read:true,replies:updated.replies||[],data:updated});
+    return updated;
+  }));
   const updTr = data => { setTrData(data); data.forEach(t=>sbSave("transport_data",{id:t.id,facility_id:t.facilityId||null,data:t})); };
   const addIsp = isp => { setIsps(p=>[...p,isp]); sbSave("isps",{id:isp.id,facility_id:isp.facilityId||null,data:isp}); };
   const updIsp = (id,ch) => setIsps(p=>p.map(x=>{ if(x.id!==id) return x; const u={...x,...ch}; sbSave("isps",{id,facility_id:u.facilityId||null,data:u}); return u; }));
@@ -1884,37 +1920,247 @@ function TransportScreen({user,store,onBack}){
   </div>;
 }
 
-// ==================== PARENT MESSAGES ====================
+// ==================== PARENT MESSAGES (LINE風) ====================
 function ParentMessages({user,store,onBack}){
-  const [selMsg,setSelMsg]=useState(null);const [reply,setReply]=useState("");const [newMode,setNewMode]=useState(false);const [newTo,setNewTo]=useState("");const [newBody,setNewBody]=useState("");
-  const msgs=store.msgs.filter(m=>user.role==="admin"||m.facilityId===user.selectedFacilityId);
-  const unread=msgs.filter(m=>!m.read).length;
-  const users=store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false);
-  const sendR=()=>{if(!reply.trim())return;store.replyMsg(selMsg.id,reply);const updated={...selMsg,replies:[...selMsg.replies,reply],read:true};setSelMsg(updated);setReply("");};
-  const sendN=()=>{if(!newTo||!newBody.trim())return;store.addMsg({id:genId(),userId:newTo,userName:users.find(u=>u.id===newTo)?.name||"",facilityId:user.selectedFacilityId,from:user.displayName,body:newBody,time:nowStr(),read:false,replies:[]});setNewMode(false);setNewTo("");setNewBody("");};
-  if(newMode)return <FlowWrap title="✉️ 新規連絡" onBack={()=>setNewMode(false)}>
-    <div className="slbl">宛先（利用者）</div><select className="fi" style={{marginBottom:14}} value={newTo} onChange={e=>setNewTo(e.target.value)}><option value="">選択してください</option>{users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select>
-    <div className="slbl">メッセージ</div><textarea className="fta" style={{minHeight:110}} placeholder="保護者へのメッセージを入力..." value={newBody} onChange={e=>setNewBody(e.target.value)}/>
-    <button className="bsave" disabled={!newTo||!newBody.trim()} onClick={sendN} style={{marginTop:14}}>送信する</button>
+  // 利用者ごとのスレッド表示
+  const [selUserId,setSelUserId]=useState(null);
+  const [newMode,setNewMode]=useState(false);
+  const [newTo,setNewTo]=useState("");
+  const [newBody,setNewBody]=useState("");
+  const [inputText,setInputText]=useState("");
+  const [photoData,setPhotoData]=useState(null);
+  const [newPhotoData,setNewPhotoData]=useState(null);
+  const msgEndRef=useRef(null);
+  const photoInputRef=useRef(null);
+  const newPhotoInputRef=useRef(null);
+
+  const allMsgs=store.msgs.filter(m=>user.role==="admin"||m.facilityId===user.selectedFacilityId);
+  const facUsers=store.dynUsers.filter(u=>(user.role==="admin"||u.facilityId===user.selectedFacilityId)&&u.active!==false);
+  const facName=FACILITIES.find(f=>f.id===user.selectedFacilityId)?.name||"";
+
+  // dynUsersにいないがメッセージにある利用者もスレッド表示対象にする
+  const msgUserIds=[...new Set(allMsgs.map(m=>m.userId).filter(Boolean))];
+  const allThreadUsers=[...facUsers];
+  msgUserIds.forEach(uid=>{
+    if(!allThreadUsers.find(u=>u.id===uid)){
+      const m=allMsgs.find(x=>x.userId===uid);
+      if(m) allThreadUsers.push({id:uid,name:m.userName||uid,facilityId:m.facilityId||user.selectedFacilityId,active:true});
+    }
+  });
+
+  // 利用者ごとの最新メッセージと未読数を集計（メッセージがある利用者のみ表示）
+  const threads=allThreadUsers.map(u=>{
+    const uMsgs=allMsgs.filter(m=>m.userId===u.id).sort((a,b)=>a.time>b.time?1:-1);
+    const unread=uMsgs.filter(m=>!m.read).length;
+    const latest=uMsgs[uMsgs.length-1];
+    return {user:u,msgs:uMsgs,unread,latest};
+  }).filter(t=>t.msgs.length>0).sort((a,b)=>b.unread-a.unread||(b.latest?.time||"")>(a.latest?.time||"")?1:-1);
+
+  const selThread=threads.find(t=>t.user.id===selUserId);
+  const selUser=selThread?.user;
+
+  // 施設→保護者への送信（右吹き出し）と保護者→施設（左吹き出し）を区別
+  const isFromFacility=(m)=>m.from&&m.from!=="保護者"&&!m.from.includes("保護者");
+
+  // メッセージ一覧が更新されたら最下部にスクロール
+  useEffect(()=>{msgEndRef.current?.scrollIntoView({behavior:"smooth"});},[selUserId,allMsgs.length]);
+
+  // スレッド内でメッセージ送信
+  const sendInThread=()=>{
+    if(!inputText.trim()&&!photoData) return;
+    if(!selUserId) return;
+    store.addMsg({
+      id:genId(),userId:selUserId,userName:selUser?.name||"",
+      facilityId:user.selectedFacilityId,from:user.displayName,
+      body:inputText,time:nowStr(),read:true,replies:[],
+      ...(photoData?{photoData}:{})
+    });
+    setInputText("");
+    setPhotoData(null);
+  };
+
+  // 新規メッセージ送信
+  const sendNew=()=>{
+    if(!newTo||(!newBody.trim()&&!newPhotoData)) return;
+    const u=facUsers.find(x=>x.id===newTo);
+    store.addMsg({id:genId(),userId:newTo,userName:u?.name||"",facilityId:user.selectedFacilityId,from:user.displayName,body:newBody,time:nowStr(),read:true,replies:[],
+      ...(newPhotoData?{photoData:newPhotoData}:{})
+    });
+    setNewMode(false);setNewTo("");setNewBody("");setNewPhotoData(null);
+    setSelUserId(newTo);
+  };
+
+  // ===== 新規作成画面 =====
+  if(newMode) return <FlowWrap title="✉️ 新規メッセージ" onBack={()=>setNewMode(false)}>
+    <div className="slbl">宛先（利用者）</div>
+    <select className="fi" style={{marginBottom:14}} value={newTo} onChange={e=>setNewTo(e.target.value)}>
+      <option value="">選択してください</option>
+      {facUsers.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+    </select>
+    <div className="slbl">メッセージ内容</div>
+    <textarea className="fta" style={{minHeight:120}} placeholder="保護者へのメッセージを入力..." value={newBody} onChange={e=>setNewBody(e.target.value)}/>
+    <input type="file" accept="image/*" ref={newPhotoInputRef} style={{display:"none"}}
+      onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setNewPhotoData(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
+    {newPhotoData&&<div style={{margin:"10px 0",position:"relative",display:"inline-block"}}>
+      <img src={newPhotoData} alt="" style={{maxWidth:200,maxHeight:160,borderRadius:8,border:"1.5px solid var(--bd)"}}/>
+      <button onClick={()=>setNewPhotoData(null)} style={{position:"absolute",top:-8,right:-8,background:"var(--ro)",color:"#fff",border:"none",borderRadius:"50%",width:20,height:20,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>×</button>
+    </div>}
+    <div style={{display:"flex",gap:8,marginTop:14}}>
+      <button onClick={()=>newPhotoInputRef.current?.click()} style={{padding:"9px 14px",background:"var(--bg)",border:"1.5px solid var(--bd)",borderRadius:10,cursor:"pointer",fontSize:18}}>📷</button>
+      <button className="bsave" disabled={!newTo||(!newBody.trim()&&!newPhotoData)} onClick={sendNew} style={{flex:1}}>送信する</button>
+    </div>
   </FlowWrap>;
-  if(selMsg)return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={()=>setSelMsg(null)}>← 戻る</button><div className="fl-title">💬 連絡詳細</div><button className="bexp" style={{marginLeft:"auto",background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={()=>printMessage(selMsg,FACILITIES.find(f=>f.id===user.selectedFacilityId)?.name||"")}>🖨️ 印刷</button></div>
-    <div><div className="panel" style={{marginBottom:10}}>
-      <div style={{display:"flex",justifyContent:"space-between",marginBottom:7}}><div style={{fontWeight:700,fontSize:14}}>{selMsg.from} → {selMsg.userName}</div><div style={{fontSize:10,color:"var(--g4)",fontFamily:"'DM Mono',monospace"}}>{selMsg.time}</div></div>
-      <div style={{fontSize:13,color:"var(--g2)",lineHeight:1.7,marginBottom:10,padding:"10px",background:"rgba(0,0,0,0.2)",borderRadius:7}}>{selMsg.body}</div>
-      {selMsg.replies.map((r,i)=><div key={i} style={{fontSize:12,color:"var(--tb)",background:"rgba(0,180,216,0.08)",borderRadius:7,padding:"9px 11px",marginBottom:5,borderLeft:"3px solid var(--tl)"}}>↩ {r}</div>)}
+
+  // スレッドを開いたとき・新着時に未読を既読にする（renderではなくeffectで実行）
+  useEffect(()=>{
+    if(!selUserId) return;
+    allMsgs.filter(m=>m.userId===selUserId&&!m.read).forEach(m=>store.markRead(m.id));
+  },[selUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ===== チャット画面（利用者スレッド選択時）=====
+  if(selUserId&&selUser) {
+    const threadMsgs=allMsgs.filter(m=>m.userId===selUserId).sort((a,b)=>a.time>b.time?-1:1).reverse();
+
+    return <div className="fl-wrap" style={{display:"flex",flexDirection:"column",height:"100vh",maxHeight:"100vh"}}>
+      {/* ヘッダー */}
+      <div className="fl-hd" style={{flexShrink:0}}>
+        <button className="bback" onClick={()=>setSelUserId(null)}>← 戻る</button>
+        <div style={{flex:1}}>
+          <div className="fl-title" style={{marginBottom:0}}>💬 {selUser.name}</div>
+          <div style={{fontSize:10,color:"var(--tx3)",marginTop:1}}>{facName} ／ 保護者連絡</div>
+        </div>
+        <button className="bexp" style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)",fontSize:11,padding:"5px 10px"}}
+          onClick={()=>{
+            const lines=threadMsgs.map(m=>`[${m.time}] ${m.from}: ${m.body}`).join("\n");
+            const blob=new Blob(["﻿"+lines],{type:"text/plain"});
+            const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+            a.download=`連絡帳_${selUser.name}_${todayISO()}.txt`;a.click();
+          }}>⬇ 出力</button>
+      </div>
+
+      {/* メッセージエリア */}
+      <div style={{flex:1,overflowY:"auto",padding:"12px 14px",background:"#eef2f7",display:"flex",flexDirection:"column",gap:10}}>
+        {threadMsgs.length===0&&<div style={{textAlign:"center",color:"var(--tx3)",fontSize:13,marginTop:40}}>まだメッセージがありません</div>}
+        {threadMsgs.map((m,i)=>{
+          const fromFac=isFromFacility(m);
+          return <div key={m.id||i} style={{display:"flex",flexDirection:"column",alignItems:fromFac?"flex-end":"flex-start"}}>
+            {/* 送信者名 */}
+            <div style={{fontSize:10,color:"var(--tx3)",marginBottom:2,paddingLeft:fromFac?0:4,paddingRight:fromFac?4:0}}>
+              {fromFac?m.from:"保護者"}
+            </div>
+            <div style={{display:"flex",alignItems:"flex-end",gap:6,flexDirection:fromFac?"row-reverse":"row"}}>
+              {/* アバター */}
+              <div style={{width:32,height:32,borderRadius:"50%",background:fromFac?"var(--tl)":"#98a0b0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0,color:"#fff"}}>
+                {fromFac?"🏥":"👨‍👩‍👧"}
+              </div>
+              {/* 吹き出し */}
+              <div style={{
+                maxWidth:"70%",padding:"9px 13px",borderRadius:fromFac?"16px 4px 16px 16px":"4px 16px 16px 16px",
+                background:fromFac?"var(--tl)":"#fff",
+                color:fromFac?"#fff":"var(--tx)",
+                fontSize:13,lineHeight:1.65,
+                boxShadow:"0 1px 3px rgba(0,0,0,0.12)",
+                wordBreak:"break-word",whiteSpace:"pre-wrap"
+              }}>
+                {m.body}
+                {m.photoData&&<img src={m.photoData} alt="添付画像" style={{display:"block",maxWidth:200,maxHeight:200,borderRadius:8,marginTop:m.body?8:0,cursor:"pointer"}} onClick={()=>window.open(m.photoData)}/>}
+              </div>
+              {/* 既読・時刻 */}
+              <div style={{fontSize:10,color:"var(--tx3)",flexShrink:0,textAlign:fromFac?"right":"left",minWidth:36}}>
+                {fromFac&&<div style={{color:"var(--tl)",fontWeight:700}}>既読</div>}
+                <div style={{fontFamily:"'DM Mono',monospace"}}>{m.time?.slice(-5)||""}</div>
+              </div>
+            </div>
+            {/* 返信（旧データとの互換）*/}
+            {(m.replies||[]).map((r,ri)=><div key={ri} style={{display:"flex",flexDirection:"column",alignItems:"flex-end",marginTop:6}}>
+              <div style={{fontSize:10,color:"var(--tx3)",marginBottom:2,paddingRight:4}}>{user.displayName}</div>
+              <div style={{display:"flex",alignItems:"flex-end",gap:6,flexDirection:"row-reverse"}}>
+                <div style={{width:32,height:32,borderRadius:"50%",background:"var(--tl)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:"#fff"}}>🏥</div>
+                <div style={{maxWidth:"70%",padding:"9px 13px",borderRadius:"16px 4px 16px 16px",background:"var(--tl)",color:"#fff",fontSize:13,lineHeight:1.65,boxShadow:"0 1px 3px rgba(0,0,0,0.12)",wordBreak:"break-word"}}>{r}</div>
+                <div style={{fontSize:10,color:"var(--tx3)",minWidth:36,textAlign:"right"}}><div style={{color:"var(--tl)",fontWeight:700}}>既読</div></div>
+              </div>
+            </div>)}
+          </div>;
+        })}
+        <div ref={msgEndRef}/>
+      </div>
+
+      {/* 写真プレビュー */}
+      {photoData&&<div style={{flexShrink:0,padding:"6px 14px",background:"var(--wh)",borderTop:"1px solid var(--bd)",display:"flex",alignItems:"center",gap:8}}>
+        <span style={{fontSize:11,color:"var(--tx3)"}}>添付:</span>
+        <div style={{position:"relative",display:"inline-block"}}>
+          <img src={photoData} alt="" style={{height:60,maxWidth:100,borderRadius:6,border:"1.5px solid var(--bd)",objectFit:"cover"}}/>
+          <button onClick={()=>setPhotoData(null)} style={{position:"absolute",top:-7,right:-7,background:"var(--ro)",color:"#fff",border:"none",borderRadius:"50%",width:18,height:18,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>×</button>
+        </div>
+      </div>}
+
+      {/* 入力エリア */}
+      <input type="file" accept="image/*" ref={photoInputRef} style={{display:"none"}}
+        onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setPhotoData(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
+      <div style={{flexShrink:0,padding:"10px 12px",background:"var(--wh)",borderTop:"1px solid var(--bd)",display:"flex",gap:8,alignItems:"flex-end"}}>
+        <button onClick={()=>photoInputRef.current?.click()}
+          style={{padding:"8px",background:"var(--bg)",border:"1.5px solid var(--bd)",borderRadius:10,cursor:"pointer",fontSize:18,flexShrink:0,height:40,width:40,display:"flex",alignItems:"center",justifyContent:"center"}}>📷</button>
+        <textarea
+          style={{flex:1,border:"1.5px solid var(--bd)",borderRadius:12,padding:"9px 12px",fontSize:13,fontFamily:"'Noto Sans JP',sans-serif",resize:"none",lineHeight:1.5,background:"var(--bg)",color:"var(--tx)",outline:"none",maxHeight:120,minHeight:40}}
+          placeholder="メッセージを入力..."
+          value={inputText}
+          onChange={e=>setInputText(e.target.value)}
+          onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendInThread();}}}
+          rows={1}
+        />
+        <button onClick={sendInThread} disabled={!inputText.trim()&&!photoData}
+          style={{padding:"9px 16px",background:(inputText.trim()||photoData)?"var(--tl)":"var(--bd)",border:"none",borderRadius:12,color:"#fff",fontSize:13,fontWeight:700,cursor:(inputText.trim()||photoData)?"pointer":"default",fontFamily:"'Noto Sans JP',sans-serif",flexShrink:0,transition:"background .15s"}}>
+          送信
+        </button>
+      </div>
+    </div>;
+  }
+
+  // ===== スレッド一覧画面 =====
+  const totalUnread=allMsgs.filter(m=>!m.read).length;
+  return <div className="fl-wrap">
+    <div className="fl-hd">
+      <button className="bback" onClick={onBack}>← 戻る</button>
+      <div className="fl-title">
+        💬 保護者連絡
+        {totalUnread>0&&<span style={{fontSize:11,background:"var(--ro)",color:"#fff",borderRadius:9,padding:"1px 7px",marginLeft:6}}>{totalUnread}件未読</span>}
+      </div>
+      <button className="bnew" style={{marginLeft:"auto",fontSize:12,padding:"6px 12px"}} onClick={()=>setNewMode(true)}>＋ 新規</button>
     </div>
-    <div className="panel"><div className="slbl">返信を入力</div><textarea className="fta" placeholder="返信メッセージを入力..." value={reply} onChange={e=>setReply(e.target.value)} style={{minHeight:72}}/><button className="bsend" style={{marginTop:9,width:"100%"}} onClick={sendR}>送信</button></div>
-    </div>
-  </div>;
-  return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">💬 保護者連絡 {unread>0&&<span style={{fontSize:11,background:"var(--ro)",color:"#fff",borderRadius:9,padding:"1px 7px",marginLeft:5}}>{unread}件未読</span>}</div></div>
-    <div><div style={{marginBottom:10}}><button className="bnew" onClick={()=>setNewMode(true)}>＋ 新規連絡を作成</button></div>
-    {msgs.length===0?<div style={{textAlign:"center",color:"var(--g6)",padding:"36px 0",fontSize:13}}>連絡事項はありません</div>
-    :msgs.sort((a,b)=>!a.read&&b.read?-1:1).map(m=><div key={m.id} className={`mc ${!m.read?"unr":""}`} onClick={()=>{store.markRead(m.id);setSelMsg(m);}}>
-      <div className="mh"><div><div className="mfrom">{m.from} → {m.userName}</div><div style={{fontSize:10,color:"var(--g4)",marginTop:1}}>{m.facilityId&&FACILITIES.find(f=>f.id===m.facilityId)?.name}</div></div><div style={{display:"flex",alignItems:"center",gap:7}}>{!m.read&&<div className="udot"/>}<div className="mtime">{m.time}</div></div></div>
-      <div className="mbody">{m.body.length>80?m.body.slice(0,80)+"…":m.body}</div>
-      {m.replies.length>0&&<div style={{fontSize:11,color:"var(--tl)",marginTop:5}}>↩ 返信 {m.replies.length}件</div>}
-    </div>)}
-    </div>
+
+    {threads.length===0
+      ?<div style={{textAlign:"center",color:"var(--tx3)",padding:"48px 0",fontSize:13}}>利用者が登録されていません</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:0}}>
+        {threads.map(({user:u,msgs:uMsgs,unread,latest})=><div key={u.id}
+          onClick={()=>setSelUserId(u.id)}
+          style={{display:"flex",alignItems:"center",gap:12,padding:"13px 14px",background:"var(--wh)",borderBottom:"1px solid var(--bd)",cursor:"pointer",transition:"background .1s"}}
+          onMouseEnter={e=>e.currentTarget.style.background="var(--bg)"}
+          onMouseLeave={e=>e.currentTarget.style.background="var(--wh)"}
+        >
+          {/* アバター */}
+          <div style={{width:46,height:46,borderRadius:"50%",background:unread>0?"var(--tl)":"#c0c8d8",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,color:"#fff",fontWeight:700}}>
+            {u.name?.[0]||"?"}
+          </div>
+          {/* テキスト */}
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+              <div style={{fontWeight:700,fontSize:14,color:"var(--tx)"}}>{u.name}</div>
+              <div style={{fontSize:10,color:"var(--tx3)",fontFamily:"'DM Mono',monospace",flexShrink:0,marginLeft:8}}>
+                {latest?.time?.slice(0,10)||""}
+              </div>
+            </div>
+            <div style={{fontSize:12,color:"var(--tx2)",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
+              {latest?`${isFromFacility(latest)?"施設":"保護者"}: ${latest.body}`:"メッセージなし"}
+            </div>
+          </div>
+          {/* 未読バッジ */}
+          {unread>0&&<div style={{minWidth:20,height:20,borderRadius:10,background:"var(--ro)",color:"#fff",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,padding:"0 5px"}}>
+            {unread}
+          </div>}
+          <div style={{color:"var(--bd)",fontSize:14}}>›</div>
+        </div>)}
+      </div>
+    }
   </div>;
 }
 
@@ -3411,27 +3657,66 @@ function DailyReport({user,store,onBack}){
   const existingRep=store.dailyReports.find(r=>r.date===selDate&&r.facilityId===user.selectedFacilityId);
 
   // 今日のデータを記録から自動集計
+  // 時刻文字列から HH:MM を安全に抽出
+  const extractHM=(t)=>{if(!t)return"";const m=t.match(/(\d{1,2}:\d{2})/);return m?m[1]:"";};
+  // 記録が指定日付かどうか判定（YYYY/MM/DD と YYYY-MM-DD 両対応）
+  const matchDate=(t,d)=>{if(!t)return false;const slash=d.replace(/-/g,"/");return t.includes(slash)||t.startsWith(d);};
+
   const buildAuto=(date)=>{
     const dk=date;
-    const staffIns=store.recs.filter(r=>r.type==="staff_in"&&r.facilityId===user.selectedFacilityId&&r.time?.includes(date.replace(/-/g,"/")));
-    const staffOuts=store.recs.filter(r=>r.type==="staff_out"&&r.facilityId===user.selectedFacilityId&&r.time?.includes(date.replace(/-/g,"/")));
-    const userIns=store.recs.filter(r=>r.type==="user_in"&&r.facilityId===user.selectedFacilityId&&r.time?.includes(date.replace(/-/g,"/")));
-    const userOuts=store.recs.filter(r=>r.type==="user_out"&&r.facilityId===user.selectedFacilityId&&r.time?.includes(date.replace(/-/g,"/")));
-    const photos=store.recs.filter(r=>r.type==="photo"&&r.facilityId===user.selectedFacilityId&&r.time?.includes(date.replace(/-/g,"/")));
+    const fid=user.selectedFacilityId;
+    const inFac=(r)=>r.facilityId===fid;
+    const onDate=(r)=>matchDate(r.time,date);
+
+    const staffIns=store.recs.filter(r=>r.type==="staff_in"&&inFac(r)&&onDate(r));
+    const staffOuts=store.recs.filter(r=>r.type==="staff_out"&&inFac(r)&&onDate(r));
+    const userIns=store.recs.filter(r=>r.type==="user_in"&&inFac(r)&&onDate(r));
+    const userOuts=store.recs.filter(r=>r.type==="user_out"&&inFac(r)&&onDate(r));
+    const photos=store.recs.filter(r=>r.type==="photo"&&inFac(r)&&onDate(r));
+    const services=store.recs.filter(r=>r.type==="service"&&inFac(r)&&onDate(r));
+
+    // 職員リスト（シフト登録済みスタッフも含める）
     const staffList=staffIns.map(r=>{
       const out=staffOuts.find(o=>o.staffId===r.staffId);
       const s=store.dynStaff.find(s=>s.id===r.staffId);
-      return {id:r.staffId,name:r.staffName,clockIn:r.time?.slice(-8,-3)||"",clockOut:out?.time?.slice(-8,-3)||"",temp:r.temp,role:s?.role||"staff"};
+      return {id:r.staffId,name:r.staffName||s?.name||"",clockIn:extractHM(r.time),clockOut:extractHM(out?.time),temp:r.temp||"",role:s?.role||"staff"};
     });
+    // 出勤記録はないがシフトが入っているスタッフも追加
+    store.dynStaff.filter(s=>s.facilityId===fid&&s.active!==false&&store.getShift(s.id,date)&&store.getShift(s.id,date)!=="none"&&store.getShift(s.id,date)!=="off"&&!staffList.find(x=>x.id===s.id))
+      .forEach(s=>staffList.push({id:s.id,name:s.name,clockIn:"",clockOut:"",temp:"",role:s.role||"staff"}));
+
+    // 利用者リスト（来所記録から）
     const userList=userIns.map(r=>{
       const out=userOuts.find(o=>o.userId===r.userId);
       const attStatus=store.getAtt(r.userId,dk);
-      return {id:r.userId,name:r.userName,arrivalTime:r.time?.slice(-8,-3)||"",departTime:out?.time?.slice(-8,-3)||"",temp:r.temp,transport:r.transport,status:attStatus||"出席"};
+      return {id:r.userId,name:r.userName,arrivalTime:extractHM(r.time),departTime:extractHM(out?.time),temp:r.temp||"",transport:r.transport||"",status:attStatus||"出席"};
     });
-    // 出欠データから予定者も含める
-    const plannedUsers=store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false&&store.getAtt(u.id,dk)==="予定"&&!userList.find(x=>x.id===u.id));
-    plannedUsers.forEach(u=>userList.push({id:u.id,name:u.name,arrivalTime:"",departTime:"",temp:"",transport:u.hasTransport?"あり":"なし",status:"予定"}));
-    return {staffList,userList,photos:photos.slice(0,6).map(p=>({activity:p.activity,userName:p.userName,comment:p.comment}))};
+    // 予定者（来所記録がないが出欠予定が入っている利用者）
+    store.dynUsers.filter(u=>u.facilityId===fid&&u.active!==false&&store.getAtt(u.id,dk)==="予定"&&!userList.find(x=>x.id===u.id))
+      .forEach(u=>userList.push({id:u.id,name:u.name,arrivalTime:"",departTime:"",temp:"",transport:u.hasTransport?"あり":"なし",status:"予定"}));
+    // スケジュールデータからも来所予定を追加
+    if(store.scheduleData){
+      Object.values(store.scheduleData).filter(sc=>sc.facility_id===fid&&sc.date===date&&(sc.status==="来所予定"||sc.status==="来所")&&!userList.find(x=>x.id===sc.user_id))
+        .forEach(sc=>userList.push({id:sc.user_id,name:sc.user_name,arrivalTime:"",departTime:"",temp:"",transport:sc.transport_to?"あり":"なし",status:sc.status}));
+    }
+
+    // サービス記録から活動内容を自動生成
+    const serviceActivities=services.map(s=>({
+      time:s.arrival||extractHM(s.time)||"",
+      title:"サービス提供（"+(s.items||[]).slice(0,3).join("・")+"）",
+      detail:[s.supportNote,s.bodyNote].filter(Boolean).join(" / "),
+      staff:s.createdBy||""
+    }));
+    // デフォルト活動テンプレート
+    const defaultActivities=[
+      {time:"14:00",title:"来所・体温チェック",detail:"利用者の来所確認・健康観察を実施",staff:""},
+      {time:"14:30",title:"",detail:"",staff:""},
+      {time:"15:30",title:"",detail:"",staff:""},
+      {time:"17:00",title:"退所準備",detail:"",staff:""},
+    ];
+    const activities=serviceActivities.length>0?[...serviceActivities,{time:"",title:"",detail:"",staff:""}]:defaultActivities;
+
+    return {staffList,userList,activities,photos:photos.slice(0,6).map(p=>({activity:p.activity,userName:p.userName,comment:p.comment}))};
   };
 
   const initReport=(date)=>{
@@ -3443,12 +3728,7 @@ function DailyReport({user,store,onBack}){
       staffList:auto.staffList,
       userList:auto.userList,
       photos:auto.photos,
-      activities:[
-        {time:"14:00",title:"来所・体温チェック",detail:"利用者の来所確認・健康観察を実施",staff:""},
-        {time:"14:30",title:"",detail:"",staff:""},
-        {time:"15:30",title:"",detail:"",staff:""},
-        {time:"17:00",title:"退所準備",detail:"",staff:""},
-      ],
+      activities:auto.activities,
       incidentDetail:"", parentNote:"", tomorrowNote:"", managerNote:"",
       incidents:0, status:"下書き",
     };
@@ -3470,13 +3750,50 @@ function DailyReport({user,store,onBack}){
   const WEATHER_OPTS=["晴れ","曇り","雨","雪","晴れのち曇り","曇りのち雨"];
   const reports=store.dailyReports.filter(r=>r.facilityId===user.selectedFacilityId).sort((a,b)=>b.date>a.date?1:-1);
 
+  // 日報CSV出力
+  const exportDailyCSV=(r)=>{
+    const rows=[];
+    rows.push(["日付",r.date]);
+    rows.push(["施設",fac?.name||""]);
+    rows.push(["天気",r.weather||""]);
+    rows.push(["気温",r.temperature||""]);
+    rows.push(["作成者",r.author||""]);
+    rows.push(["ステータス",r.status||""]);
+    rows.push([]);
+    rows.push(["【出勤職員】"]);
+    rows.push(["氏名","出勤","退勤","体温","役職"]);
+    (r.staffList||[]).forEach(s=>rows.push([s.name,s.clockIn||"",s.clockOut||"",s.temp||"",s.role==="manager"?"管理者":"一般"]));
+    rows.push([]);
+    rows.push(["【利用者来所】"]);
+    rows.push(["氏名","来所","退所","体温","送迎","状態"]);
+    (r.userList||[]).forEach(u=>rows.push([u.name,u.arrivalTime||"",u.departTime||"",u.temp||"",u.transport||"",u.status||""]));
+    rows.push([]);
+    rows.push(["【活動内容】"]);
+    rows.push(["時刻","タイトル","内容","担当"]);
+    (r.activities||[]).filter(a=>a.title).forEach(a=>rows.push([a.time||"",a.title||"",a.detail||"",a.staff||""]));
+    rows.push([]);
+    rows.push(["【特記事項】",r.incidentDetail||""]);
+    rows.push(["【保護者連絡】",r.parentNote||""]);
+    rows.push(["【翌日連絡】",r.tomorrowNote||""]);
+    rows.push(["【管理者メモ】",r.managerNote||""]);
+    const csv=rows.map(row=>row.map(v=>'"'+(String(v).replace(/"/g,'""'))+'"').join(",")).join("\n");
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv"}));
+    a.download=`日報_${r.date}_${fac?.name||""}.csv`;
+    a.click();
+  };
+
   // ===== 詳細表示 =====
   if(mode==="view"&&viewRep) return <div className="fl-wrap">
     <div className="fl-hd">
       <button className="bback" onClick={()=>setMode("list")}>← 戻る</button>
       <div className="fl-title">📓 {viewRep.date} 業務日報</div>
-      <button className="bexp" style={{marginLeft:"auto",background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}}
-        onClick={()=>printDailyReport(viewRep,fac?.name||"")}>🖨️ 印刷</button>
+      <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
+        <button className="bexp" style={{background:"#f0f8e8",borderColor:"var(--gr)",color:"var(--gr)",fontSize:11,padding:"5px 9px"}}
+          onClick={()=>exportDailyCSV(viewRep)}>⬇ CSV</button>
+        <button className="bexp" style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}}
+          onClick={()=>printDailyReport(viewRep,fac?.name||"")}>🖨️ 印刷</button>
+      </div>
     </div>
     {/* サマリーカード */}
     <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:12}}>
@@ -4840,8 +5157,14 @@ export default function App(){
   return <><style>{CSS}</style><div className="app"><nav className="nav"><div className="nbrand">GO <span>GROUP</span></div><div className="nr"><div className="nu"><strong>{user.displayName}</strong><span className="rbadge">{{staff:"支援員",specialist:"専門職員",cdsm:"児童発達支援管理責任者",manager:"管理者",part_qual:"パート（指導員）",part_noqual:"パート（資格なし）",consultant:"相談支援員",admin:"本部管理者"}[user.role]}</span></div><button className="blg" onClick={logout}>ログアウト</button></div></nav><div className="wrap">{render()}</div></div></>;
 }
 
-// エントリーポイント
-const _root = document.getElementById("root");
-if (_root) {
-  createRoot(_root).render(<App />);
+// エントリーポイント（Vite HMRで多重createRootしないよう対策）
+const _rootEl = document.getElementById("root");
+if (_rootEl) {
+  // HMRリロード時は既存ルートを再利用する
+  let _appRoot = import.meta.hot?.data?.root;
+  if (!_appRoot) {
+    _appRoot = createRoot(_rootEl);
+    if (import.meta.hot) import.meta.hot.data.root = _appRoot;
+  }
+  _appRoot.render(<App />);
 }
