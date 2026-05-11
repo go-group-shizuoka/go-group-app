@@ -1315,7 +1315,7 @@ function useStore() {
       if(users && users.length > 0) setDynUsers(p => {
         const sbIds = users.map(u => u.id);
         const existing = p.filter(u => !sbIds.includes(u.id));
-        return [...existing, ...users.map(u => u.data||u)];
+        return [...existing, ...users.map(u => { const d=u.data||u; return {...d, dob: d.dob||d.birthDate||""}; })];
       });
       if(staff && staff.length > 0) setDynStaff(p => {
         const sbIds = staff.map(s => s.id);
@@ -1664,7 +1664,7 @@ function StaffClockIn({user,onBack,store}){
     <hr className="div"/><div className="slbl">STEP 3 — 写真撮影</div><Cam cap={cap} onCap={()=>setCap(!cap)}/>
     <hr className="div"/><div className="slbl">STEP 4 — 体温</div><div className="tr"><input className="ti" type="number" placeholder="36.5" step="0.1" min="35" max="42" value={temp} onChange={e=>setTemp(e.target.value)}/><span className="tunit">℃</span></div>
     <hr className="div"/><div className="slbl">備考（任意）</div><textarea className="fta" value={note} onChange={e=>setNote(e.target.value)}/>
-    <button className="bsave" disabled={!sel||!cap||!temp||!time} onClick={save} style={{marginTop:14}}>保存する</button>
+    <button className="bsave" disabled={!sel||!temp||!time} onClick={save} style={{marginTop:14}}>保存する</button>
   </FlowWrap>;
 }
 function StaffClockOut({user,onBack,store}){
@@ -1678,7 +1678,7 @@ function StaffClockOut({user,onBack,store}){
     <hr className="div"/><div className="slbl">STEP 3 — 写真撮影</div><Cam cap={cap} onCap={()=>setCap(!cap)}/>
     <hr className="div"/><div className="slbl">STEP 4 — 体温（任意）</div><div className="tr"><input className="ti" type="number" placeholder="36.5" step="0.1" value={temp} onChange={e=>setTemp(e.target.value)}/><span className="tunit">℃</span></div>
     <hr className="div"/><div className="slbl">備考（任意）</div><textarea className="fta" value={note} onChange={e=>setNote(e.target.value)}/>
-    <button className="bsave" disabled={!sel||!cap||!time} onClick={save} style={{marginTop:14}}>保存する</button>
+    <button className="bsave" disabled={!sel||!time} onClick={save} style={{marginTop:14}}>保存する</button>
   </FlowWrap>;
 }
 function UserArrive({user,onBack,store}){
@@ -1695,7 +1695,7 @@ function UserArrive({user,onBack,store}){
     <hr className="div"/><div className="slbl">STEP 5 — 体温</div><div className="tr"><input className="ti" type="number" placeholder="36.5" step="0.1" min="35" max="42" value={temp} onChange={e=>setTemp(e.target.value)}/><span className="tunit">℃</span></div>
     <hr className="div"/><div className="slbl">STEP 6 — 送迎</div><div className="togr">{["あり","なし"].map(v=><button key={v} className={`tg ${tr===v?"on":""}`} onClick={()=>setTr(v)}>送迎{v}</button>)}</div>
     <hr className="div"/><div className="slbl">備考（任意）</div><textarea className="fta" value={note} onChange={e=>setNote(e.target.value)}/>
-    <button className="bsave" disabled={!sel||!cap||!temp||!time} onClick={save} style={{marginTop:14}}>保存する</button>
+    <button className="bsave" disabled={!sel||!time} onClick={save} style={{marginTop:14}}>保存する</button>
   </FlowWrap>;
 }
 function UserDepart({user,onBack,store}){
@@ -3659,8 +3659,14 @@ function DailyReport({user,store,onBack}){
   // 今日のデータを記録から自動集計
   // 時刻文字列から HH:MM を安全に抽出
   const extractHM=(t)=>{if(!t)return"";const m=t.match(/(\d{1,2}:\d{2})/);return m?m[1]:"";};
-  // 記録が指定日付かどうか判定（YYYY/MM/DD と YYYY-MM-DD 両対応）
-  const matchDate=(t,d)=>{if(!t)return false;const slash=d.replace(/-/g,"/");return t.includes(slash)||t.startsWith(d);};
+  // 記録が指定日付かどうか判定（YYYY/MM/DD・YYYY/M/D・YYYY-MM-DD 全対応）
+  const matchDate=(t,d)=>{
+    if(!t)return false;
+    const padded=d.replace(/-/g,"/"); // "2026/05/11"
+    const [y,mo,dy]=d.split("-");
+    const short=y+"/"+Number(mo)+"/"+Number(dy); // "2026/5/11"（toLocaleString形式）
+    return t.includes(padded)||t.includes(short)||t.startsWith(d);
+  };
 
   const buildAuto=(date)=>{
     const dk=date;
