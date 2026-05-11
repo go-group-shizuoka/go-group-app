@@ -73,14 +73,14 @@ const FACILITIES = [
 const INITIAL_STAFF = [];
 const INITIAL_USERS = [];
 const ACCOUNTS = [
-  { id: "a1", username: "home_staff", password: "pass", role: "staff", staffId: "s1", facilityId: "f1", displayName: "田中 美穂（GO HOME）" },
-  { id: "a2", username: "room_staff", password: "pass", role: "staff", staffId: "s4", facilityId: "f2", displayName: "山田 太郎（GO ROOM）" },
-  { id: "a3", username: "town1_staff", password: "pass", role: "staff", staffId: "s7", facilityId: "f3", displayName: "伊藤 誠（GO TOWN 1ST）" },
-  { id: "a4", username: "town2_staff", password: "pass", role: "staff", staffId: "s10", facilityId: "f4", displayName: "渡辺 拓也（GO TOWN 2ND）" },
-  { id: "a5", username: "home_mgr", password: "home", role: "manager", staffId: "s3", facilityId: "f1", displayName: "鈴木 花子（GO HOME）" },
-  { id: "a6", username: "room_mgr", password: "room", role: "manager", staffId: "s6", facilityId: "f2", displayName: "林 直樹（GO ROOM）" },
-  { id: "a7", username: "town1_mgr", password: "town1", role: "manager", staffId: "s9", facilityId: "f3", displayName: "小林 恵（GO TOWN 1ST）" },
-  { id: "a8", username: "town2_mgr", password: "town2", role: "manager", staffId: "s12", facilityId: "f4", displayName: "松本 浩二（GO TOWN 2ND）" },
+  { id: "a1", username: "homestaff", password: "pass", role: "staff", staffId: "s1", facilityId: "f1", displayName: "田中 美穂（GO HOME）" },
+  { id: "a2", username: "roomstaff", password: "pass", role: "staff", staffId: "s4", facilityId: "f2", displayName: "山田 太郎（GO ROOM）" },
+  { id: "a3", username: "town1staff", password: "pass", role: "staff", staffId: "s7", facilityId: "f3", displayName: "伊藤 誠（GO TOWN 1ST）" },
+  { id: "a4", username: "town2staff", password: "pass", role: "staff", staffId: "s10", facilityId: "f4", displayName: "渡辺 拓也（GO TOWN 2ND）" },
+  { id: "a5", username: "homemgr", password: "home", role: "manager", staffId: "s3", facilityId: "f1", displayName: "鈴木 花子（GO HOME）" },
+  { id: "a6", username: "roommgr", password: "room", role: "manager", staffId: "s6", facilityId: "f2", displayName: "林 直樹（GO ROOM）" },
+  { id: "a7", username: "town1mgr", password: "town1", role: "manager", staffId: "s9", facilityId: "f3", displayName: "小林 恵（GO TOWN 1ST）" },
+  { id: "a8", username: "town2mgr", password: "town2", role: "manager", staffId: "s12", facilityId: "f4", displayName: "松本 浩二（GO TOWN 2ND）" },
   { id: "a9", username: "admin", password: "bells", role: "admin", staffId: null, facilityId: null, displayName: "本部管理者" },
 ];
 const ACTIVITY_TYPES = ["個別支援","集団療育","運動療育","言語療育","学習支援","リハビリ","外出支援","イベント","制作活動","その他"];
@@ -1643,12 +1643,12 @@ function LoginScreen({onLogin}){
   const [un,setUn]=useState(""); const [pw,setPw]=useState(""); const [fac,setFac]=useState("f1"); const [err,setErr]=useState("");
   const go=()=>{const a=ACCOUNTS.find(x=>x.username===un&&x.password===pw);if(!a){setErr("IDまたはパスワードが正しくありません");return;}onLogin({...a,selectedFacilityId:a.facilityId||fac});};
   return <div className="lw"><div className="lc"><div className="brand">GO <span>GROUP</span></div><div className="bsub">勤怠・検温・利用記録システム</div>
-    <div className="fg"><label className="fl">スタッフID</label><input className="fi" placeholder="home_staff / home_mgr / admin" value={un} onChange={e=>{setUn(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()}/></div>
+    <div className="fg"><label className="fl">スタッフID</label><input className="fi" placeholder="homestaff / homemgr / admin" value={un} onChange={e=>{setUn(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()}/></div>
     <div className="fg"><label className="fl">パスワード</label><input className="fi" type="password" placeholder="pass" value={pw} onChange={e=>{setPw(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()}/></div>
     {un==="admin"&&<div className="fg"><label className="fl">操作する施設</label><select className="fi" value={fac} onChange={e=>setFac(e.target.value)}>{FACILITIES.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select></div>}
     <button className="bpri" onClick={go}>ログイン</button>
     {err&&<p className="err">{err}</p>}
-    <p className="hint">デモID: home_staff / home_mgr / admin　パスワード: pass</p>
+    <p className="hint">デモID: homestaff / homemgr / admin</p>
   </div></div>;
 }
 
