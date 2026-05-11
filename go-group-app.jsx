@@ -77,11 +77,11 @@ const ACCOUNTS = [
   { id: "a2", username: "room_staff", password: "pass", role: "staff", staffId: "s4", facilityId: "f2", displayName: "山田 太郎（GO ROOM）" },
   { id: "a3", username: "town1_staff", password: "pass", role: "staff", staffId: "s7", facilityId: "f3", displayName: "伊藤 誠（GO TOWN 1ST）" },
   { id: "a4", username: "town2_staff", password: "pass", role: "staff", staffId: "s10", facilityId: "f4", displayName: "渡辺 拓也（GO TOWN 2ND）" },
-  { id: "a5", username: "home_mgr", password: "pass", role: "manager", staffId: "s3", facilityId: "f1", displayName: "鈴木 花子（GO HOME）" },
-  { id: "a6", username: "room_mgr", password: "pass", role: "manager", staffId: "s6", facilityId: "f2", displayName: "林 直樹（GO ROOM）" },
-  { id: "a7", username: "town1_mgr", password: "pass", role: "manager", staffId: "s9", facilityId: "f3", displayName: "小林 恵（GO TOWN 1ST）" },
-  { id: "a8", username: "town2_mgr", password: "pass", role: "manager", staffId: "s12", facilityId: "f4", displayName: "松本 浩二（GO TOWN 2ND）" },
-  { id: "a9", username: "admin", password: "pass", role: "admin", staffId: null, facilityId: null, displayName: "本部管理者" },
+  { id: "a5", username: "home_mgr", password: "home", role: "manager", staffId: "s3", facilityId: "f1", displayName: "鈴木 花子（GO HOME）" },
+  { id: "a6", username: "room_mgr", password: "room", role: "manager", staffId: "s6", facilityId: "f2", displayName: "林 直樹（GO ROOM）" },
+  { id: "a7", username: "town1_mgr", password: "town1", role: "manager", staffId: "s9", facilityId: "f3", displayName: "小林 恵（GO TOWN 1ST）" },
+  { id: "a8", username: "town2_mgr", password: "town2", role: "manager", staffId: "s12", facilityId: "f4", displayName: "松本 浩二（GO TOWN 2ND）" },
+  { id: "a9", username: "admin", password: "bells", role: "admin", staffId: null, facilityId: null, displayName: "本部管理者" },
 ];
 const ACTIVITY_TYPES = ["個別支援","集団療育","運動療育","言語療育","学習支援","リハビリ","外出支援","イベント","制作活動","その他"];
 const SERVICE_ITEMS = ["着替え支援","排泄支援","食事支援","水分補給","服薬確認","健康観察","個別療育","集団活動","運動・体操","学習支援","創作活動","外出・散歩","コミュニケーション支援","その他"];
@@ -1843,6 +1843,7 @@ function AttendanceScreen({user,store,onBack}){
 // ==================== SHIFT ====================
 function ShiftScreen({user,store,onBack}){
   const [vm,setVm]=useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()+1};});const [cell,setCell]=useState(null);
+  const isMgr=user.role==="manager"||user.role==="admin"; // スタッフは閲覧のみ
   const fStaff=store.dynStaff.filter(s=>user.role==="admin"||s.facilityId===user.selectedFacilityId);
   const days=daysInMonth(vm.y,vm.m);const mk=d=>`${vm.y}-${String(vm.m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
   const counts={A:0,B:0,C:0,off:0,holiday:0};
@@ -1868,7 +1869,7 @@ function ShiftScreen({user,store,onBack}){
         {fStaff.map(s=><tr key={s.id}>
           <td className="nc">{s.name}</td>
           {Array.from({length:days},(_,i)=>{const date=mk(i+1);const type=store.getShift(s.id,date);const dow=new Date(vm.y,vm.m-1,i+1).getDay();const we=dow===0||dow===6;
-            return <td key={i}><div className={`scell sc${we?"off":type||"none"}`} onClick={()=>!we&&setCell({staffId:s.id,date})}>{we?"":type==="none"||!type?"-":type==="off"?"休":type==="holiday"?"有":type==="P1"?"P1":type==="P2"?"P2":type}</div></td>;
+            return <td key={i}><div className={`scell sc${we?"off":type||"none"}`} onClick={()=>!we&&isMgr&&setCell({staffId:s.id,date})} style={{cursor:isMgr&&!we?"pointer":"default"}}>{we?"":type==="none"||!type?"-":type==="off"?"休":type==="holiday"?"有":type==="P1"?"P1":type==="P2"?"P2":type}</div></td>;
           })}
           <td style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:"var(--tb)",paddingRight:8}}>{calcHours(s.id)}h</td>
         </tr>)}
@@ -4836,9 +4837,9 @@ function HomeScreen({user,onNav,store}){
     {id:"daily",icon:"📓",title:"業務日報",desc:"日報作成・職員・利用者一覧",cls:"c8"},
     {id:"paidleave",icon:"🌴",title:"有給管理",desc:"申請・残日数・承認",cls:"c3"},
     {id:"users",icon:"👤",title:"利用者管理",desc:"フェイスシート・計画・モニタリング",cls:"c4"},
+    {id:"shift",icon:"📆",title:"シフト管理",desc:"出勤予定・月間勤務表",cls:"c2"},
     ...(isMgr?[
       {id:"attendance",icon:"📅",title:"出欠管理",desc:"利用者カレンダー",cls:"c7"},
-      {id:"shift",icon:"📆",title:"シフト管理",desc:"出勤予定・月間勤務表",cls:"c2"},
       {id:"transport",icon:"🚌",title:"送迎管理",desc:"送迎ルート・担当",cls:"c8"},
       {id:"kokuho",icon:"💴",title:"国保連請求",desc:"サービス利用・請求管理",cls:"c6"},
       {id:"staffmgmt",icon:"👥",title:"スタッフ管理",desc:"登録・編集・給与口座",cls:"c1"},
