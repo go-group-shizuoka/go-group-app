@@ -7316,9 +7316,10 @@ function ScheduleScreen({ user, store, onBack }) {
   );
 }
 // ==================== SIDEBAR ====================
-function Sidebar({user,screen,onNav,onLogout,unreadCount,open,onClose}){
+function Sidebar({user,screen,onNav,onLogout,unreadCount,open,onClose,onChangeFacility}){
   const isMgr=user.role==="manager"||user.role==="admin";
   const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
+  const [facOpen,setFacOpen]=useState(false);
   const roleLabel={staff:"支援員",specialist:"専門職員",cdsm:"児発管責任者",manager:"管理者",part_qual:"パート(指導員)",part_noqual:"パート",consultant:"相談支援員",admin:"本部管理者"}[user.role]||user.role;
 
   const nav=[
@@ -7360,11 +7361,25 @@ function Sidebar({user,screen,onNav,onLogout,unreadCount,open,onClose}){
         <div className="sb-logo">GO GROUP</div>
         <div className="sb-logo-sub">放課後等デイサービス管理システム</div>
       </div>
-      {/* 施設 */}
-      {fac&&<div className="sb-fac">
-        <div className="sb-fac-label">📍 現在の施設</div>
-        <div className="sb-fac-name">{fac.name}</div>
-      </div>}
+      {/* 施設切替 */}
+      <div style={{margin:"10px 12px 4px",position:"relative"}}>
+        <button onClick={()=>setFacOpen(o=>!o)} style={{width:"100%",background:"var(--bg3)",border:"1px solid var(--bd)",borderRadius:8,padding:"8px 11px",textAlign:"left",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div>
+            <div style={{fontSize:10,color:"var(--tx3)",marginBottom:2}}>📍 現在の施設</div>
+            <div style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>{fac?.name||"未選択"}</div>
+          </div>
+          <span style={{fontSize:12,color:"var(--tx3)",marginLeft:6}}>{facOpen?"▲":"▼"}</span>
+        </button>
+        {facOpen&&<div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:999,background:"var(--bg2)",border:"1px solid var(--tl)",borderRadius:8,marginTop:4,overflow:"hidden",boxShadow:"0 4px 16px rgba(0,0,0,0.3)"}}>
+          {FACILITIES.map(f=>(
+            <button key={f.id} onClick={()=>{onChangeFacility(f.id);setFacOpen(false);}}
+              style={{width:"100%",padding:"10px 14px",textAlign:"left",background:f.id===user.selectedFacilityId?"rgba(58,160,216,0.2)":"transparent",border:"none",borderBottom:"1px solid var(--bd)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:13,fontWeight:f.id===user.selectedFacilityId?700:400,color:f.id===user.selectedFacilityId?"var(--tl)":"var(--tx)",display:"flex",alignItems:"center",gap:8}}>
+              {f.id===user.selectedFacilityId&&<span style={{color:"var(--tl)"}}>✓</span>}
+              {f.name}
+            </button>
+          ))}
+        </div>}
+      </div>
       {/* ナビゲーション */}
       <div style={{flex:1,overflowY:"auto",padding:"6px 0",scrollbarWidth:"none"}}>
         {nav.map((item,i)=>{
@@ -7462,7 +7477,8 @@ export default function App(){
     <div className="app">
       <div className="app-shell">
         <Sidebar user={user} screen={screen} onNav={setScreen} onLogout={logout}
-          unreadCount={unreadCount} open={sbOpen} onClose={()=>setSbOpen(false)}/>
+          unreadCount={unreadCount} open={sbOpen} onClose={()=>setSbOpen(false)}
+          onChangeFacility={fid=>{const u2={...user,selectedFacilityId:fid};setUser(u2);try{localStorage.setItem('gogroup_user',JSON.stringify(u2));}catch(e){}setScreen("home");setSbOpen(false);}}/>
         <div className="main-wrap">
           {/* トップバー */}
           <div className="top-bar">
