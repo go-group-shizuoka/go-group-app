@@ -162,6 +162,205 @@ const ADDON_MASTER = [
 ];
 const ADDON_CATEGORIES = ["送迎","延長","専門","体制","個別","欠席","処遇","医療","連携"];
 
+// =====================================================================
+// 報酬マスタ（年度・法改正ごとに配列で管理）
+// effectiveFrom <= 対象年月 <= effectiveTo（null=現在有効）
+// 法改正時は新エントリを追加するだけでOK。コード変更不要。
+// =====================================================================
+const BILLING_MASTERS = [
+  // ─────────────────────────────────────────
+  // 令和6年度 (2024-04-01 〜 2026-05-31)
+  // ─────────────────────────────────────────
+  {
+    id: "BM_R6",
+    name: "令和6年度 報酬基準",
+    effectiveFrom: "2024-04-01",
+    effectiveTo:   "2026-05-31",
+    // 地域区分別 1単位単価（円）
+    regionUnitPrice: {
+      "1級地": 11.40, "2級地": 11.12, "3級地": 10.84,
+      "4級地": 10.70, "5級地": 10.55, "6級地": 10.27, "その他": 10.00,
+    },
+    // 静岡県市区町村 → 地域区分 マッピング
+    cityRegionMap: {
+      "静岡市": "6級地", "浜松市": "6級地",
+      "沼津市": "その他", "富士市": "その他", "磐田市": "その他",
+      "焼津市": "その他", "掛川市": "その他", "藤枝市": "その他",
+      "その他": "その他",
+    },
+    // 基本報酬マスタ（サービスコード → 単位数）
+    basicRewards: [
+      { code:"6610B", label:"放課後デイ区分1・放課後",        units: 576, dayType:"放課後", kubun:1, note:"指導員加配等" },
+      { code:"6610C", label:"放課後デイ区分1・休日",          units: 664, dayType:"休日",   kubun:1 },
+      { code:"6610D", label:"放課後デイ区分1・放課後（重症）",units:1004, dayType:"放課後", kubun:1, note:"重症心身障害児" },
+      { code:"6610E", label:"放課後デイ区分1・休日（重症）",  units:1159, dayType:"休日",   kubun:1, note:"重症心身障害児" },
+      { code:"6612B", label:"放課後デイ区分2・放課後",        units: 530, dayType:"放課後", kubun:2, note:"標準" },
+      { code:"6612C", label:"放課後デイ区分2・休日",          units: 611, dayType:"休日",   kubun:2 },
+      { code:"6612D", label:"放課後デイ区分2・放課後（重症）",units: 955, dayType:"放課後", kubun:2, note:"重症心身障害児" },
+      { code:"6612E", label:"放課後デイ区分2・休日（重症）",  units:1101, dayType:"休日",   kubun:2, note:"重症心身障害児" },
+    ],
+    // 加算マスタ
+    // autoCheck: null=手動 / "transport"=送迎記録 / "absence"=欠席記録 / "staff_qual"=資格 / "staff_ratio"=配置比
+    additions: [
+      { key:"tr_to",     label:"送迎加算（往路）",           units: 54,  perDay:true,  category:"送迎", autoCheck:"transport",   maxPerMonth:null, note:"来所時送迎記録がある日" },
+      { key:"tr_from",   label:"送迎加算（復路）",           units: 54,  perDay:true,  category:"送迎", autoCheck:"transport",   maxPerMonth:null, note:"退所時送迎記録がある日" },
+      { key:"ext_1h",    label:"延長支援加算（1時間以内）",  units: 61,  perDay:true,  category:"延長", autoCheck:null,           note:"所定時間を超えた支援" },
+      { key:"ext_2h",    label:"延長支援加算（1〜2時間）",   units: 92,  perDay:true,  category:"延長", autoCheck:null },
+      { key:"ext_3h",    label:"延長支援加算（2時間超）",    units:123,  perDay:true,  category:"延長", autoCheck:null },
+      { key:"spec",      label:"専門的支援加算",             units:204,  perDay:true,  category:"専門", autoCheck:"staff_qual",   note:"理学療法士・作業療法士・言語聴覚士等が配置" },
+      { key:"staff_add", label:"人員配置体制加算（Ⅰ）",     units:155,  perDay:true,  category:"体制", autoCheck:"staff_ratio",  note:"利用者5人に職員2人以上（常勤換算）" },
+      { key:"staff_add2",label:"人員配置体制加算（Ⅱ）",     units: 92,  perDay:true,  category:"体制", autoCheck:"staff_ratio2", note:"利用者5人に職員1.5人以上" },
+      { key:"child_sp",  label:"児童指導員等加配加算（Ⅰ）", units:187,  perDay:true,  category:"体制", autoCheck:"child_staff",  note:"児童指導員等有資格者が加配" },
+      { key:"child_sp2", label:"児童指導員等加配加算（Ⅱ）", units:125,  perDay:true,  category:"体制", autoCheck:"child_staff2" },
+      { key:"child_sp3", label:"児童指導員等加配加算（Ⅲ）", units: 63,  perDay:true,  category:"体制", autoCheck:"child_staff3" },
+      { key:"indiv",     label:"個別サポート加算（Ⅰ）",     units:100,  perDay:true,  category:"個別", autoCheck:null,           note:"ケアニーズが高い利用者（医療的ケア等）" },
+      { key:"abs1",      label:"欠席時対応加算（Ⅰ）",       units: 94,  perDay:true,  category:"欠席", autoCheck:"absence",      maxPerMonth:4, note:"月4回まで。欠席当日に家庭連絡" },
+      { key:"abs2",      label:"欠席時対応加算（Ⅱ）",       units: 47,  perDay:true,  category:"欠席", autoCheck:"absence",      maxPerMonth:4 },
+      { key:"katei",     label:"家庭連携加算",               units:187,  perDay:false, category:"連携", autoCheck:null,           maxPerMonth:1, note:"月1回・居宅訪問または保護者来所" },
+      { key:"kanren1",   label:"関係機関連携加算（Ⅰ）",     units:100,  perDay:false, category:"連携", autoCheck:null,           note:"保育所・学校等との会議参加" },
+      { key:"kanren2",   label:"関係機関連携加算（Ⅱ）",     units:300,  perDay:false, category:"連携", autoCheck:null },
+      { key:"qual_st",   label:"福祉専門職員配置等加算（Ⅰ）",units:15,  perDay:true,  category:"体制", autoCheck:"welfare_qual",  note:"社会福祉士等35%以上" },
+      { key:"qual_st2",  label:"福祉専門職員配置等加算（Ⅱ）",units:10,  perDay:true,  category:"体制", autoCheck:"welfare_qual2" },
+      { key:"shoguu1",   label:"福祉職員処遇改善加算（Ⅰ）", units:0,   perDay:false, category:"処遇", autoCheck:null, rate:0.133, note:"計画書・実績報告が必要" },
+      { key:"shoguu2",   label:"福祉職員処遇改善加算（Ⅱ）", units:0,   perDay:false, category:"処遇", autoCheck:null, rate:0.101 },
+      { key:"shoguu3",   label:"福祉職員処遇改善加算（Ⅲ）", units:0,   perDay:false, category:"処遇", autoCheck:null, rate:0.034 },
+      { key:"medical1",  label:"医療連携体制加算（Ⅰ）",     units:500,  perDay:false, category:"医療", autoCheck:"nurse_staff",  note:"看護職員を配置" },
+      { key:"medical2",  label:"医療連携体制加算（Ⅱ）",     units:250,  perDay:true,  category:"医療", autoCheck:"nurse_staff" },
+      { key:"gakko",     label:"学校連携加算",               units: 90,  perDay:false, category:"連携", autoCheck:null,           note:"学校との連絡会・訪問等" },
+    ],
+  },
+  // ─────────────────────────────────────────
+  // 令和8年6月改正 (2026-06-01 〜)
+  // 新規指定事業所と既存事業所で基本報酬が異なる
+  // ※単位数は改正告示確定後に更新すること
+  // ─────────────────────────────────────────
+  {
+    id: "BM_R8_06",
+    name: "令和8年6月 報酬改正（2026年6月〜）",
+    effectiveFrom: "2026-06-01",
+    effectiveTo:   null,
+    regionUnitPrice: {
+      "1級地": 11.40, "2級地": 11.12, "3級地": 10.84,
+      "4級地": 10.70, "5級地": 10.55, "6級地": 10.27, "その他": 10.00,
+    },
+    cityRegionMap: {
+      "静岡市": "6級地", "浜松市": "6級地",
+      "沼津市": "その他", "富士市": "その他", "磐田市": "その他",
+      "その他": "その他",
+    },
+    basicRewards: [
+      // 既存事業所（令和8年6月以前から指定）
+      { code:"6610B_E", label:"放課後デイ区分1・放課後（既存）",        units: 576, dayType:"放課後", kubun:1, condition:"existing" },
+      { code:"6610C_E", label:"放課後デイ区分1・休日（既存）",          units: 664, dayType:"休日",   kubun:1, condition:"existing" },
+      { code:"6612B_E", label:"放課後デイ区分2・放課後（既存）",        units: 530, dayType:"放課後", kubun:2, condition:"existing" },
+      { code:"6612C_E", label:"放課後デイ区分2・休日（既存）",          units: 611, dayType:"休日",   kubun:2, condition:"existing" },
+      // 新規指定事業所（令和8年6月以降に指定）※単位数は改正告示確定後に更新
+      { code:"6610B_N", label:"放課後デイ区分1・放課後（新規）",        units: 576, dayType:"放課後", kubun:1, condition:"new", note:"※改正後単価に更新してください" },
+      { code:"6610C_N", label:"放課後デイ区分1・休日（新規）",          units: 664, dayType:"休日",   kubun:1, condition:"new", note:"※改正後単価に更新してください" },
+      { code:"6612B_N", label:"放課後デイ区分2・放課後（新規）",        units: 530, dayType:"放課後", kubun:2, condition:"new" },
+      { code:"6612C_N", label:"放課後デイ区分2・休日（新規）",          units: 611, dayType:"休日",   kubun:2, condition:"new" },
+    ],
+    // 改正後の加算（変更分のみ記載。変更なき場合は同値）
+    additions: [
+      // 令和6年度と同じ加算を継承（改正時にここを変更）
+      { key:"tr_to",    label:"送迎加算（往路）",    units: 54,  perDay:true,  category:"送迎", autoCheck:"transport" },
+      { key:"tr_from",  label:"送迎加算（復路）",    units: 54,  perDay:true,  category:"送迎", autoCheck:"transport" },
+      { key:"spec",     label:"専門的支援加算",      units:204,  perDay:true,  category:"専門", autoCheck:"staff_qual" },
+      { key:"staff_add",label:"人員配置体制加算（Ⅰ）",units:155, perDay:true,  category:"体制", autoCheck:"staff_ratio" },
+      { key:"child_sp", label:"児童指導員等加配加算（Ⅰ）",units:187, perDay:true, category:"体制", autoCheck:"child_staff" },
+      { key:"abs1",     label:"欠席時対応加算（Ⅰ）",units: 94,  perDay:true,  category:"欠席", autoCheck:"absence", maxPerMonth:4 },
+      { key:"katei",    label:"家庭連携加算",        units:187,  perDay:false, category:"連携", autoCheck:null, maxPerMonth:1 },
+      { key:"shoguu1",  label:"福祉職員処遇改善加算（Ⅰ）",units:0, perDay:false, category:"処遇", autoCheck:null, rate:0.133 },
+      // 令和8年6月新設加算（改正告示後に追加・単位数更新）
+      { key:"new_r8_01",label:"【R8.6新設】加算（仮称）",units:0, perDay:true,  category:"体制", autoCheck:null, note:"改正告示確定後に単位数・条件を更新してください" },
+    ],
+  },
+];
+
+// 指定年月に有効な報酬マスタを返す（過去月も正しく計算できる）
+function getBillingMaster(yearMonth) {
+  const date = (yearMonth||"2024-04") + "-01";
+  const valid = BILLING_MASTERS.filter(m =>
+    m.effectiveFrom <= date && (m.effectiveTo === null || m.effectiveTo >= date)
+  );
+  if(valid.length === 0) return BILLING_MASTERS[0];
+  return valid.reduce((a,b) => a.effectiveFrom > b.effectiveFrom ? a : b);
+}
+
+// 地域区分から1単位単価を返す
+function getUnitPrice(yearMonth, cityOrRegion) {
+  const m = getBillingMaster(yearMonth);
+  const region = m.cityRegionMap?.[cityOrRegion] || cityOrRegion || "その他";
+  return m.regionUnitPrice?.[region] ?? 10.00;
+}
+
+// 月内の記録から請求前アラートを自動生成
+function checkBillingAlerts(facilityId, yearMonth, store, staffCfg) {
+  const alerts = [];
+  const myUsers = store.dynUsers.filter(u=>u.active!==false&&u.facilityId===facilityId);
+  const [y,mo] = yearMonth.split("-").map(Number);
+  const inMonth = r => {
+    const d = r.time?.slice(0,7)||"";
+    return d===yearMonth && (r.facilityId===facilityId||r.facility_id===facilityId);
+  };
+  const monthRecs = store.recs.filter(inMonth);
+
+  myUsers.forEach(u => {
+    const arrivals  = monthRecs.filter(r=>r.type==="user_in" &&r.userId===u.id);
+    const departures= monthRecs.filter(r=>r.type==="user_out"&&r.userId===u.id);
+    const services  = monthRecs.filter(r=>r.type==="service" &&r.userId===u.id);
+    const arrDates  = [...new Set(arrivals.map(r=>r.time?.slice(0,10)))].filter(Boolean);
+    const svcDates  = [...new Set(services.map(r=>r.time?.slice(0,10)))].filter(Boolean);
+
+    // ① サービス記録未入力（来所日にサービス記録がない）
+    const missingSvc = arrDates.filter(d=>!svcDates.includes(d));
+    if(missingSvc.length>0) alerts.push({level:"danger",userId:u.id,userName:u.name,type:"missing_service",
+      text:`${u.name} — サービス記録未入力 ${missingSvc.length}日（${missingSvc.join("・")}）`});
+
+    // ② 体温未記録
+    const missingTemp = arrivals.filter(r=>!r.temp||r.temp==="");
+    if(missingTemp.length>0) alerts.push({level:"warn",userId:u.id,userName:u.name,type:"missing_temp",
+      text:`${u.name} — 体温未記録 ${missingTemp.length}件`});
+
+    // ③ 退所記録なし（来所があるが退所記録がない日）
+    const depDates = [...new Set(departures.map(r=>r.time?.slice(0,10)))].filter(Boolean);
+    const missingDep = arrDates.filter(d=>!depDates.includes(d));
+    if(missingDep.length>0) alerts.push({level:"warn",userId:u.id,userName:u.name,type:"missing_depart",
+      text:`${u.name} — 退所記録なし ${missingDep.length}日`});
+
+    // ④ ISP（個別支援計画）確認
+    const isp = (store.isps||[]).filter(i=>i.userId===u.id).sort((a,b)=>b.endDate>a.endDate?1:-1)[0];
+    const monthEnd = yearMonth+"-31";
+    if(!isp){
+      alerts.push({level:"danger",userId:u.id,userName:u.name,type:"no_isp",
+        text:`${u.name} — 個別支援計画が未作成です（算定根拠なし）`});
+    } else if(isp.endDate < yearMonth+"-01"){
+      alerts.push({level:"danger",userId:u.id,userName:u.name,type:"isp_expired",
+        text:`${u.name} — 個別支援計画 期限切れ（${isp.endDate}まで）`});
+    } else if(isp.endDate < yearMonth+"-30"){
+      alerts.push({level:"warn",userId:u.id,userName:u.name,type:"isp_near",
+        text:`${u.name} — 個別支援計画 月内期限切れ（${isp.endDate}）`});
+    }
+
+    // ⑤ フェイスシート確認
+    const fs = (store.facesheets||[]).find(f=>f.userId===u.id);
+    if(!fs) alerts.push({level:"warn",userId:u.id,userName:u.name,type:"no_facesheet",
+      text:`${u.name} — フェイスシート未作成`});
+  });
+
+  // ⑥ 職員配置チェック（staffCfgがある場合）
+  if(staffCfg){
+    if(!staffCfg.hasCDSM) alerts.push({level:"danger",type:"no_cdsm",
+      text:"児童発達支援管理責任者が未配置 — 算定不可"});
+    const users = myUsers.length||1;
+    const fte = staffCfg.fullTimeEquivalent||0;
+    if(fte/users < 0.2) alerts.push({level:"warn",type:"staff_ratio",
+      text:`職員配置 常勤換算 ${fte.toFixed(1)}名 / 利用者 ${users}名（基準：5人に1人以上）`});
+  }
+
+  return alerts;
+}
+
 // 旧コード互換（国保連提出用）
 const KOKUHO_CODES = [
   { code: "66137", label: "放課後等デイサービス1（重症心身障害児以外）", unit: 1094 },
@@ -1597,6 +1796,44 @@ function useStore() {
   const [assessments, setAssessments] = useState([]);
   const [monitorings, setMonitorings] = useState([]);
 
+  // ===== 請求関連 =====
+  // 施設ごとの請求基本設定（地域区分・サービス種別・指定年月日等）
+  const [facilityBillingSettings, setFacilityBillingSettings] = useState(()=>{
+    try{ const s=localStorage.getItem("gogroup_billing_settings"); return s?JSON.parse(s):{}; }catch(e){return {};}
+  });
+  const saveFacilityBillingSetting = (facilityId, cfg) => {
+    setFacilityBillingSettings(p=>{
+      const next={...p,[facilityId]:{...p[facilityId],...cfg}};
+      try{localStorage.setItem("gogroup_billing_settings",JSON.stringify(next));}catch(e){}
+      return next;
+    });
+  };
+  // 職員体制（施設ID + 年月 → 配置データ）
+  const [staffConfigs, setStaffConfigs] = useState(()=>{
+    try{ const s=localStorage.getItem("gogroup_staff_configs"); return s?JSON.parse(s):{}; }catch(e){return {};}
+  });
+  const saveStaffConfig = (facilityId, yearMonth, cfg) => {
+    const key=facilityId+"_"+yearMonth;
+    setStaffConfigs(p=>{
+      const next={...p,[key]:{...p[key],...cfg,facilityId,yearMonth}};
+      try{localStorage.setItem("gogroup_staff_configs",JSON.stringify(next));}catch(e){}
+      return next;
+    });
+  };
+  const getStaffConfig = (facilityId, yearMonth) => staffConfigs[facilityId+"_"+yearMonth]||null;
+  // 月次請求確定ステータス（施設+年月 → confirmed|draft）
+  const [billingStatus, setBillingStatus] = useState(()=>{
+    try{ const s=localStorage.getItem("gogroup_billing_status"); return s?JSON.parse(s):{}; }catch(e){return {};}
+  });
+  const saveBillingStatus = (facilityId, yearMonth, status) => {
+    const key=facilityId+"_"+yearMonth;
+    setBillingStatus(p=>{
+      const next={...p,[key]:status};
+      try{localStorage.setItem("gogroup_billing_status",JSON.stringify(next));}catch(e){}
+      return next;
+    });
+  };
+
   const addRec = r => {
     setRecs(p=>[...p,r]);
     sbSave("records", {id: r.id, type: r.type, facility_id: r.facilityId, facility_name: r.facilityName,
@@ -1731,7 +1968,7 @@ function useStore() {
     sbLoad("kokuho_data").then(d=>{ if(d?.length) setKokuho(p=>{ const ids=d.map(x=>x.id); return [...p.filter(x=>!ids.includes(x.id)),...d.map(x=>x.data||x)]; }); });
     sbLoad("isp_drafts").then(d=>{ if(d?.length) setIspDrafts(d.map(x=>x.data||x)); });
   }, []);
-  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft};
+  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus};
 }
 
 
@@ -3573,463 +3810,475 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
   );
 }
 
-// ==================== 国保連請求 ====================
-function KokuhoScreen({user,store,onBack}){
-  const [vm,setVm]=useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()+1};});
-  const [view,setView]=useState("summary"); // summary | detail | calendar
-  const [selFacs,setSelFacs]=useState(FACILITIES.map(f=>f.id));
-  const [editId,setEditId]=useState(null); // 編集中のkokuho id
-  const [city,setCity]=useState('その他');
-  const TANKA=getShizuokaTanka(city);
-  const days=daysInMonth(vm.y,vm.m);
-  const isMgr=user.role==="manager"||user.role==="admin";
+// ==================== 国保連請求 管理システム ====================
+// 設計原則: 単価・加算条件はBILLING_MASTERSで管理。コードに直書きしない。
+// 法改正時はBILLING_MASTERSに新エントリを追加するだけで対応可能。
 
-  // 1件の総単位・金額
-  const calcAmount=k=>Math.round(calcTotalUnits(k)*TANKA);
-
-  // 施設ごと月集計
-  const facData=fid=>{
-    const kk=store.kokuho.filter(k=>k.facilityId===fid&&k.year===vm.y&&k.month===vm.m);
-    const totalUnits=kk.reduce((s,k)=>s+calcTotalUnits(k),0);
-    const totalYen=Math.round(totalUnits*TANKA);
-    return {kk,totalUnits,totalYen,
-      totalSvcDays:kk.reduce((s,k)=>s+k.serviceDays,0),
-      users:kk.length};
-  };
-  const visibleFacs=FACILITIES.filter(f=>selFacs.includes(f.id));
-  const grandTotal=visibleFacs.reduce((s,f)=>s+facData(f.id).totalYen,0);
-
-  const dayCount=(fid,d)=>{
-    const dk=vm.y+"-"+String(vm.m).padStart(2,"0")+"-"+String(d).padStart(2,"0");
-    const us=store.dynUsers.filter(u=>u.facilityId===fid);
-    return {att:us.filter(u=>store.getAtt(u.id,dk)==="出席"||store.getAtt(u.id,dk)==="予定").length,
-            abs:us.filter(u=>store.getAtt(u.id,dk)==="欠席").length};
-  };
-  const csv=()=>{
-    const rows=[];
-    visibleFacs.forEach(f=>{const d=facData(f.id);rows.push([f.name,d.totalSvcDays,"",d.users,fmtYen(d.totalYen)].join(","));});
-    rows.push(["合計","","","",fmtYen(grandTotal)]);
-    const c=["施設名,サービス日数,送迎日数,利用者数,請求額",...rows].join("\n");
-    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿"+c],{type:"text/csv"}));
-    a.download=`sales_${vm.y}${String(vm.m).padStart(2,"0")}.csv`;a.click();
-  };
-
-  // ===== 加算編集モーダル =====
-  if(editId){
-    const k=store.kokuho.find(x=>x.id===editId);
-    if(!k) {setEditId(null);return null;}
-    return <KokuhoEditModal k={k} store={store} TANKA={TANKA} onClose={()=>setEditId(null)}/>;
-  }
-
-  return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">💴 売上管理・請求</div></div>
-  <div>
-    {/* 操作パネル */}
-    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"14px 16px",marginBottom:14,boxShadow:"var(--sh)"}}>
-      <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:2,marginBottom:10}}>操作オプション</div>
-      <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center",marginBottom:10}}>
-        <span style={{fontSize:12,color:"var(--tx2)",fontWeight:700}}>表示する施設：</span>
-        <button className="sbtn sc" style={{fontSize:11}} onClick={()=>setSelFacs(FACILITIES.map(f=>f.id))}>すべてチェック</button>
-        <button className="sbtn sn2" style={{fontSize:11}} onClick={()=>setSelFacs([])}>すべて解除</button>
-      </div>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
-        {FACILITIES.map(f=>{const facSel=selFacs.includes(f.id);return <label key={f.id} onClick={()=>setSelFacs(p=>p.includes(f.id)?p.filter(x=>x!==f.id):[...p,f.id])} style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:13,fontWeight:600,padding:"5px 10px",borderRadius:8,background:facSel?"rgba(58,160,216,0.2)":"var(--bg)",border:"1.5px solid "+(facSel?"var(--tl)":"var(--bd)"),color:facSel?"var(--tl)":"var(--tx3)",transition:"all .15s"}}>
-          <span>{facSel?"☑":"☐"}</span>{f.name}
-        </label>;})}
-      </div>
-      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-        <span style={{fontSize:12,color:"var(--tx2)",fontWeight:700}}>市区町村（地域単価）：</span>
-        <select className="fsm" value={city} onChange={e=>setCity(e.target.value)} style={{fontSize:13,fontWeight:700}}>
-          {Object.entries(SHIZUOKA_TANKA).map(([c,t])=><option key={c} value={c}>{c}（{t}円/単位）</option>)}
-        </select>
-        <span style={{fontSize:12,color:"var(--tx2)",fontWeight:700,marginLeft:4}}>年月：</span>
-        <select className="fsm" value={vm.y} onChange={e=>setVm(v=>({...v,y:+e.target.value}))} style={{fontSize:14,fontWeight:700}}>
-          {Array.from({length:13},(_,i)=>2015+i).map(y=><option key={y} value={y}>{y}年</option>)}
-        </select>
-        <select className="fsm" value={vm.m} onChange={e=>setVm(v=>({...v,m:+e.target.value}))} style={{fontSize:14,fontWeight:700}}>
-          {Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m}月</option>)}
-        </select>
-        <div style={{display:"flex",gap:6}}>
-          {["summary","detail","calendar"].map(v=><button key={v} className={`sbtn ${view===v?"sc":"sn2"}`} onClick={()=>setView(v)}>
-            {{summary:"サマリー",detail:"加算詳細",calendar:"カレンダー"}[v]}
+// ─── 施設設定タブ ───
+function BillingFacilityTab({user,store,facilityId}){
+  const cfg=store.facilityBillingSettings[facilityId]||{};
+  const upd=(k,v)=>store.saveFacilityBillingSetting(facilityId,{[k]:v});
+  const [saved,setSaved]=useState(false);
+  const ym=(new Date()).toISOString().slice(0,7);
+  const master=getBillingMaster(ym);
+  const regionOptions=Object.keys(master.regionUnitPrice||{});
+  const cityOptions=Object.keys(master.cityRegionMap||{});
+  return <div>
+    <div style={{background:"rgba(58,160,216,0.08)",border:"1px solid rgba(58,160,216,0.25)",borderRadius:10,padding:12,marginBottom:16}}>
+      <div style={{fontSize:11,color:"var(--tl)",fontWeight:700}}>💡 適用マスタ: {master.name}</div>
+      <div style={{fontSize:11,color:"var(--tx3)",marginTop:3}}>有効期間: {master.effectiveFrom} 〜 {master.effectiveTo||"（現在有効）"}</div>
+    </div>
+    <div style={{display:"grid",gap:14}}>
+      {[
+        {label:"サービス種別",key:"serviceType",type:"select",opts:["放課後等デイサービス","児童発達支援","放課後等デイ＋児発"]},
+        {label:"定員",key:"capacity",type:"number",placeholder:"10"},
+        {label:"市区町村（地域区分決定）",key:"city",type:"select",opts:cityOptions},
+        {label:"地域区分",key:"regionClass",type:"select",opts:regionOptions},
+        {label:"基本報酬区分",key:"basicRewardClass",type:"select",opts:["区分1（指導員加配等）","区分2（標準）"]},
+        {label:"指定年月日",key:"designationDate",type:"date"},
+        {label:"営業時間（開始）",key:"openTime",type:"time"},
+        {label:"営業時間（終了）",key:"closeTime",type:"time"},
+      ].map(({label,key,type,opts,placeholder})=>(
+        <div key={key}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--tx3)",marginBottom:5}}>{label}</div>
+          {type==="select"
+            ? <select className="fi" value={cfg[key]||""} onChange={e=>upd(key,e.target.value)}>
+                <option value="">-- 選択 --</option>
+                {(opts||[]).map(o=><option key={o} value={o}>{o}</option>)}
+              </select>
+            : <input className="fi" type={type} placeholder={placeholder} value={cfg[key]||""} onChange={e=>upd(key,e.target.value)}/>
+          }
+        </div>
+      ))}
+      <div>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--tx3)",marginBottom:6}}>令和8年6月以降 新規指定対象か</div>
+        <div style={{display:"flex",gap:8}}>
+          {["はい（新規指定）","いいえ（既存事業所）"].map(v=><button key={v}
+            onClick={()=>upd("isNewAfter2026",v==="はい（新規指定）")}
+            style={{padding:"9px 16px",borderRadius:9,border:"2px solid",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:13,fontWeight:700,
+              borderColor:cfg.isNewAfter2026===(v==="はい（新規指定）")?"var(--tl)":"var(--bd)",
+              background:cfg.isNewAfter2026===(v==="はい（新規指定）")?"rgba(58,160,216,0.2)":"var(--bg)",
+              color:cfg.isNewAfter2026===(v==="はい（新規指定）")?"var(--tl)":"var(--tx3)"}}>
+            {v}
           </button>)}
         </div>
-        <button className="bexp" onClick={csv}>⬇ CSV</button>
-        <button className="bexp" style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={()=>printSales(visibleFacs,vm,store.kokuho,"")}>🖨️ 印刷</button>
       </div>
     </div>
-
-    {/* 総売上バナー */}
-    <div style={{background:"linear-gradient(135deg,#1a6b3a,#2d9e58)",borderRadius:12,padding:"14px 18px",marginBottom:14,color:"#fff"}}>
-      <div style={{fontSize:12,opacity:.8,marginBottom:4}}>{vm.y}年{String(vm.m).padStart(2,"0")}月の総売上</div>
-      <div style={{fontSize:28,fontWeight:900,fontFamily:"'DM Mono',monospace",letterSpacing:1}}>{grandTotal.toLocaleString()}円</div>
-      <div style={{fontSize:11,opacity:.7,marginTop:4}}>静岡県 {city} ／ 1単位 {TANKA}円 ／ {visibleFacs.length}店舗</div>
-    </div>
-
-    {/* ===== サマリービュー ===== */}
-    {view==="summary"&&<>
-      <div style={{overflowX:"auto",marginBottom:14}}>
-        <div style={{display:"flex",gap:10,minWidth:"max-content",paddingBottom:4}}>
-          {visibleFacs.map(f=>{const d=facData(f.id);return <div key={f.id} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"14px 16px",minWidth:160,flex:"0 0 auto",boxShadow:"var(--sh)"}}>
-            <div style={{fontSize:13,fontWeight:900,color:"var(--tl)",marginBottom:8,paddingBottom:7,borderBottom:"1px solid var(--bg2)"}}>{f.name}</div>
-            <div style={{fontSize:22,fontWeight:900,fontFamily:"'DM Mono',monospace",color:"var(--am)",marginBottom:8}}>{d.totalYen.toLocaleString()}円</div>
-            <div style={{fontSize:11,color:"var(--tx3)",lineHeight:1.9}}>
-              <div>利用者: <strong style={{color:"var(--tx)"}}>{d.users}名</strong></div>
-              <div>サービス日数: <strong style={{color:"var(--tx)"}}>{d.totalSvcDays}日</strong></div>
-              <div>合計単位: <strong style={{color:"var(--tl)"}}>{d.totalUnits.toLocaleString()}</strong></div>
-            </div>
-            <div style={{marginTop:8,display:"flex",gap:4,flexWrap:"wrap"}}>
-              {["未請求","請求済","入金済"].map(s=>{const cnt=d.kk.filter(k=>k.status===s).length;return cnt>0?<span key={s} style={{fontSize:9,padding:"2px 6px",borderRadius:7,fontWeight:700,background:s==="入金済"?"rgba(44,170,96,0.2)":s==="請求済"?"rgba(58,160,216,0.2)":"var(--bg)",color:s==="入金済"?"var(--gr)":s==="請求済"?"var(--tl)":"var(--tx3)"}}>{s} {cnt}</span>:null;})}
-            </div>
-          </div>;})}
-        </div>
-      </div>
-
-      {/* 施設別テーブル（加算詳細なし） */}
-      {visibleFacs.map(f=>{const d=facData(f.id);return <div key={f.id} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,marginBottom:12,overflow:"hidden",boxShadow:"var(--sh)"}}>
-        <div style={{background:"var(--bg2)",padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div style={{fontWeight:900,fontSize:14}}>{f.name}</div>
-          <div style={{fontWeight:900,fontSize:16,fontFamily:"'DM Mono',monospace",color:"var(--am)"}}>{d.totalYen.toLocaleString()}円</div>
-        </div>
-        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-          <thead><tr style={{background:""}}>{["利用者名","基本日数","基本単価","加算単位","合計単位","請求額","状態",""].map(h=><th key={h} style={{padding:"7px 9px",textAlign:"left",color:"var(--tx2)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--bg2)",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
-          <tbody>{d.kk.map(k=>{const totalU=calcTotalUnits(k);const addU=totalU-k.serviceDays*k.unitPrice;return <tr key={k.id} style={{borderBottom:"1px solid var(--bg2)"}}>
-            <td style={{padding:"8px 9px",fontWeight:600}}>{k.userName}</td>
-            <td style={{padding:"8px 9px",fontFamily:"'DM Mono',monospace"}}>{k.serviceDays}日</td>
-            <td style={{padding:"8px 9px",fontFamily:"'DM Mono',monospace",fontSize:11,color:"var(--tx3)"}}>{k.unitPrice}/日</td>
-            <td style={{padding:"8px 9px",fontFamily:"'DM Mono',monospace",color:addU>0?"var(--tl)":"var(--tx3)",fontWeight:addU>0?700:400}}>+{addU.toLocaleString()}</td>
-            <td style={{padding:"8px 9px",fontFamily:"'DM Mono',monospace",color:"var(--tl)",fontWeight:700}}>{totalU.toLocaleString()}</td>
-            <td style={{padding:"8px 9px",fontFamily:"'DM Mono',monospace",fontWeight:700,color:"var(--am)"}}>{calcAmount(k).toLocaleString()}円</td>
-            <td style={{padding:"8px 9px"}}><div style={{display:"flex",gap:4}}>
-              {["未請求","請求済","入金済"].map(s=><button key={s} onClick={()=>store.updKokuho(k.id,{status:s})} style={{padding:"2px 7px",borderRadius:8,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:k.status===s?(s==="入金済"?"rgba(44,170,96,0.4)":s==="請求済"?"rgba(58,160,216,0.35)":"var(--bd)"):"transparent",background:k.status===s?(s==="入金済"?"rgba(44,170,96,0.2)":s==="請求済"?"rgba(58,160,216,0.2)":"var(--bg)"):"transparent",color:k.status===s?(s==="入金済"?"var(--gr)":s==="請求済"?"var(--tl)":"var(--tx3)"):"var(--tx3)"}}>{s}</button>)}
-            </div></td>
-            {isMgr&&<td style={{padding:"8px 9px"}}><button onClick={()=>setEditId(k.id)} style={{padding:"3px 9px",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.1)",border:"1.5px solid rgba(58,160,216,0.35)",color:"var(--tl)"}}>加算編集</button></td>}
-          </tr>;})}
-          <tr style={{background:"#eef8f2",borderTop:"2px solid rgba(44,170,96,0.4)"}}>
-            <td style={{padding:"8px 9px",fontWeight:900,color:"var(--gr)"}}>合計</td>
-            <td style={{padding:"8px 9px",fontWeight:700}}>{d.totalSvcDays}日</td>
-            <td/><td/>
-            <td style={{padding:"8px 9px",fontWeight:700,color:"var(--tl)",fontFamily:"'DM Mono',monospace"}}>{d.totalUnits.toLocaleString()}</td>
-            <td style={{padding:"8px 9px",fontWeight:900,color:"var(--am)",fontSize:14,fontFamily:"'DM Mono',monospace"}}>{d.totalYen.toLocaleString()}円</td>
-            <td/>{isMgr&&<td/>}
-          </tr>
-        </tbody></table></div>
-      </div>;})}
-    </>}
-
-    {/* ===== 加算詳細ビュー ===== */}
-    {view==="detail"&&<>
-      {visibleFacs.map(f=>{const d=facData(f.id);return <div key={f.id} style={{marginBottom:16}}>
-        <div style={{fontSize:14,fontWeight:900,color:"var(--tx)",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span>{f.name}</span>
-          <span style={{fontSize:16,fontWeight:900,fontFamily:"'DM Mono',monospace",color:"var(--am)"}}>{d.totalYen.toLocaleString()}円</span>
-        </div>
-        {d.kk.map(k=>{
-          const baseUnits=k.serviceDays*k.unitPrice;
-          const addons=k.addons||[];
-          const totalU=calcTotalUnits(k);
-          return <div key={k.id} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:8,boxShadow:"var(--sh)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-              <div>
-                <div style={{fontWeight:900,fontSize:14,marginBottom:3}}>{k.userName}</div>
-                <div style={{fontSize:11,color:"var(--tx3)"}}>{SERVICE_TYPE_MASTER.find(s=>s.code===k.serviceCode)?.label||"放課後等デイ"}</div>
-              </div>
-              <div style={{textAlign:"right"}}>
-                <div style={{fontSize:18,fontWeight:900,fontFamily:"'DM Mono',monospace",color:"var(--am)"}}>{calcAmount(k).toLocaleString()}円</div>
-                <div style={{fontSize:11,color:"var(--tx3)"}}>{totalU.toLocaleString()}単位</div>
-              </div>
-            </div>
-            {/* 内訳 */}
-            <div style={{background:"var(--bg)",borderRadius:8,padding:"10px 12px",marginBottom:8}}>
-              <div style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid var(--bg2)"}}>
-                <span style={{fontSize:12}}>基本報酬 {k.serviceDays}日 × {k.unitPrice}単位</span>
-                <span style={{fontSize:12,fontWeight:700,fontFamily:"'DM Mono',monospace"}}>{baseUnits.toLocaleString()}単位</span>
-              </div>
-              {addons.map((a,i)=>{
-                const m=ADDON_MASTER.find(x=>x.key===a.key);if(!m)return null;
-                const u=m.rate?Math.round(baseUnits*m.rate):m.perDay?(a.days||k.serviceDays)*m.unit:(a.count||1)*m.unit;
-                return <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid var(--bg2)"}}>
-                  <span style={{fontSize:12,color:"var(--tl)"}}>{m.label} {m.perDay?(a.days||k.serviceDays)+"日×"+m.unit+"単位":m.rate?"基本×"+(m.rate*100).toFixed(1)+"%":(a.count||1)+"回"}</span>
-                  <span style={{fontSize:12,fontWeight:700,color:"var(--tl)",fontFamily:"'DM Mono',monospace"}}>+{u.toLocaleString()}単位</span>
-                </div>;
-              })}
-              <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0 0",marginTop:2}}>
-                <span style={{fontSize:13,fontWeight:700}}>合計単位</span>
-                <span style={{fontSize:13,fontWeight:900,fontFamily:"'DM Mono',monospace",color:"var(--tl)"}}>{totalU.toLocaleString()}単位</span>
-              </div>
-            </div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div style={{display:"flex",gap:4}}>
-                {["未請求","請求済","入金済"].map(s=><button key={s} onClick={()=>store.updKokuho(k.id,{status:s})} style={{padding:"3px 9px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:k.status===s?(s==="入金済"?"rgba(44,170,96,0.4)":s==="請求済"?"rgba(58,160,216,0.35)":"var(--bd)"):"transparent",background:k.status===s?(s==="入金済"?"rgba(44,170,96,0.2)":s==="請求済"?"rgba(58,160,216,0.2)":"var(--bg)"):"transparent",color:k.status===s?(s==="入金済"?"var(--gr)":s==="請求済"?"var(--tl)":"var(--tx3)"):"var(--tx3)"}}>{s}</button>)}
-              </div>
-              {isMgr&&<button onClick={()=>setEditId(k.id)} style={{padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.1)",border:"1.5px solid rgba(58,160,216,0.35)",color:"var(--tl)"}}>✏️ 加算を編集</button>}
-            </div>
-          </div>;
-        })}
-      </div>;})}
-    </>}
-
-    {/* ===== カレンダービュー ===== */}
-    {view==="calendar"&&<div style={{overflowX:"auto"}}>
-      <table style={{borderCollapse:"collapse",fontSize:11,minWidth:"100%"}}>
-        <thead><tr style={{background:"var(--bg2)"}}>
-          <th style={{padding:"8px 6px",color:"var(--tx2)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--bd)",whiteSpace:"nowrap",minWidth:36,position:"sticky",left:0,background:"var(--bg2)",zIndex:2}}>日</th>
-          {visibleFacs.map(f=><th key={f.id} style={{padding:"8px 14px",color:"var(--tx2)",fontSize:11,fontWeight:700,borderBottom:"2px solid var(--bd)",whiteSpace:"nowrap",minWidth:110,textAlign:"center"}}>{f.name}</th>)}
-        </tr></thead>
-        <tbody>
-          {Array.from({length:days},(_,i)=>{
-            const d=i+1;const dow=new Date(vm.y,vm.m-1,d).getDay();
-            const dowLabel="日月火水木金土"[dow];const isWe=dow===0||dow===6;
-            return <tr key={d} style={{background:isWe?"var(--bg2)":"var(--wh)",borderBottom:"1px solid var(--bg2)"}}>
-              <td style={{padding:"7px 6px",textAlign:"center",fontWeight:700,fontSize:11,position:"sticky",left:0,background:isWe?"var(--bg2)":"var(--wh)",borderRight:"1px solid var(--bd)",zIndex:1,color:dow===0?"var(--ro)":dow===6?"var(--tl)":"var(--tx)"}}>
-                {d}<br/><span style={{fontSize:9}}>{dowLabel}</span>
-              </td>
-              {visibleFacs.map(f=>{const c=dayCount(f.id,d);return <td key={f.id} style={{padding:"6px 10px",textAlign:"center",verticalAlign:"middle"}}>
-                {isWe?<span style={{fontSize:11,color:"var(--tx3)"}}>休日</span>
-                :c.att===0&&c.abs===0?<span style={{fontSize:11,color:"var(--tx3)"}}>-</span>
-                :<div style={{display:"flex",flexDirection:"column",gap:2,alignItems:"center"}}>
-                  {c.att>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:"rgba(58,160,216,0.2)",color:"var(--tl)",fontWeight:700}}>出席 {c.att}</span>}
-                  {c.abs>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:"rgba(224,56,56,0.15)",color:"var(--ro)",fontWeight:700}}>欠席 {c.abs}</span>}
-                </div>}
-              </td>;})}
-            </tr>;
-          })}
-          <tr style={{background:"#eef8f2",borderTop:"2px solid rgba(44,170,96,0.4)"}}>
-            <td style={{padding:"9px 6px",textAlign:"center",fontWeight:900,fontSize:11,color:"var(--gr)",position:"sticky",left:0,background:"#eef8f2",borderRight:"1px solid var(--bd)",zIndex:1}}>合計</td>
-            {visibleFacs.map(f=>{const d=facData(f.id);return <td key={f.id} style={{padding:"9px 10px",textAlign:"center"}}>
-              <div style={{fontSize:13,fontWeight:900,fontFamily:"'DM Mono',monospace",color:"var(--am)"}}>{d.totalYen.toLocaleString()}円</div>
-              <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{d.totalSvcDays}日</div>
-            </td>;})}
-          </tr>
-        </tbody>
-      </table>
-    </div>}
-  </div></div>;
+    <button className="bsave" style={{marginTop:18,maxWidth:220}} onClick={()=>{setSaved(true);setTimeout(()=>setSaved(false),2000);}}>
+      {saved?"✅ 保存しました":"設定を保存する"}
+    </button>
+  </div>;
 }
 
-// ===== 加算編集モーダル =====
-function KokuhoEditModal({k, store, TANKA, onClose}){
-  const initForm = {
-    serviceCode: k.serviceCode || "6612B",
-    unitPrice: k.unitPrice || 530,
-    serviceDays: k.serviceDays || 0,
-    holidayDays: k.holidayDays || 0,
-    city: k.city || "その他",
-    addons: (k.addons || []).slice(),
-  };
-  const [form, setForm] = useState(initForm);
-  const upd = function(key, val){ setForm(function(p){ return Object.assign({}, p, {[key]: val}); }); };
-
-  const toggleAddon = function(akey){
-    const existing = form.addons.find(function(a){ return a.key === akey; });
-    if(existing){
-      setForm(function(p){ return Object.assign({}, p, {addons: p.addons.filter(function(a){ return a.key !== akey; })}); });
-    } else {
-      setForm(function(p){ return Object.assign({}, p, {addons: p.addons.concat([{key: akey, days: p.serviceDays, count: 1}])}); });
-    }
-  };
-
-  const updAddonDays = function(akey, days){
-    setForm(function(p){
-      return Object.assign({}, p, {addons: p.addons.map(function(a){ return a.key === akey ? Object.assign({}, a, {days: days}) : a; })});
-    });
-  };
-
-  const localTanka = getShizuokaTanka(form.city);
-
-  const findHolidayUnit = function(){
-    const ht = SERVICE_TYPE_MASTER.find(function(s){ return s.code === form.serviceCode; });
-    if(!ht) return form.unitPrice + 88;
-    const hc = SERVICE_TYPE_MASTER.find(function(s){
-      return s.kubun === ht.kubun && s.timeType === "放課後" && s.note === ht.note ? false : s.kubun === ht.kubun && s.note === ht.note && s.timeType !== ht.timeType;
-    });
-    return (hc && hc.unit) ? hc.unit : (form.unitPrice + 88);
-  };
-  const holidayUnit = findHolidayUnit();
-
-  const baseUnits = (form.serviceDays || 0) * (form.unitPrice || 0) + (form.holidayDays || 0) * holidayUnit;
-
-  const calcAddonUnits = function(addons){
-    return (addons || []).reduce(function(sum, a){
-      const m = ADDON_MASTER.find(function(x){ return x.key === a.key; });
-      if(!m) return sum;
-      if(m.rate) return sum + Math.round(baseUnits * m.rate);
-      if(m.perDay) return sum + (a.days || form.serviceDays || 0) * m.unit;
-      return sum + (a.count || 1) * m.unit;
-    }, 0);
-  };
-
-  const totalU = baseUnits + calcAddonUnits(form.addons);
-  const totalYen = Math.round(totalU * localTanka);
-
-  const save = function(){
-    store.updKokuho(k.id, {
-      serviceCode: form.serviceCode,
-      unitPrice: form.unitPrice,
-      serviceDays: form.serviceDays,
-      holidayDays: form.holidayDays,
-      city: form.city,
-      addons: form.addons
-    });
-    onClose();
-  };
-
-  const ModalOverlay = {
-    position: "fixed", top: 0, right: 0, bottom: 0, left: 0,
-    background: "rgba(0,0,0,0.45)", zIndex: 200,
-    display: "flex", alignItems: "flex-end", justifyContent: "center"
-  };
-
-  return (
-    <div style={ModalOverlay} onClick={function(e){ if(e.target === e.currentTarget) onClose(); }}>
-      <div style={{background:"var(--wh)",borderRadius:"16px 16px 0 0",width:"100%",maxWidth:600,maxHeight:"90vh",overflow:"auto",boxShadow:"0 -4px 24px rgba(0,0,0,0.18)"}}>
-        <div style={{position:"sticky",top:0,background:"var(--wh)",padding:"14px 18px 10px",borderBottom:"1px solid var(--bg2)",zIndex:10}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <div style={{fontWeight:900,fontSize:16}}>加算設定 — {k.userName}</div>
-            <button onClick={onClose} style={{padding:"5px 12px",borderRadius:8,background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx2)",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>✕ 閉じる</button>
+// ─── 職員体制タブ ───
+function BillingStaffTab({user,store,facilityId,yearMonth}){
+  const cfg=store.getStaffConfig(facilityId,yearMonth)||{};
+  const upd=(k,v)=>store.saveStaffConfig(facilityId,yearMonth,{[k]:v});
+  const [saved,setSaved]=useState(false);
+  const ft=parseFloat(cfg.fullTimeEquivalent||0);
+  const users=store.dynUsers.filter(u=>u.facilityId===facilityId&&u.active!==false).length||1;
+  const ratio=(ft/users).toFixed(2);
+  const ratioOk=ft/users>=0.2;
+  return <div>
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:14,marginBottom:14}}>
+      <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>{yearMonth} の職員体制</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+        {[
+          {key:"fullTimeCount",  label:"常勤職員数",   unit:"名"},
+          {key:"partTimeCount",  label:"非常勤職員数", unit:"名"},
+          {key:"fullTimeEquivalent",label:"常勤換算合計",unit:"名",step:"0.1"},
+        ].map(f=><div key={f.key}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--tx3)",marginBottom:5}}>{f.label}</div>
+          <div style={{display:"flex",alignItems:"center",gap:5}}>
+            <input className="fi" type="number" step={f.step||"1"} min="0" placeholder="0"
+              value={cfg[f.key]||""} onChange={e=>upd(f.key,e.target.value)} style={{maxWidth:100}}/>
+            <span style={{fontSize:12,color:"var(--tx3)"}}>{f.unit}</span>
           </div>
-          <div style={{display:"flex",gap:10,alignItems:"center"}}>
-            <div style={{background:"#eef8f2",borderRadius:9,padding:"8px 14px",flex:1,textAlign:"center"}}>
-              <div style={{fontSize:10,color:"var(--tx3)",marginBottom:2}}>合計単位</div>
-              <div style={{fontSize:20,fontWeight:900,fontFamily:"'DM Mono',monospace",color:"var(--tl)"}}>{totalU.toLocaleString()}</div>
-            </div>
-            <div style={{fontSize:20,color:"var(--tx3)"}}>→</div>
-            <div style={{background:"#fff8ec",borderRadius:9,padding:"8px 14px",flex:1,textAlign:"center"}}>
-              <div style={{fontSize:10,color:"var(--tx3)",marginBottom:2}}>請求額（概算）</div>
-              <div style={{fontSize:20,fontWeight:900,fontFamily:"'DM Mono',monospace",color:"var(--am)"}}>{totalYen.toLocaleString()}円</div>
-            </div>
-          </div>
+        </div>)}
+      </div>
+      <div style={{padding:"10px 12px",borderRadius:9,border:"1px solid",
+        borderColor:ratioOk?"rgba(44,170,96,0.4)":"rgba(224,56,56,0.4)",
+        background:ratioOk?"rgba(44,170,96,0.08)":"rgba(224,56,56,0.08)"}}>
+        <div style={{fontSize:12,fontWeight:700,color:ratioOk?"var(--gr)":"var(--ro)"}}>
+          {ratioOk?"✅":"⚠️"} 配置比率: {ratio}（利用者 {users}名 / 常勤換算 {ft}名）
         </div>
-
-        <div style={{padding:"16px 18px 32px"}}>
-          <div style={{background:"var(--bg)",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
-            <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:2,marginBottom:10}}>基本設定</div>
-            <div style={{marginBottom:10}}>
-              <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>市区町村（地域単価）</label>
-              <select className="fi" value={form.city} onChange={function(e){ upd("city", e.target.value); }} style={{fontWeight:700}}>
-                {Object.entries(SHIZUOKA_TANKA).map(function(entry){
-                  const c = entry[0]; const t = entry[1];
-                  return <option key={c} value={c}>{c}（{t}円/単位）</option>;
-                })}
-              </select>
-            </div>
-            <div style={{marginBottom:10}}>
-              <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:6}}>サービス種別</label>
-              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                {SERVICE_TYPE_MASTER.map(function(s){
-                  const isActive = form.serviceCode === s.code;
-                  return (
-                    <button key={s.code}
-                      onClick={function(){ upd("serviceCode", s.code); upd("unitPrice", s.unit); }}
-                      style={{padding:"7px 10px",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:isActive?"var(--tl)":"var(--bd)",background:isActive?"rgba(58,160,216,0.2)":"var(--bg)",color:isActive?"var(--tl)":"var(--tx2)",lineHeight:1.4,textAlign:"left"}}>
-                      <div>{s.label}</div>
-                      <div style={{fontSize:10,opacity:.75,marginTop:2}}>{s.unit}単位/日</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:"var(--tl)",display:"block",marginBottom:4}}>🏫 放課後日数</label>
-                <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                  <input className="fi" type="number" value={form.serviceDays} min={0} max={31} onChange={function(e){ upd("serviceDays", +e.target.value); }} style={{maxWidth:80,textAlign:"center"}}/>
-                  <span style={{fontSize:11,color:"var(--tx3)"}}>日 × {form.unitPrice}</span>
-                </div>
-              </div>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:"var(--am)",display:"block",marginBottom:4}}>🎌 休日日数</label>
-                <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                  <input className="fi" type="number" value={form.holidayDays || 0} min={0} max={31} onChange={function(e){ upd("holidayDays", +e.target.value); }} style={{maxWidth:80,textAlign:"center"}}/>
-                  <span style={{fontSize:11,color:"var(--tx3)"}}>日 × {holidayUnit}</span>
-                </div>
-              </div>
-            </div>
-            <div style={{background:"rgba(58,160,216,0.1)",borderRadius:8,padding:"8px 12px",fontSize:12,color:"var(--tx2)"}}>
-              放課後{form.serviceDays}日×{form.unitPrice} + 休日{form.holidayDays || 0}日×{holidayUnit} = <strong style={{color:"var(--tl)"}}>{baseUnits.toLocaleString()}単位</strong>（{Math.round(baseUnits * localTanka).toLocaleString()}円）
-            </div>
-          </div>
-
-          {ADDON_CATEGORIES.map(function(cat){
-            const catAddons = ADDON_MASTER.filter(function(a){ return a.category === cat; });
-            return (
-              <div key={cat} style={{marginBottom:12}}>
-                <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",letterSpacing:2,marginBottom:7,paddingLeft:2}}>{cat}加算</div>
-                <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                  {catAddons.map(function(m){
-                    const active = form.addons.find(function(a){ return a.key === m.key; });
-                    const adDays = (active && active.days) ? active.days : form.serviceDays;
-                    const units = m.rate ? Math.round(baseUnits * m.rate) : m.perDay ? adDays * m.unit : ((active && active.count) || 1) * m.unit;
-                    const borderCol = active ? "var(--tl)" : "var(--bd)";
-                    const bgCol = active ? "rgba(58,160,216,0.1)" : "var(--bg)";
-                    const checkBgCol = active ? "var(--tl)" : "var(--wh)";
-                    return (
-                      <div key={m.key} style={{background:bgCol,border:"1.5px solid "+borderCol,borderRadius:10,padding:"10px 12px",transition:"all .15s"}}>
-                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                          <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",flex:1}} onClick={function(){ toggleAddon(m.key); }}>
-                            <div style={{width:20,height:20,borderRadius:5,border:"2px solid "+borderCol,background:checkBgCol,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .15s"}}>
-                              {active && <span style={{color:"#fff",fontSize:13,lineHeight:1}}>✓</span>}
-                            </div>
-                            <div>
-                              <div style={{fontSize:13,fontWeight:active?700:500,color:active?"var(--tl)":"var(--tx2)"}}>{m.label}</div>
-                              <div style={{fontSize:10,color:"var(--tx3)",marginTop:1}}>
-                                {m.rate ? ("基本報酬×"+(m.rate*100).toFixed(1)+"%") : m.perDay ? (m.unit+"単位/日") : (m.unit+"単位/回")}
-                              </div>
-                            </div>
-                          </label>
-                          {active && <div style={{fontSize:13,fontWeight:700,fontFamily:"'DM Mono',monospace",color:"var(--tl)",minWidth:70,textAlign:"right"}}>+{units.toLocaleString()}単位</div>}
-                        </div>
-                        {active && m.perDay && (
-                          <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8}}>
-                            <label style={{fontSize:10,color:"var(--tx3)",whiteSpace:"nowrap"}}>適用日数:</label>
-                            <input type="number" value={adDays} min={0} max={31}
-                              onChange={function(e){ updAddonDays(m.key, +e.target.value); }}
-                              style={{width:64,padding:"4px 8px",borderRadius:7,border:"1.5px solid var(--bd)",fontSize:12,fontFamily:"'DM Mono',monospace",textAlign:"center",background:"var(--wh)"}}/>
-                            <span style={{fontSize:10,color:"var(--tx3)"}}>日</span>
-                            {adDays !== form.serviceDays && <span style={{fontSize:10,color:"var(--am)",fontWeight:700}}>※全日数と異なります</span>}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-
-          <div style={{background:"#eef8f2",border:"1.5px solid rgba(44,170,96,0.4)",borderRadius:10,padding:"12px 14px",marginBottom:16}}>
-            <div style={{fontSize:11,fontWeight:700,color:"var(--gr)",letterSpacing:2,marginBottom:8}}>請求内訳プレビュー</div>
-            <div style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid rgba(152,216,176,0.3)"}}>
-              <span style={{fontSize:12}}>🏫 放課後 {form.serviceDays}日 × {form.unitPrice}単位</span>
-              <span style={{fontSize:12,fontWeight:700,fontFamily:"'DM Mono',monospace"}}>{((form.serviceDays||0)*(form.unitPrice||0)).toLocaleString()}単位</span>
-            </div>
-            {(form.holidayDays || 0) > 0 && (
-              <div style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid rgba(152,216,176,0.3)"}}>
-                <span style={{fontSize:12}}>🎌 休日 {form.holidayDays}日 × {holidayUnit}単位</span>
-                <span style={{fontSize:12,fontWeight:700,fontFamily:"'DM Mono',monospace"}}>{((form.holidayDays||0)*holidayUnit).toLocaleString()}単位</span>
-              </div>
-            )}
-            {form.addons.map(function(a){
-              const m = ADDON_MASTER.find(function(x){ return x.key === a.key; });
-              if(!m) return null;
-              const u = m.rate ? Math.round(baseUnits*m.rate) : m.perDay ? (a.days||form.serviceDays)*m.unit : (a.count||1)*m.unit;
-              return (
-                <div key={a.key} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid rgba(152,216,176,0.3)"}}>
-                  <span style={{fontSize:12,color:"var(--tl)"}}>{m.label}</span>
-                  <span style={{fontSize:12,fontWeight:700,color:"var(--tl)",fontFamily:"'DM Mono',monospace"}}>+{u.toLocaleString()}単位</span>
-                </div>
-              );
-            })}
-            <div style={{display:"flex",justifyContent:"space-between",padding:"7px 0 0",marginTop:3}}>
-              <span style={{fontSize:14,fontWeight:900,color:"var(--gr)"}}>合計</span>
-              <span style={{fontSize:14,fontWeight:900,fontFamily:"'DM Mono',monospace",color:"var(--gr)"}}>{totalU.toLocaleString()}単位 = <span style={{color:"var(--am)"}}>{totalYen.toLocaleString()}円</span></span>
-            </div>
-          </div>
-
-          <button className="bsave" onClick={save}>この設定を保存する</button>
-        </div>
+        <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>基準: 利用者5人に職員1人以上（0.20以上）</div>
       </div>
     </div>
-  );
+    <div style={{fontSize:12,fontWeight:700,color:"var(--tx2)",marginBottom:10}}>有資格者・専門職配置</div>
+    <div style={{display:"grid",gap:10}}>
+      {[
+        {key:"hasCDSM",         label:"児童発達支援管理責任者（CDSM）",type:"bool",required:true},
+        {key:"nurseryTeachers", label:"保育士",type:"number"},
+        {key:"childInstructors",label:"児童指導員",type:"number"},
+        {key:"specStaff",       label:"専門的支援員（理学・作業・言語・心理等）",type:"number"},
+        {key:"nurseStaff",      label:"看護職員",type:"number"},
+        {key:"funcTrainer",     label:"機能訓練担当職員",type:"number"},
+      ].map(f=><div key={f.key} style={{display:"flex",alignItems:"center",gap:10,background:"var(--wh)",padding:"10px 12px",borderRadius:9,border:"1px solid var(--bd)"}}>
+        <div style={{flex:1,fontSize:13,fontWeight:700}}>{f.label}{f.required&&<span style={{color:"var(--ro)",fontSize:10,marginLeft:4}}>必須</span>}</div>
+        {f.type==="number"
+          ? <input className="fi" type="number" min="0" placeholder="0" value={cfg[f.key]||""}
+              onChange={e=>upd(f.key,e.target.value)} style={{maxWidth:70,textAlign:"center"}}/>
+          : <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>upd(f.key,true)} style={{padding:"6px 14px",borderRadius:8,border:"2px solid",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,borderColor:cfg[f.key]===true?"var(--gr)":"var(--bd)",background:cfg[f.key]===true?"rgba(44,170,96,0.2)":"var(--bg)",color:cfg[f.key]===true?"var(--gr)":"var(--tx3)"}}>配置あり</button>
+              <button onClick={()=>upd(f.key,false)} style={{padding:"6px 14px",borderRadius:8,border:"2px solid",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,borderColor:cfg[f.key]===false?"var(--ro)":"var(--bd)",background:cfg[f.key]===false?"rgba(224,56,56,0.12)":"var(--bg)",color:cfg[f.key]===false?"var(--ro)":"var(--tx3)"}}>なし</button>
+            </div>
+        }
+      </div>)}
+    </div>
+    <button className="bsave" style={{marginTop:14,maxWidth:220}} onClick={()=>{setSaved(true);setTimeout(()=>setSaved(false),2000);}}>
+      {saved?"✅ 保存しました":"体制を保存する"}
+    </button>
+  </div>;
+}
+
+// ─── 加算設定タブ ───
+function BillingAddonsTab({user,store,facilityId,yearMonth}){
+  const master=getBillingMaster(yearMonth);
+  const saved=store.facilityBillingSettings[facilityId]||{};
+  const enabled=saved.enabledAddons||[];
+  const toggle=key=>{
+    const next=enabled.includes(key)?enabled.filter(k=>k!==key):[...enabled,key];
+    store.saveFacilityBillingSetting(facilityId,{enabledAddons:next});
+  };
+  const cats=[...new Set((master.additions||[]).map(a=>a.category))];
+  return <div>
+    <div style={{background:"rgba(240,112,32,0.08)",border:"1px solid rgba(240,112,32,0.3)",borderRadius:10,padding:11,marginBottom:14}}>
+      <div style={{fontSize:11,color:"var(--ac)",fontWeight:700}}>⚙ 加算マスタ: {master.name}</div>
+      <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>✅ チェックした加算が請求前チェックの自動判定対象になります</div>
+    </div>
+    {cats.map(cat=>{
+      const items=(master.additions||[]).filter(a=>a.category===cat);
+      return <div key={cat} style={{marginBottom:14}}>
+        <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",letterSpacing:2,marginBottom:7,textTransform:"uppercase"}}>{cat}</div>
+        <div style={{display:"grid",gap:6}}>
+          {items.map(a=>{
+            const on=enabled.includes(a.key);
+            return <div key={a.key} onClick={()=>toggle(a.key)}
+              style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,border:"2px solid",cursor:"pointer",transition:"all .15s",
+                borderColor:on?"var(--tl)":"var(--bd)",background:on?"rgba(58,160,216,0.1)":"var(--wh)"}}>
+              <div style={{width:20,height:20,borderRadius:5,border:"2px solid",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                borderColor:on?"var(--tl)":"var(--bd)",background:on?"var(--tl)":"transparent"}}>
+                {on&&<span style={{color:"#fff",fontSize:12,fontWeight:900}}>✓</span>}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>{a.label}</div>
+                {a.units>0&&<div style={{fontSize:10,color:"var(--tl)",fontFamily:"'DM Mono',monospace"}}>
+                  {a.units}単位/{a.perDay?"日":"月"}
+                  {a.rate&&<span> ({(a.rate*100).toFixed(1)}%加算)</span>}
+                  {a.maxPerMonth&&<span style={{color:"var(--am)"}}> 月{a.maxPerMonth}回まで</span>}
+                </div>}
+                {a.note&&<div style={{fontSize:10,color:"var(--tx3)",marginTop:1}}>{a.note}</div>}
+                {a.autoCheck&&<div style={{fontSize:9,color:"var(--gr)",marginTop:1}}>🤖 自動判定: {a.autoCheck}</div>}
+              </div>
+            </div>;
+          })}
+        </div>
+      </div>;
+    })}
+  </div>;
+}
+
+// ─── 請求前チェックタブ ───
+function BillingCheckTab({user,store,facilityId,yearMonth}){
+  const master=getBillingMaster(yearMonth);
+  const facilitySettings=store.facilityBillingSettings[facilityId]||{};
+  const staffCfg=store.getStaffConfig(facilityId,yearMonth);
+  const alerts=checkBillingAlerts(facilityId,yearMonth,store,staffCfg);
+  const myUsers=store.dynUsers.filter(u=>u.active!==false&&u.facilityId===facilityId);
+  const inMonth=r=>{const d=r.time?.slice(0,7)||"";return d===yearMonth&&(r.facilityId===facilityId||r.facility_id===facilityId);};
+  const monthRecs=store.recs.filter(inMonth);
+  const enabledAddons=facilitySettings.enabledAddons||[];
+
+  const userChecks=myUsers.map(u=>{
+    const arrivals =monthRecs.filter(r=>r.type==="user_in" &&r.userId===u.id);
+    const departures=monthRecs.filter(r=>r.type==="user_out"&&r.userId===u.id);
+    const services =monthRecs.filter(r=>r.type==="service" &&r.userId===u.id);
+    const absences =monthRecs.filter(r=>r.type==="absence" &&r.userId===u.id);
+    const transports=arrivals.filter(r=>r.transport==="あり");
+    const arrDates=[...new Set(arrivals.map(r=>r.time?.slice(0,10)))].filter(Boolean);
+    const svcDates=[...new Set(services.map(r=>r.time?.slice(0,10)))].filter(Boolean);
+    const serviceDays=svcDates.length;
+    const arrivalDays=arrDates.length;
+    const missingSvc=arrDates.filter(d=>!svcDates.includes(d));
+    const missingTemp=arrivals.filter(r=>!r.temp||r.temp==="");
+    const depDates=[...new Set(departures.map(r=>r.time?.slice(0,10)))].filter(Boolean);
+    const missingDep=arrDates.filter(d=>!depDates.includes(d));
+    const isp=(store.isps||[]).filter(i=>i.userId===u.id).sort((a,b)=>b.endDate>a.endDate?1:-1)[0];
+    const ispOk=isp&&isp.endDate>=(yearMonth+"-01");
+    const addResults=enabledAddons.map(key=>{
+      const addDef=(master.additions||[]).find(a=>a.key===key);
+      if(!addDef) return null;
+      let eligible=null; let reason="";
+      if(addDef.autoCheck==="transport"){eligible=transports.length>0;reason=eligible?("送迎記録 "+transports.length+"日"):"送迎記録なし";}
+      else if(addDef.autoCheck==="absence"){const cnt=Math.min(absences.length,addDef.maxPerMonth||4);eligible=cnt>0;reason=eligible?("欠席対応 "+cnt+"回"):"欠席記録なし";}
+      else if(addDef.autoCheck==="staff_qual"){eligible=staffCfg&&parseInt(staffCfg.specStaff||0)>0;reason=eligible?"専門職配置あり":"専門職員が未登録";}
+      else if(addDef.autoCheck==="staff_ratio"){const fte=parseFloat(staffCfg?.fullTimeEquivalent||0);eligible=fte/myUsers.length>=0.4;reason=eligible?("常勤換算 "+fte+"名"):"配置基準未達";}
+      else if(addDef.autoCheck==="child_staff"){eligible=staffCfg&&parseInt(staffCfg.childInstructors||0)>0;reason=eligible?"児童指導員配置あり":"未登録";}
+      else if(addDef.autoCheck==="nurse_staff"){eligible=staffCfg&&parseInt(staffCfg.nurseStaff||0)>0;reason=eligible?"看護職員配置あり":"未登録";}
+      return {key,label:addDef.label,units:addDef.units,perDay:addDef.perDay,eligible,reason};
+    }).filter(Boolean);
+    return {u,arrivalDays,serviceDays,missingSvc,missingTemp,missingDep,ispOk,isp,addResults};
+  });
+
+  const dangerCount=alerts.filter(a=>a.level==="danger").length;
+  const warnCount=alerts.filter(a=>a.level==="warn").length;
+  const okCount=myUsers.length-[...new Set(alerts.map(a=>a.userId).filter(Boolean))].length;
+
+  const printCheck=()=>{
+    const facName=FACILITIES.find(f=>f.id===facilityId)?.name||"";
+    const tbody=userChecks.map(uc=>`<tr>
+      <td style="text-align:left;font-weight:700;">${uc.u.name}</td>
+      <td>${uc.arrivalDays}</td>
+      <td style="color:${uc.missingSvc.length===0?"#1a7a3a":"#c0392b"};font-weight:700;">${uc.serviceDays}${uc.missingSvc.length>0?" ⚠ "+uc.missingSvc.length+"日不足":""}</td>
+      <td style="color:${uc.missingTemp.length===0?"#1a7a3a":"#c0392b"};">${uc.missingTemp.length===0?"✓":"✗ "+uc.missingTemp.length+"件"}</td>
+      <td style="color:${uc.missingDep.length===0?"#1a7a3a":"#e08020"};">${uc.missingDep.length===0?"✓":"△ "+uc.missingDep.length+"件"}</td>
+      <td style="color:${uc.ispOk?"#1a7a3a":"#c0392b"};font-weight:700;">${uc.ispOk?"✓ "+uc.isp?.endDate:"✗ "+(uc.isp?"期限切れ":"未作成")}</td>
+    </tr>`).join("");
+    const alertHtml=alerts.map(a=>`<div class="alert-${a.level}">${a.level==="danger"?"🚨":"⚠️"} ${a.text}</div>`).join("");
+    const html=`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"/><title>請求前チェックリスト</title>
+    <style>@page{size:A4;margin:15mm 12mm;}*{box-sizing:border-box;}body{font-family:'MS Gothic',Meiryo,sans-serif;font-size:10pt;color:#111;}
+    h2{font-size:14pt;margin-bottom:4px;}.meta{font-size:9pt;color:#666;margin-bottom:12px;}
+    .alert-danger{background:#fdf0ee;border:1px solid #e09090;padding:5px 10px;border-radius:4px;margin-bottom:4px;font-size:9pt;color:#8a2010;}
+    .alert-warn{background:#fffaec;border:1px solid #ddb860;padding:5px 10px;border-radius:4px;margin-bottom:4px;font-size:9pt;color:#7a5000;}
+    table{border-collapse:collapse;width:100%;font-size:9pt;margin-top:12px;}
+    th,td{border:1px solid #bbb;padding:5px 8px;text-align:center;}th{background:#e8eef8;font-weight:700;}
+    .sign-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:20px;}
+    .sign-box{border:1px solid #aaa;padding:8px;min-height:52px;border-radius:4px;}
+    .sign-lbl{font-size:9pt;color:#666;margin-bottom:4px;}
+    </style></head><body>
+    <h2>📋 請求前チェックリスト — ${facName}</h2>
+    <div class="meta">対象年月: ${yearMonth}　適用マスタ: ${master.name}　出力日時: ${new Date().toLocaleString("ja-JP")}</div>
+    ${dangerCount>0?`<div class="alert-danger">🚨 重大エラー ${dangerCount}件</div>`:""}
+    ${warnCount>0?`<div class="alert-warn">⚠ 警告 ${warnCount}件</div>`:""}
+    ${alertHtml}
+    <table><thead><tr><th>利用者名</th><th>来所日数</th><th>サービス記録</th><th>体温記録</th><th>退所記録</th><th>ISP有効期限</th></tr></thead>
+    <tbody>${tbody}</tbody></table>
+    <div class="sign-row">
+      <div class="sign-box"><div class="sign-lbl">管理者 確認サイン</div></div>
+      <div class="sign-box"><div class="sign-lbl">児発管 確認サイン</div></div>
+      <div class="sign-box"><div class="sign-lbl">確認日: ${new Date().toLocaleDateString("ja-JP")}</div></div>
+    </div></body></html>`;
+    const w=window.open("","_blank","width=900,height=700");
+    if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),300);}
+  };
+
+  return <div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+      {[{label:"🚨 重大エラー",count:dangerCount,color:"var(--ro)"},{label:"⚠️ 警告",count:warnCount,color:"var(--ac)"},{label:"✅ 問題なし",count:okCount,color:"var(--gr)"}].map(s=>(
+        <div key={s.label} className="stat-card">
+          <div className="stat-label">{s.label}</div>
+          <div className="stat-val" style={{fontSize:22,color:s.color}}>{s.count}</div>
+        </div>
+      ))}
+    </div>
+    {alerts.length===0?<div style={{background:"rgba(44,170,96,0.1)",border:"1px solid rgba(44,170,96,0.4)",borderRadius:10,padding:12,marginBottom:14,display:"flex",gap:10,alignItems:"center"}}>
+      <span style={{fontSize:20}}>✅</span><span style={{fontSize:13,fontWeight:700,color:"var(--gr)"}}>全チェック通過 — 請求可能な状態です</span>
+    </div>:<div style={{marginBottom:14}}>
+      {alerts.map((a,i)=><div key={i} className={"alert-row alert-"+a.level} style={{marginBottom:5}}>
+        <span className="alert-icon">{a.level==="danger"?"🚨":"⚠️"}</span>
+        <span className="alert-text" style={{color:a.level==="danger"?"var(--ro)":"var(--ac)"}}>{a.text}</span>
+      </div>)}
+    </div>}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <div className="dash-title">利用者別 算定チェック</div>
+      <button className="bexp" style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={printCheck}>🖨️ チェックリストPDF</button>
+    </div>
+    {userChecks.map(uc=>{
+      const hasIssue=uc.missingSvc.length>0||uc.missingTemp.length>0||!uc.ispOk;
+      return <div key={uc.u.id} style={{background:"var(--wh)",border:"2px solid",borderColor:hasIssue?"rgba(224,56,56,0.35)":"rgba(44,170,96,0.35)",borderRadius:12,padding:13,marginBottom:9}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+          <span style={{fontWeight:700,fontSize:14}}>{hasIssue?"⚠️":"✅"} {uc.u.name}</span>
+          <span style={{fontSize:10,padding:"2px 7px",borderRadius:6,fontWeight:700,
+            background:hasIssue?"rgba(224,56,56,0.15)":"rgba(44,170,96,0.15)",
+            color:hasIssue?"var(--ro)":"var(--gr)"}}>
+            {hasIssue?"要確認":"問題なし"}
+          </span>
+          <span style={{fontSize:10,color:"var(--tx3)",marginLeft:"auto"}}>来所 {uc.arrivalDays}日</span>
+        </div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:uc.addResults.length>0?8:0}}>
+          <span className={"audit-check "+(uc.missingSvc.length===0?"audit-ok":"audit-ng")}>サービス記録 {uc.missingSvc.length===0?"✓":"✗ "+uc.missingSvc.length+"日不足"}</span>
+          <span className={"audit-check "+(uc.missingTemp.length===0?"audit-ok":"audit-ng")}>体温 {uc.missingTemp.length===0?"✓":"✗ "+uc.missingTemp.length+"件"}</span>
+          <span className={"audit-check "+(uc.missingDep.length===0?"audit-ok":"audit-na")}>退所記録 {uc.missingDep.length===0?"✓":"△ "+uc.missingDep.length+"件"}</span>
+          <span className={"audit-check "+(uc.ispOk?"audit-ok":"audit-ng")}>ISP {uc.ispOk?"✓ 有効（〜"+uc.isp?.endDate+")":"✗ "+(uc.isp?"期限切れ":"未作成")}</span>
+        </div>
+        {uc.addResults.length>0&&<div style={{paddingTop:8,borderTop:"1px solid var(--bd)"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",marginBottom:5}}>加算 自動判定結果</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+            {uc.addResults.map(ar=><span key={ar.key} title={ar.reason}
+              style={{fontSize:10,padding:"3px 8px",borderRadius:7,fontWeight:700,
+                background:ar.eligible?"rgba(58,160,216,0.15)":ar.eligible===false?"rgba(224,56,56,0.1)":"var(--bg)",
+                color:ar.eligible?"var(--tl)":ar.eligible===false?"var(--ro)":"var(--tx3)",
+                border:"1px solid",borderColor:ar.eligible?"rgba(58,160,216,0.4)":ar.eligible===false?"rgba(224,56,56,0.3)":"var(--bd)"}}>
+              {ar.eligible?"✓":"✗"} {ar.label}{ar.eligible&&ar.units>0&&<span style={{fontFamily:"'DM Mono',monospace",marginLeft:3}}>{ar.units}単位/{ar.perDay?"日":"月"}</span>}
+            </span>)}
+          </div>
+        </div>}
+      </div>;
+    })}
+  </div>;
+}
+
+// ─── 月次サマリータブ ───
+function BillingSummaryTab({user,store,facilityId,yearMonth,vm,setVm}){
+  const [city,setCity]=useState(()=>store.facilityBillingSettings[facilityId]?.city||"その他");
+  const TANKA=getShizuokaTanka(city);
+  const master=getBillingMaster(yearMonth);
+  const kk=store.kokuho.filter(k=>k.facilityId===facilityId&&k.year===vm.y&&k.month===vm.m);
+  const totalUnits=kk.reduce((s,k)=>s+calcTotalUnits(k),0);
+  const totalYen=Math.round(totalUnits*TANKA);
+  const isMgr=user.role==="manager"||user.role==="admin";
+  const bsKey=facilityId+"_"+yearMonth;
+  const bStatus=store.billingStatus[bsKey]||"draft";
+  const statusColors={"未請求":"var(--tx3)","請求済":"var(--tl)","入金済":"var(--gr)"};
+
+  const csv=()=>{
+    const rows=[["利用者名","日数","基本単位","加算単位","合計単位","請求額（円）","状態"],...kk.map(k=>{const tu=calcTotalUnits(k);return [k.userName,k.serviceDays,k.serviceDays*(k.unitPrice||576),tu-(k.serviceDays*(k.unitPrice||576)),tu,Math.round(tu*TANKA),k.status];})];
+    const c=rows.map(r=>r.join(",")).join("\n");
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿"+c],{type:"text/csv"}));
+    a.download="billing_"+yearMonth+".csv";a.click();
+  };
+
+  return <div>
+    <div style={{background:"rgba(58,160,216,0.08)",border:"1px solid rgba(58,160,216,0.2)",borderRadius:9,padding:10,marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+      <div style={{fontSize:11,color:"var(--tl)",fontWeight:700}}>📋 {master.name}</div>
+      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+        <span style={{fontSize:11,color:"var(--tx3)"}}>地域単価（市区町村）：</span>
+        <select className="fsm" value={city} onChange={e=>setCity(e.target.value)}>
+          {Object.keys(SHIZUOKA_TANKA).map(c=><option key={c} value={c}>{c}（{SHIZUOKA_TANKA[c]}円）</option>)}
+        </select>
+      </div>
+    </div>
+    <div style={{background:"linear-gradient(135deg,#1a6b3a,#2d9e58)",borderRadius:12,padding:"14px 18px",marginBottom:14,color:"#fff"}}>
+      <div style={{fontSize:12,opacity:.8,marginBottom:4}}>{vm.y}年{vm.m}月 請求合計</div>
+      <div style={{fontSize:28,fontWeight:900,fontFamily:"'DM Mono',monospace"}}>{totalYen.toLocaleString()}円</div>
+      <div style={{fontSize:11,opacity:.7,marginTop:4}}>{totalUnits.toLocaleString()}単位　{kk.length}名</div>
+    </div>
+    {isMgr&&<div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+      <span style={{fontSize:11,fontWeight:700,color:"var(--tx3)"}}>請求ステータス：</span>
+      {[["draft","📝 下書き"],["confirmed","✅ 請求確定"],["submitted","📮 国保連提出済"]].map(([s,l])=><button key={s}
+        onClick={()=>store.saveBillingStatus(facilityId,yearMonth,s)}
+        style={{padding:"8px 14px",borderRadius:9,border:"2px solid",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,
+          borderColor:bStatus===s?"var(--tl)":"var(--bd)",background:bStatus===s?"rgba(58,160,216,0.2)":"var(--bg)",color:bStatus===s?"var(--tl)":"var(--tx3)"}}>
+        {l}
+      </button>)}
+      <button className="bexp" style={{marginLeft:"auto"}} onClick={csv}>⬇ CSV</button>
+    </div>}
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:"max-content"}}>
+        <thead><tr style={{background:"var(--bg2)"}}>
+          {["利用者名","日数","基本単位","加算単位","合計単位","請求額","状態"].map(h=><th key={h} style={{padding:"7px 9px",textAlign:"left",color:"var(--tx2)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--bd)",whiteSpace:"nowrap"}}>{h}</th>)}
+        </tr></thead>
+        <tbody>{kk.length===0?<tr><td colSpan={7} style={{padding:24,textAlign:"center",color:"var(--tx3)"}}>この月の請求データがありません</td></tr>:kk.map(k=>{
+          const tu=calcTotalUnits(k);const addU=tu-k.serviceDays*(k.unitPrice||576);
+          return <tr key={k.id} style={{borderBottom:"1px solid var(--bd)"}}>
+            <td style={{padding:"8px 9px",fontWeight:700}}>{k.userName}</td>
+            <td style={{padding:"8px 9px",fontFamily:"'DM Mono',monospace",textAlign:"right"}}>{k.serviceDays}</td>
+            <td style={{padding:"8px 9px",fontFamily:"'DM Mono',monospace",textAlign:"right",color:"var(--tx2)"}}>{(k.serviceDays*(k.unitPrice||576)).toLocaleString()}</td>
+            <td style={{padding:"8px 9px",fontFamily:"'DM Mono',monospace",textAlign:"right",color:"var(--tl)"}}>{addU>0?"+"+addU.toLocaleString():"—"}</td>
+            <td style={{padding:"8px 9px",fontFamily:"'DM Mono',monospace",fontWeight:700,textAlign:"right"}}>{tu.toLocaleString()}</td>
+            <td style={{padding:"8px 9px",fontFamily:"'DM Mono',monospace",fontWeight:700,textAlign:"right",color:"var(--am)"}}>{Math.round(tu*TANKA).toLocaleString()}円</td>
+            <td style={{padding:"8px 9px"}}><span style={{fontSize:10,fontWeight:700,color:statusColors[k.status]||"var(--tx3)"}}>{k.status||"未請求"}</span></td>
+          </tr>;
+        })}</tbody>
+      </table>
+    </div>
+  </div>;
+}
+
+// ─── マスタ管理タブ（管理者専用）───
+function BillingMasterTab(){
+  return <div>
+    <div style={{fontSize:12,color:"var(--tx3)",marginBottom:14,lineHeight:1.7}}>
+      法改正時は <code style={{background:"var(--bg2)",padding:"1px 5px",borderRadius:4,fontFamily:"monospace"}}>BILLING_MASTERS</code> 配列に新エントリを追加することで、指定日から自動切替されます。過去月の請求は当時のマスタで再計算されます。
+    </div>
+    {BILLING_MASTERS.map(m=><div key={m.id} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:14,marginBottom:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+        <div>
+          <div style={{fontSize:14,fontWeight:700}}>{m.name}</div>
+          <div style={{fontSize:11,color:"var(--tx3)",fontFamily:"'DM Mono',monospace",marginTop:2}}>{m.effectiveFrom} 〜 {m.effectiveTo||"（終了日未設定・現在有効）"}</div>
+        </div>
+        {!m.effectiveTo&&<span style={{fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:7,background:"rgba(44,170,96,0.2)",color:"var(--gr)",flexShrink:0}}>現在適用中</span>}
+      </div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+        {Object.entries(m.regionUnitPrice||{}).map(([r,p])=>(
+          <div key={r} style={{background:"var(--bg2)",borderRadius:7,padding:"5px 9px",fontSize:10}}>
+            <div style={{color:"var(--tx3)",fontSize:9}}>{r}</div>
+            <div style={{fontWeight:700,fontFamily:"'DM Mono',monospace",color:"var(--tl)"}}>{p}円</div>
+          </div>
+        ))}
+      </div>
+      <div style={{fontSize:11,color:"var(--tx3)"}}>加算項目: {(m.additions||[]).length}件　基本報酬パターン: {(m.basicRewards||[]).length}件</div>
+    </div>)}
+    <div style={{background:"rgba(240,112,32,0.08)",border:"1px dashed rgba(240,112,32,0.4)",borderRadius:10,padding:14,marginTop:4}}>
+      <div style={{fontSize:12,fontWeight:700,color:"var(--ac)",marginBottom:8}}>📋 法改正対応の手順</div>
+      <ol style={{fontSize:11,color:"var(--tx3)",paddingLeft:18,lineHeight:2.2}}>
+        <li><strong>BILLING_MASTERS</strong> 配列に新しいオブジェクトを追加する</li>
+        <li><strong>effectiveFrom</strong> に改正施行日（例: "2028-04-01"）を設定する</li>
+        <li>前マスタの <strong>effectiveTo</strong> に施行前日（例: "2028-03-31"）を設定する</li>
+        <li><strong>basicRewards・additions</strong> の単位数・条件を改正内容に更新する</li>
+        <li>過去月の請求は <strong>getBillingMaster(yearMonth)</strong> が自動的に旧マスタを参照する</li>
+      </ol>
+    </div>
+  </div>;
+}
+
+// ─── メイン KokuhoScreen ───
+function KokuhoScreen({user,store,onBack}){
+  const [vm,setVm]=useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()+1};});
+  const [tab,setTab]=useState("check");
+  const [facilityId,setFacilityId]=useState(user.selectedFacilityId||FACILITIES[0].id);
+  const isAdmin=user.role==="admin";
+  const yearMonth=vm.y+"-"+String(vm.m).padStart(2,"0");
+
+  const tabs=[
+    {id:"check",   icon:"🔍",label:"請求前チェック"},
+    {id:"summary", icon:"💴",label:"月次サマリー"},
+    {id:"addons",  icon:"⚙️",label:"加算設定"},
+    {id:"staff",   icon:"👥",label:"職員体制"},
+    {id:"facility",icon:"🏢",label:"事業所設定"},
+    ...(isAdmin?[{id:"master",icon:"📋",label:"マスタ管理"}]:[]),
+  ];
+
+  return <div className="fl-wrap">
+    <div className="fl-hd">
+      <button className="bback" onClick={onBack}>← 戻る</button>
+      <div className="fl-title">💴 請求管理</div>
+    </div>
+    {/* 施設・年月 */}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14,background:"var(--wh)",padding:"10px 12px",borderRadius:11,border:"1px solid var(--bd)"}}>
+      {!isAdmin&&<div style={{fontWeight:700,fontSize:13,color:"var(--tx)"}}>{FACILITIES.find(f=>f.id===facilityId)?.name}</div>}
+      {isAdmin&&<select className="fsm" value={facilityId} onChange={e=>setFacilityId(e.target.value)}>
+        {FACILITIES.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}
+      </select>}
+      <select className="fsm" value={vm.y} onChange={e=>setVm(v=>({...v,y:+e.target.value}))}>
+        {Array.from({length:6},(_,i)=>2024+i).map(y=><option key={y} value={y}>{y}年</option>)}
+      </select>
+      <select className="fsm" value={vm.m} onChange={e=>setVm(v=>({...v,m:+e.target.value}))}>
+        {Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m}月</option>)}
+      </select>
+      <div style={{fontSize:10,color:"var(--tx3)",fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>
+        {getBillingMaster(yearMonth).name}
+      </div>
+    </div>
+    {/* タブナビ */}
+    <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:16}}>
+      {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)}
+        style={{padding:"8px 14px",borderRadius:9,border:"2px solid",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,transition:"all .15s",
+          borderColor:tab===t.id?"var(--tl)":"var(--bd)",
+          background:tab===t.id?"rgba(58,160,216,0.2)":"var(--bg)",
+          color:tab===t.id?"var(--tl)":"var(--tx3)"}}>
+        {t.icon} {t.label}
+      </button>)}
+    </div>
+    {/* コンテンツ */}
+    {tab==="check"   &&<BillingCheckTab   user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
+    {tab==="summary" &&<BillingSummaryTab user={user} store={store} facilityId={facilityId} yearMonth={yearMonth} vm={vm} setVm={setVm}/>}
+    {tab==="addons"  &&<BillingAddonsTab  user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
+    {tab==="staff"   &&<BillingStaffTab   user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
+    {tab==="facility"&&<BillingFacilityTab user={user} store={store} facilityId={facilityId}/>}
+    {tab==="master"  &&<BillingMasterTab/>}
+  </div>;
 }
 
 
