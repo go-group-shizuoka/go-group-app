@@ -196,6 +196,38 @@ const nowHM = () => { const d=new Date(); return String(d.getHours()).padStart(2
 const buildDT = t => { const d=new Date(); const [h,m]=t.split(":"); d.setHours(+h,+m,0); return d.toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"}); };
 const todayISO = () => { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
 const todayDisplay = () => new Date().toLocaleDateString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit"});
+// 記録が今日かどうか判定（複数日付フォーマット対応）
+const isTodayRec = (r) => {
+  if(!r||!r.time) return false;
+  const d = todayISO();
+  const [y,mo,dy] = d.split("-");
+  const padded = d.replace(/-/g,"/");
+  const short = y+"/"+Number(mo)+"/"+Number(dy);
+  return r.time.includes(padded)||r.time.includes(short)||r.time.startsWith(d);
+};
+// 今日のアラートを生成する共通ヘルパー
+const buildTodayAlerts = (user, store) => {
+  const today = todayISO();
+  const myFac = r => user.role==="admin" || (r.facilityId||r.facility_id)===user.selectedFacilityId;
+  const todayRecs = store.recs.filter(r => isTodayRec(r) && myFac(r));
+  const arrivedIds = [...new Set(todayRecs.filter(r=>r.type==="user_in").map(r=>r.userId))];
+  const serviceIds = [...new Set(todayRecs.filter(r=>r.type==="service").map(r=>r.userId))];
+  const noService = arrivedIds.filter(id=>!serviceIds.includes(id));
+  const noTemp = todayRecs.filter(r=>(r.type==="user_in"||r.type==="staff_in")&&!r.temp);
+  const unread = store.msgs.filter(m=>myFac(m)&&!m.read);
+  const now = new Date();
+  const ispExp = (store.isps||[]).filter(isp=>{
+    if(!isp.endDate) return false;
+    const days = Math.ceil((new Date(isp.endDate)-now)/(1000*60*60*24));
+    return days<=30 && days>=-30;
+  });
+  const alerts = [];
+  if(noService.length>0) alerts.push({level:"warn",icon:"📋",text:`サービス記録 未入力 ${noService.length}名`,screen:"service"});
+  if(noTemp.length>0) alerts.push({level:"warn",icon:"🌡️",text:`体温 未入力 ${noTemp.length}件`,screen:"daily"});
+  if(unread.length>0) alerts.push({level:"info",icon:"💬",text:`保護者連絡 未読 ${unread.length}件`,screen:"messages"});
+  if(ispExp.length>0) alerts.push({level:"warn",icon:"📄",text:`個別支援計画 期限間近 ${ispExp.length}件`,screen:"users"});
+  return alerts;
+};
 const daysInMonth = (y,m) => new Date(y,m,0).getDate();
 const dlabel = s => { const d=new Date(s+"T00:00:00"); return (d.getMonth()+1)+"/"+(d.getDate())+"（"+"日月火水木金土"[d.getDay()]+"）"; };
 const fmtYen = n => "¥" + Number(n).toLocaleString();
@@ -1330,6 +1362,53 @@ select.fi option{background:var(--bg2);color:var(--tx);}
 .photo-act{font-size:10px;color:var(--ac);margin-top:2px;}
 .photo-time{font-size:10px;color:var(--tx3);}
 @media(max-width:520px){.hg{gap:8px;}.hc{padding:12px 10px;}.ct{font-size:12px;}.lc{padding:26px 16px;}.ng{grid-template-columns:repeat(auto-fill,minmax(94px,1fr));}}
+
+/* ===== UX改善：タッチターゲット最適化 ===== */
+/* 主要ボタン最小52px（指先でも確実に押せる） */
+.bsave,.bpri{min-height:52px;font-size:15px;letter-spacing:.5px;}
+.bconf{min-height:46px;}
+.bback{min-height:40px;display:inline-flex;align-items:center;}
+/* タブ・チップ系は最小40px */
+.tab,.nb,.tg,.cb{min-height:40px;display:inline-flex;align-items:center;justify-content:center;}
+/* ホームカード最小高 */
+.hc{min-height:82px;}
+/* ===== iOS入力フォームズーム防止 ===== */
+/* 16px未満だとiOSが自動ズームしてしまう */
+.fi,.fta,.ti,.fsm{font-size:16px;}
+@media(max-width:768px){
+  .fi,.fta,.ti,.fsm{font-size:16px!important;}
+  .hc{min-height:92px;padding:16px 12px;}
+  .ci{font-size:28px;}
+  .ct{font-size:14px;}
+  .bsave{padding:15px;}
+  /* スマホでのコンテンツ幅調整 */
+  .hg{grid-template-columns:repeat(2,1fr);gap:12px;}
+}
+/* ===== アラートカード ===== */
+.alert-row{display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:10px;margin-bottom:7px;cursor:pointer;transition:transform .12s,opacity .12s;-webkit-tap-highlight-color:transparent;}
+.alert-row:active{transform:scale(0.98);opacity:.85;}
+.alert-warn{background:rgba(240,112,32,0.13);border:1px solid rgba(240,112,32,0.4);}
+.alert-info{background:rgba(58,160,216,0.11);border:1px solid rgba(58,160,216,0.35);}
+.alert-danger{background:rgba(224,56,56,0.13);border:1px solid rgba(224,56,56,0.4);}
+.alert-ok{background:rgba(44,170,96,0.11);border:1px solid rgba(44,170,96,0.35);}
+.alert-icon{font-size:20px;flex-shrink:0;width:24px;text-align:center;}
+.alert-text{flex:1;font-size:13px;font-weight:700;}
+.alert-arrow{font-size:16px;color:var(--tx3);flex-shrink:0;}
+/* ===== 現場ダッシュボード ===== */
+.dash-section{margin-bottom:18px;}
+.dash-title{font-size:10px;font-weight:700;color:var(--tx3);letter-spacing:2px;margin-bottom:9px;text-transform:uppercase;display:flex;align-items:center;gap:6px;}
+.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px;}
+.stat-card{background:var(--wh);border:1px solid var(--bd);border-radius:12px;padding:14px 10px;text-align:center;box-shadow:var(--sh);}
+.stat-label{font-size:10px;color:var(--tx3);margin-bottom:5px;}
+.stat-val{font-size:28px;font-weight:900;font-family:'DM Mono',monospace;line-height:1;}
+/* 在所中・来所待ちユーザーバッジ */
+.user-tag{display:inline-flex;align-items:center;gap:5px;padding:8px 13px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;-webkit-tap-highlight-color:transparent;margin:3px;}
+.user-tag:active{transform:scale(0.95);}
+.user-tag-in{background:rgba(44,170,96,0.2);color:var(--gr2);border:1px solid rgba(44,170,96,0.4);}
+.user-tag-pending{background:rgba(58,160,216,0.15);color:var(--tl);border:1px solid rgba(58,160,216,0.35);}
+.user-tag-unrecorded{background:rgba(240,112,32,0.15);color:var(--ac);border:1px solid rgba(240,112,32,0.4);}
+/* セクション区切り */
+.dash-divider{border:none;border-top:1px solid var(--bd);margin:16px 0;}
 `;
 
 
@@ -4882,54 +4961,120 @@ function RegisterStaff({init, isEdit, user, store, onBack, onSave}){
 function HomeScreen({user,onNav,store}){
   const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
   const isMgr=user.role==="manager"||user.role==="admin";
-  const unread=store.msgs.filter(m=>(user.role==="admin"||m.facilityId===user.selectedFacilityId)&&!m.read).length;
+  const today=todayISO();
 
-  // 今日の集計
-  const today=new Date();
-  const todayRecs=store.recs.filter(r=>{
-    try{const d=new Date(r.time);return d.getFullYear()===today.getFullYear()&&d.getMonth()===today.getMonth()&&d.getDate()===today.getDate()&&(user.role==="admin"||r.facilityId===user.selectedFacilityId);}catch(e){return false;}
+  // ===== 今日のデータ集計 =====
+  const myFac = r => user.role==="admin" || (r.facilityId||r.facility_id)===user.selectedFacilityId;
+  const todayRecs = store.recs.filter(r=>isTodayRec(r)&&myFac(r));
+
+  const staffInToday = [...new Set(todayRecs.filter(r=>r.type==="staff_in").map(r=>r.staffId))].length;
+  const arrivedIds   = [...new Set(todayRecs.filter(r=>r.type==="user_in").map(r=>r.userId))];
+  const departedIds  = [...new Set(todayRecs.filter(r=>r.type==="user_out").map(r=>r.userId))];
+  const serviceIds   = [...new Set(todayRecs.filter(r=>r.type==="service").map(r=>r.userId))];
+
+  // 現在在所中（来所済み & 退所していない）
+  const inFacility = arrivedIds.filter(id=>!departedIds.includes(id));
+  // サービス記録未入力（来所済みだが未入力）
+  const unrecordedIds = inFacility.filter(id=>!serviceIds.includes(id));
+  // 今日の来所予定者（attデータから）
+  const myUsers = store.dynUsers.filter(u=>u.active!==false&&(user.role==="admin"||u.facilityId===user.selectedFacilityId));
+  const scheduledToday = myUsers.filter(u=>{
+    const att=store.getAtt(u.id,today);
+    return att==="予定"||att==="出席";
   });
-  const staffIn=todayRecs.filter(r=>r.type==="staff_in").length;
-  const userIn=todayRecs.filter(r=>r.type==="user_in").length;
+  // 送迎予定（送迎フラグ付きの来所予定者）
+  const transportUsers = scheduledToday.filter(u=>{
+    const tr=store.trData.find(t=>t.userId===u.id);
+    return tr&&(tr.method==="car"||tr.method==="bus");
+  });
 
+  // ===== アラート生成 =====
+  const alerts = buildTodayAlerts(user,store);
+  // 送迎予定アラートを追加
+  if(transportUsers.length>0){
+    alerts.unshift({level:"info",icon:"🚌",text:`送迎予定 ${transportUsers.length}名`,screen:"transport"});
+  }
+
+  // ===== クイックアクション =====
   const quickCards=[
-    {id:"clock_in",icon:"🟢",title:"職員 出勤",desc:"打刻・体温",cls:"c1"},
-    {id:"clock_out",icon:"🟡",title:"職員 退勤",desc:"退勤打刻",cls:"c2"},
-    {id:"user_arrive",icon:"🌟",title:"利用者 来所",desc:"来所・体温",cls:"c3"},
-    {id:"user_depart",icon:"🏠",title:"利用者 退所",desc:"退所記録",cls:"c4"},
-    {id:"service",icon:"📋",title:"サービス記録",desc:"支援内容",cls:"c3"},
-    {id:"photo",icon:"📸",title:"写真記録",desc:"活動・撮影",cls:"c5"},
-    {id:"messages",icon:"💬",title:"保護者連絡"+(unread>0?` (${unread})`:``),desc:"連絡帳",cls:"c9"},
-    {id:"daily",icon:"📓",title:"業務日報",desc:"日報作成",cls:"c8"},
+    {id:"clock_in",  icon:"🟢",title:"職員 出勤",  desc:"打刻・体温",  cls:"c1"},
+    {id:"clock_out", icon:"🟡",title:"職員 退勤",  desc:"退勤打刻",    cls:"c2"},
+    {id:"user_arrive",icon:"🌟",title:"利用者 来所",desc:"来所・体温",  cls:"c3"},
+    {id:"user_depart",icon:"🏠",title:"利用者 退所",desc:"退所記録",    cls:"c4"},
+    {id:"service",   icon:"📋",title:"サービス記録",desc:"支援内容",    cls:"c3"},
+    {id:"messages",  icon:"💬",title:"保護者連絡", desc:"連絡帳",      cls:"c9"},
+    {id:"daily",     icon:"📓",title:"業務日報",   desc:"日報作成",    cls:"c8"},
+    {id:"photo",     icon:"📸",title:"写真記録",   desc:"活動・撮影",  cls:"c5"},
   ];
 
+  const getName=id=>(store.dynUsers.find(u=>u.id===id)?.name)||id;
+
   return <div>
-    {/* ダッシュボードヘッダー */}
+    {/* ===== ヘッダー ===== */}
     <div className="hh">
-      <div className="ht">{fac?.name||"GO GROUP"}</div>
-      <div className="hs">ダッシュボード</div>
+      <div className="ht">{fac?.name||"全店舗"}</div>
+      <div className="hs">今日の現場</div>
       <div className="hd">{todayDisplay()}</div>
     </div>
 
-    {/* 今日のサマリーカード */}
-    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:20}}>
-      {[
-        {label:"出勤職員",val:staffIn,icon:"👤",color:"var(--tl)",bg:"rgba(58,160,216,0.1)"},
-        {label:"来所利用者",val:userIn,icon:"🌟",color:"var(--gr)",bg:"rgba(44,170,96,0.1)"},
-        {label:"未読連絡",val:unread,icon:"💬",color:"var(--ac)",bg:"rgba(240,112,32,0.1)"},
-      ].map(s=>(
-        <div key={s.label} style={{background:s.bg,border:"1px solid var(--bd)",borderRadius:12,padding:"14px 12px",cursor:s.label==="未読連絡"?"pointer":"default"}}
-          onClick={s.label==="未読連絡"?()=>onNav("messages"):undefined}>
-          <div style={{fontSize:10,color:"var(--tx3)",marginBottom:6,display:"flex",alignItems:"center",gap:4}}>
-            <span>{s.icon}</span><span>{s.label}</span>
-          </div>
-          <div style={{fontSize:28,fontWeight:900,fontFamily:"'DM Mono',monospace",color:s.color,lineHeight:1}}>{s.val}</div>
+    {/* ===== アラートセクション ===== */}
+    {alerts.length>0&&<div className="dash-section">
+      <div className="dash-title">⚠ 要確認</div>
+      {alerts.map((a,i)=>(
+        <div key={i} className={`alert-row alert-${a.level}`} onClick={()=>onNav(a.screen)}>
+          <span className="alert-icon">{a.icon}</span>
+          <span className="alert-text" style={{color:a.level==="warn"?"var(--ac)":a.level==="danger"?"var(--ro)":"var(--tl)"}}>{a.text}</span>
+          <span className="alert-arrow">›</span>
         </div>
       ))}
+    </div>}
+
+    {/* ===== 今日のサマリー ===== */}
+    <div className="stat-grid">
+      {[
+        {label:"出勤職員",     val:staffInToday,        color:"var(--tl)", icon:"👤"},
+        {label:"在所中",       val:inFacility.length,   color:"var(--gr)", icon:"🌟"},
+        {label:"来所予定",     val:scheduledToday.length,color:"var(--tx2)",icon:"📅"},
+      ].map(s=><div key={s.label} className="stat-card">
+        <div className="stat-label">{s.icon} {s.label}</div>
+        <div className="stat-val" style={{color:s.color}}>{s.val}</div>
+      </div>)}
     </div>
 
-    {/* クイックアクション */}
-    <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",letterSpacing:2,marginBottom:10,textTransform:"uppercase"}}>Quick Actions</div>
+    {/* ===== 在所中ユーザー（サービス記録状況つき）===== */}
+    {inFacility.length>0&&<div className="dash-section">
+      <div className="dash-title">🌟 在所中 ({inFacility.length}名)</div>
+      <div style={{display:"flex",flexWrap:"wrap"}}>
+        {inFacility.map(id=>{
+          const recorded=serviceIds.includes(id);
+          return <span key={id}
+            className={`user-tag ${recorded?"user-tag-in":"user-tag-unrecorded"}`}
+            onClick={()=>!recorded&&onNav("service")}
+            title={recorded?"記録済":"タップでサービス記録へ"}>
+            {getName(id)}{recorded?" ✓":" 未記録"}
+          </span>;
+        })}
+      </div>
+    </div>}
+
+    {/* ===== 来所待ち（予定だが未到着）===== */}
+    {(()=>{
+      const waiting=scheduledToday.filter(u=>!arrivedIds.includes(u.id)&&!departedIds.includes(u.id));
+      if(waiting.length===0) return null;
+      return <div className="dash-section">
+        <div className="dash-title">📅 来所待ち ({waiting.length}名)</div>
+        <div style={{display:"flex",flexWrap:"wrap"}}>
+          {waiting.map(u=><span key={u.id} className="user-tag user-tag-pending">
+            {u.name}
+          </span>)}
+        </div>
+      </div>;
+    })()}
+
+    <hr className="dash-divider"/>
+
+    {/* ===== クイックアクション ===== */}
+    <div className="dash-title">Quick Actions</div>
     <div className="hg">
       {quickCards.map(c=>(
         <div key={c.id} className={`hc ${c.cls}`} onClick={()=>onNav(c.id)}>
