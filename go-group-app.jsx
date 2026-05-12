@@ -4051,7 +4051,9 @@ function IspPlanForm({record, u, user, store, onSave, onCancel}){
     setSaving(true);
     const histEntry={actor:user.displayName,role:user.role,action:record?"更新":"AI原案作成",at:nowStr(),note};
     if(record){
-      store.updIspRecord(record.id,{content:f,updatedAt:nowStr(),
+      // 確定済みを編集した場合は再確認が必要なため staff_checked に戻す
+      const newStatus = record.status==="finalized" ? "staff_checked" : record.status;
+      store.updIspRecord(record.id,{content:f,status:newStatus,updatedAt:nowStr(),
         history:[...(record.history||[]),histEntry]});
     } else {
       store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
@@ -4068,6 +4070,11 @@ function IspPlanForm({record, u, user, store, onSave, onCancel}){
       <button className="bback" onClick={onCancel}>← 戻る</button>
       <div style={{fontSize:15,fontWeight:900}}>📄 個別支援計画 {record?"編集":"作成"}</div>
     </div>
+
+    {/* 確定済み編集の注意バナー */}
+    {record?.status==="finalized"&&<div style={{background:"rgba(240,112,32,0.1)",border:"1px solid rgba(240,112,32,0.4)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"var(--am)",fontWeight:700}}>
+      ⚠️ 確定済みの計画を編集しています。保存後は「担当確認待ち」に戻り、再承認が必要になります。
+    </div>}
 
     {/* AI生成ボタン */}
     {!record&&<div style={{background:"rgba(58,160,216,0.08)",border:"1px solid rgba(58,160,216,0.3)",borderRadius:12,padding:14,marginBottom:16}}>
@@ -4141,7 +4148,7 @@ function IspPlanForm({record, u, user, store, onSave, onCancel}){
         <button className="bsave" onClick={handleSave}
           disabled={saving||!f.longGoal||!f.shortGoal||!f.supportContent}
           style={{opacity:saving||!f.longGoal||!f.shortGoal||!f.supportContent?0.5:1}}>
-          {saving?"保存中…":"💾 原案を保存する"}
+          {saving?"保存中…":(record?"💾 更新する":"💾 原案を保存する")}
         </button>
       </div>
     </div>
@@ -4546,16 +4553,20 @@ function IspHistoryPanel({rec}){
 }
 
 // ─── 書類カード（一覧表示用） ───
-function IspDocCard({rec, onOpen, onNew}){
-  const docLabel = ISP_DOC_LABELS[rec.docType]||rec.docType;
+function IspDocCard({rec, onOpen, onEdit}){
   const finalized = rec.status==="finalized";
-  return <div style={{background:"var(--wh)",border:`1.5px solid ${finalized?"rgba(44,170,96,0.4)":"var(--bd)"}`,borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)",cursor:"pointer"}}
-    onClick={()=>onOpen(rec)}>
+  return <div style={{background:"var(--wh)",border:`1.5px solid ${finalized?"rgba(44,170,96,0.4)":"var(--bd)"}`,borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
-      <div style={{fontWeight:700,fontSize:13}}>{ISP_DOC_LABELS[rec.docType]||rec.docType}</div>
-      <IspStatusBadge status={rec.status} small/>
+      <div style={{fontWeight:700,fontSize:13,cursor:"pointer",flex:1}} onClick={()=>onOpen(rec)}>{ISP_DOC_LABELS[rec.docType]||rec.docType}</div>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <IspStatusBadge status={rec.status} small/>
+        <button onClick={e=>{e.stopPropagation();onEdit(rec);}}
+          style={{padding:"3px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--tl)",color:"var(--tl)"}}>
+          ✏️ 編集
+        </button>
+      </div>
     </div>
-    <div style={{fontSize:11,color:"var(--tx3)"}}>
+    <div style={{fontSize:11,color:"var(--tx3)",cursor:"pointer"}} onClick={()=>onOpen(rec)}>
       {rec.content?.date||rec.content?.validFrom||""} 　作成: {rec.createdBy}　更新: {rec.updatedAt?.slice(0,10)||""}
     </div>
     {rec.content?.validFrom&&<div style={{fontSize:11,color:"var(--tl)",marginTop:2}}>
@@ -4632,7 +4643,7 @@ function IspUserDetail({u, user, store, onBack}){
           <div style={{fontSize:15,fontWeight:900}}>{docLabel}</div>
         </div>
         <button className="bsave" style={{width:"auto",padding:"7px 16px",marginTop:0,fontSize:12}}
-          onClick={()=>{setEditRec(viewRec);setViewRec(null);}}>✏️ 編集</button>
+          onClick={()=>{setTab(viewRec.docType);setEditRec(viewRec);setViewRec(null);}}>✏️ 編集</button>
       </div>
 
       {/* 承認フローバー */}
@@ -4737,7 +4748,7 @@ function IspUserDetail({u, user, store, onBack}){
         {ISP_DOC_LABELS[tab]||tab}がまだありません
         {tab==="isp_plan"&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:6}}>💡 まずアセスメントを完成させてから、AI原案生成をお試しください</div>}
       </div>
-      :tabRecs.map(rec=><IspDocCard key={rec.id} rec={rec} onOpen={r=>{setViewRec(r);setTab(r.docType);}} onNew={()=>setCreating(true)}/>)
+      :tabRecs.map(rec=><IspDocCard key={rec.id} rec={rec} onOpen={r=>{setViewRec(r);setTab(r.docType);}} onEdit={r=>{setTab(r.docType);setEditRec(r);}}/>)
     }
 
     {/* 新規作成ボタン */}
