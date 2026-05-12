@@ -1880,6 +1880,8 @@ function useStore() {
   const addIsp = isp => { setIsps(p=>[...p,isp]); sbSave("isps",{id:isp.id,facility_id:isp.facilityId||null,data:isp}); };
   const updIsp = (id,ch) => setIsps(p=>p.map(x=>{ if(x.id!==id) return x; const u={...x,...ch}; sbSave("isps",{id,facility_id:u.facilityId||null,data:u}); return u; }));
   const updKokuho = (id,ch) => setKokuho(p=>p.map(x=>{ if(x.id!==id) return x; const u={...x,...ch}; sbSave("kokuho_data",{id,facility_id:u.facilityId||null,data:u}); return u; }));
+  // 新規請求レコード追加（確定日報から自動生成時に使用）
+  const addKokuho = k => { setKokuho(p=>[...p,k]); sbSave("kokuho_data",{id:k.id,facility_id:k.facilityId||null,data:k}); };
 
   const [dynUsers, setDynUsers] = useState(INITIAL_USERS);
   const [dynStaff, setDynStaff] = useState(INITIAL_STAFF);
@@ -1982,7 +1984,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType};
+  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType};
 }
 
 
@@ -5268,9 +5270,45 @@ function BillingCheckTab({user,store,facilityId,yearMonth}){
 // ─── 月次サマリータブ ───
 function BillingSummaryTab({user,store,facilityId,yearMonth,vm,setVm}){
   const [city,setCity]=useState(()=>store.facilityBillingSettings[facilityId]?.city||"その他");
+  const [linking,setLinking]=useState(false);
   const TANKA=getShizuokaTanka(city);
   const master=getBillingMaster(yearMonth);
   const kk=store.kokuho.filter(k=>k.facilityId===facilityId&&k.year===vm.y&&k.month===vm.m);
+
+  // ─── 確定日報 → 請求への自動連携 ───
+  const autoLinkFromReports=()=>{
+    setLinking(true);
+    // その月の確定日報を収集
+    const confirmed=(store.dailyReports||[]).filter(r=>
+      r.facilityId===facilityId && r.date.startsWith(yearMonth) &&
+      (r.status==="確認済"||r.status==="確定")
+    );
+    if(confirmed.length===0){ store.showToast(`${vm.y}年${vm.m}月の確定日報がありません`,"warn"); setLinking(false); return; }
+    // 利用者ごとの出席日数・送迎日数を集計
+    const attendMap={};
+    confirmed.forEach(r=>{
+      (r.userList||[]).filter(u=>u.status==="出席"||u.status==="早退").forEach(u=>{
+        if(!attendMap[u.id]) attendMap[u.id]={userId:u.id,userName:u.name,days:0,transportDays:0};
+        attendMap[u.id].days++;
+        if(u.transport==="あり"||u.transport==="送迎") attendMap[u.id].transportDays++;
+      });
+    });
+    let updated=0; let created=0;
+    Object.values(attendMap).forEach(agg=>{
+      const ex=store.kokuho.find(k=>k.userId===agg.userId&&k.facilityId===facilityId&&k.year===vm.y&&k.month===vm.m);
+      if(ex){
+        store.updKokuho(ex.id,{serviceDays:agg.days,transportDays:agg.transportDays});
+        updated++;
+      } else {
+        store.addKokuho({id:genId(),userId:agg.userId,userName:agg.userName,facilityId,
+          year:vm.y,month:vm.m,serviceDays:agg.days,transportDays:agg.transportDays,
+          serviceCode:"6612B",unitPrice:530,timeType:"放課後",addons:[],city,status:"未請求"});
+        created++;
+      }
+    });
+    store.showToast(`${updated}名更新・${created}名新規追加しました（${confirmed.length}日分の日報から集計）`);
+    setLinking(false);
+  };
   const totalUnits=kk.reduce((s,k)=>s+calcTotalUnits(k),0);
   const totalYen=Math.round(totalUnits*TANKA);
   const isMgr=user.role==="manager"||user.role==="admin";
@@ -5294,6 +5332,20 @@ function BillingSummaryTab({user,store,facilityId,yearMonth,vm,setVm}){
           {Object.keys(SHIZUOKA_TANKA).map(c=><option key={c} value={c}>{c}（{SHIZUOKA_TANKA[c]}円）</option>)}
         </select>
       </div>
+    </div>
+    {/* ─── 自動連携バナー ─── */}
+    <div style={{background:"rgba(44,170,96,0.08)",border:"1px solid rgba(44,170,96,0.3)",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <div style={{flex:1}}>
+        <div style={{fontSize:12,fontWeight:700,color:"var(--gr)",marginBottom:3}}>🔗 自動連携：確定日報 → 請求実績</div>
+        <div style={{fontSize:11,color:"var(--tx3)"}}>
+          {vm.y}年{vm.m}月の確定済み日報から利用者ごとの出席日数を集計し、請求データに自動反映します。<br/>
+          <span style={{color:"var(--am)"}}>※ 既存データは上書きされます。実行後は内容を確認してください。</span>
+        </div>
+      </div>
+      <button onClick={autoLinkFromReports} disabled={linking}
+        style={{padding:"10px 18px",borderRadius:10,background:linking?"var(--bg)":"var(--gr)",color:linking?"var(--tx3)":"#fff",fontWeight:700,fontSize:12,border:"none",cursor:linking?"not-allowed":"pointer",fontFamily:"'Noto Sans JP',sans-serif",whiteSpace:"nowrap",flexShrink:0}}>
+        {linking?"集計中…":"📅 確定日報から自動集計"}
+      </button>
     </div>
     <div style={{background:"linear-gradient(135deg,#1a6b3a,#2d9e58)",borderRadius:12,padding:"14px 18px",marginBottom:14,color:"#fff"}}>
       <div style={{fontSize:12,opacity:.8,marginBottom:4}}>{vm.y}年{vm.m}月 請求合計</div>
@@ -5554,6 +5606,22 @@ function DailyReport({user,store,onBack}){
     ];
     const activities=serviceActivities.length>0?[...serviceActivities,{time:"",title:"",detail:"",staff:""}]:defaultActivities;
 
+    // ─── ISP短期目標を各ユーザーに自動注入 ───
+    const ISP_ACTIVE = ["staff_checked","cdsm_approved","manager_confirmed","parent_explained","parent_consented","finalized"];
+    userList.forEach(u => {
+      const isp = (store.ispRecords||[])
+        .filter(r=>r.userId===u.id&&r.docType==="isp_plan"&&ISP_ACTIVE.includes(r.status))
+        .sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+      if(isp){ u.ispGoal=isp.content?.shortGoal||""; u.ispStaff=isp.content?.staffInCharge||""; }
+    });
+    // ISP目標がある場合は活動欄の先頭にも反映（サービス記録がない場合のみ）
+    if(serviceActivities.length===0){
+      const ispHints=userList.filter(u=>u.ispGoal).map(u=>({
+        time:"",title:`【ISP目標】${u.name}`,detail:u.ispGoal,staff:u.ispStaff||"",autoFromIsp:true
+      }));
+      if(ispHints.length>0) ispHints.forEach(h=>defaultActivities.splice(1,0,h));
+    }
+
     return {staffList,userList,activities,photos:photos.slice(0,6).map(p=>({activity:p.activity,userName:p.userName,comment:p.comment}))};
   };
 
@@ -5580,7 +5648,36 @@ function DailyReport({user,store,onBack}){
   const updPhoto=(i,k,v)=>setRep(p=>{const ph=[...(p.photos||Array(6).fill(null))];ph[i]={...(ph[i]||{}), [k]:v};return {...p,photos:ph};});
   const addActivity=()=>setRep(p=>({...p,activities:[...p.activities,{time:"",title:"",detail:"",staff:""}]}));
   const removeActivity=(i)=>setRep(p=>({...p,activities:p.activities.filter((_,idx)=>idx!==i)}));
-  const save=(status)=>{const r={...rep,status,savedAt:nowStr()};store.addDailyReport(r);setRep(r);setMode("list");};
+  const save=(status)=>{
+    const r={...rep,status,savedAt:nowStr()};
+    store.addDailyReport(r);
+    // ─── 確定時：実績レコードを自動生成 ───
+    if(status==="確認済"){
+      const ISP_ACTIVE=["staff_checked","cdsm_approved","manager_confirmed","parent_explained","parent_consented","finalized"];
+      let autoCount=0;
+      (r.userList||[]).filter(u=>u.status==="出席"||u.status==="早退").forEach(u=>{
+        // 重複防止：同日・同利用者の自動生成済みレコードがあればスキップ
+        const exists=store.recs.some(rec=>rec.type==="service"&&rec.userId===u.id&&rec.date===r.date&&rec.facilityId===r.facilityId&&rec.autoLinked===true);
+        if(!exists){
+          const isp=(store.ispRecords||[]).filter(ir=>ir.userId===u.id&&ir.docType==="isp_plan"&&ISP_ACTIVE.includes(ir.status)).sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+          store.addRec({
+            id:genId(), type:"service", userId:u.id, userName:u.name,
+            facilityId:r.facilityId, date:r.date,
+            time:r.date+" "+(u.arrivalTime||"00:00"),
+            arrival:u.arrivalTime||"", departure:u.departTime||"",
+            temp:u.temp||"", transport:u.transport||"",
+            items:(r.activities||[]).filter(a=>a.title&&!a.autoFromIsp).map(a=>a.title).slice(0,5),
+            supportNote:isp?`短期目標：${isp.content?.shortGoal||""}　担当：${isp.content?.staffInCharge||""}`:"",
+            createdBy:r.author, autoLinked:true, dailyReportDate:r.date,
+          });
+          autoCount++;
+        }
+      });
+      if(autoCount>0) store.showToast(`日報を確定しました。${autoCount}名の実績を自動生成しました`);
+      else store.showToast("日報を確定しました");
+    }
+    setRep(r); setMode("list");
+  };
 
   // 日付変更時にレポートを再セット
   const changeDate=(d)=>{setSelDate(d);const ex=store.dailyReports.find(r=>r.date===d&&r.facilityId===user.selectedFacilityId);setRep(ex||initReport(d));};
@@ -5748,14 +5845,18 @@ function DailyReport({user,store,onBack}){
     {/* 利用者一覧 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:10,fontWeight:700,color:"var(--gr)",letterSpacing:2,marginBottom:10}}>利用者来所一覧 <span style={{fontSize:10,color:"var(--tx3)",fontWeight:400}}>(自動取込済・手動修正可)</span></div>
-      {(rep.userList||[]).map((u,i)=><div key={i} style={{display:"grid",gridTemplateColumns:"1fr auto auto 60px 50px",gap:5,marginBottom:6,alignItems:"center"}}>
-        <div style={{fontWeight:700,fontSize:12,padding:"4px 2px"}}>{u.name}</div>
-        <TimePicker value={u.arrivalTime||""} onChange={v=>updUser(i,"arrivalTime",v)} label="来所時刻"/>
-        <TimePicker value={u.departTime||""} onChange={v=>updUser(i,"departTime",v)} label="退所時刻"/>
-        <input className="fi" value={u.temp||""} placeholder="36.5" onChange={e=>updUser(i,"temp",e.target.value)} style={{fontSize:11,padding:"5px 6px",textAlign:"center"}}/>
-        <select className="fi" value={u.status||"出席"} onChange={e=>updUser(i,"status",e.target.value)} style={{fontSize:11,padding:"5px 4px"}}>
-          {["出席","欠席","予定","早退"].map(s=><option key={s}>{s}</option>)}
-        </select>
+      {(rep.userList||[]).map((u,i)=><div key={i} style={{marginBottom:8}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto auto 60px 50px",gap:5,alignItems:"center"}}>
+          <div style={{fontWeight:700,fontSize:12,padding:"4px 2px"}}>{u.name}</div>
+          <TimePicker value={u.arrivalTime||""} onChange={v=>updUser(i,"arrivalTime",v)} label="来所時刻"/>
+          <TimePicker value={u.departTime||""} onChange={v=>updUser(i,"departTime",v)} label="退所時刻"/>
+          <input className="fi" value={u.temp||""} placeholder="36.5" onChange={e=>updUser(i,"temp",e.target.value)} style={{fontSize:11,padding:"5px 6px",textAlign:"center"}}/>
+          <select className="fi" value={u.status||"出席"} onChange={e=>updUser(i,"status",e.target.value)} style={{fontSize:11,padding:"5px 4px"}}>
+            {["出席","欠席","予定","早退"].map(s=><option key={s}>{s}</option>)}
+          </select>
+        </div>
+        {/* ISP短期目標バッジ（自動連携） */}
+        {u.ispGoal&&<div style={{fontSize:10,color:"var(--tl)",background:"rgba(58,160,216,0.09)",border:"1px solid rgba(58,160,216,0.2)",borderRadius:6,padding:"3px 8px",marginTop:3,marginLeft:2}}>📋 ISP目標：{u.ispGoal}</div>}
       </div>)}
       <div style={{display:"grid",gridTemplateColumns:"1fr auto auto 60px 50px",gap:5}}>
         {["氏名","来所","退所","体温","状態"].map(h=><div key={h} style={{fontSize:10,color:"var(--tx3)",textAlign:"center"}}>{h}</div>)}
