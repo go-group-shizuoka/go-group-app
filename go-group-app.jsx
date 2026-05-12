@@ -8554,6 +8554,396 @@ function AuditScreen({user,onBack,store}){
   </div>;
 }
 
+// ==================== 勤務実績 ====================
+function WorkRecordScreen({user,store,onBack}){
+  const [vm,setVm]=useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()+1};});
+  const [tab,setTab]=useState("summary");
+  const [selStaffId,setSelStaffId]=useState(null);
+
+  const isMgr=user.role==="manager"||user.role==="admin";
+  const fStaff=store.dynStaff.filter(s=>user.role==="admin"||s.facilityId===user.selectedFacilityId);
+  const facName=FACILITIES.find(f=>f.id===user.selectedFacilityId)?.name||"";
+  const days=daysInMonth(vm.y,vm.m);
+  const mk=d=>`${vm.y}-${String(vm.m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  const yearMonth=vm.y+"-"+String(vm.m).padStart(2,"0");
+  const dow=["日","月","火","水","木","金","土"];
+
+  // シフトの開始・終了時刻をパース (例: "8:00〜17:00" → {start:480, end:1020})
+  const parseShiftTime=key=>{
+    const st=SHIFT_TYPES.find(s=>s.key===key);
+    if(!st||!st.time.includes("〜")) return null;
+    const [s,e]=st.time.split("〜");
+    const toMin=t=>{const [h,m]=t.trim().split(":").map(Number);return h*60+(m||0);};
+    return {start:toMin(s),end:toMin(e),hours:(toMin(e)-toMin(s)-60)/60}; // 休憩1h控除
+  };
+
+  // 実打刻を取得 (in:最早, out:最遅)
+  const getActual=(staffId,dateStr)=>{
+    const ins=store.recs.filter(r=>r.type==="staff_in"&&r.staffId===staffId&&(r.time||"").startsWith(dateStr));
+    const outs=store.recs.filter(r=>r.type==="staff_out"&&r.staffId===staffId&&(r.time||"").startsWith(dateStr));
+    const parseTime=t=>{
+      // "2025/06/10 8:30:00" → minutes from midnight
+      const m=t.match(/(\d+):(\d+)/);return m?+m[1]*60+ +m[2]:null;
+    };
+    const inTimes=ins.map(r=>parseTime(r.time)).filter(t=>t!==null);
+    const outTimes=outs.map(r=>parseTime(r.time)).filter(t=>t!==null);
+    const actualIn=inTimes.length?Math.min(...inTimes):null;
+    const actualOut=outTimes.length?Math.max(...outTimes):null;
+    const inRec=ins.length?ins.reduce((a,b)=>(parseTime(a.time)||9999)<(parseTime(b.time)||9999)?a:b):null;
+    const outRec=outs.length?outs.reduce((a,b)=>(parseTime(a.time)||0)>(parseTime(b.time)||0)?a:b):null;
+    return {actualIn,actualOut,inRec,outRec};
+  };
+
+  // 1日の勤務実績計算
+  const calcDay=(staffId,dateStr)=>{
+    const shiftKey=store.getShift(staffId,dateStr)||"none";
+    const dw=new Date(dateStr).getDay();
+    const isWe=dw===0||dw===6;
+    if(isWe||shiftKey==="none") return {shiftKey,isWe,status:"休日"};
+    if(shiftKey==="off") return {shiftKey,isWe:false,status:"公休"};
+    if(shiftKey==="holiday") return {shiftKey,isWe:false,status:"有給"};
+    const sched=parseShiftTime(shiftKey);
+    const {actualIn,actualOut,inRec,outRec}=getActual(staffId,dateStr);
+    if(actualIn===null) return {shiftKey,sched,status:"未打刻",actualIn:null,actualOut:null,workedH:0,overtimeH:0,lateMin:0,earlyMin:0};
+    const workedH=actualOut!==null?(actualOut-actualIn-60)/60:null; // 休憩1h控除
+    const lateMin=sched&&actualIn>sched.start+5?actualIn-sched.start:0;
+    const earlyMin=sched&&actualOut!==null&&actualOut<sched.end-5?sched.end-actualOut:0;
+    const overtimeH=sched&&workedH!==null&&workedH>sched.hours+0.5?workedH-sched.hours:0;
+    const fmtMin=m=>{if(m===null) return "—";const h=Math.floor(m/60);const min=m%60;return h>0?`${h}:${String(min).padStart(2,"0")}`:`${String(min).padStart(2,"0")}`;}
+    return {shiftKey,sched,status:outRec?"出勤":"退勤未打刻",actualIn,actualOut,workedH,overtimeH,lateMin,earlyMin,inTime:fmtMin(actualIn),outTime:fmtMin(actualOut),inRec,outRec};
+  };
+
+  // 職員ごとの月次集計
+  const calcMonthSummary=staffId=>{
+    let workDays=0,totalH=0,overtimeH=0,lateDays=0,earlyDays=0,noClockDays=0,punchDays=0;
+    for(let i=1;i<=days;i++){
+      const r=calcDay(staffId,mk(i));
+      if(r.status==="出勤"||r.status==="退勤未打刻"){
+        workDays++;
+        if(r.workedH>0){totalH+=r.workedH;punchDays++;}
+        else if(r.status==="退勤未打刻") noClockDays++;
+        if(r.overtimeH>0) overtimeH+=r.overtimeH;
+        if(r.lateMin>0) lateDays++;
+        if(r.earlyMin>0) earlyDays++;
+      } else if(r.status==="未打刻"&&store.getShift(staffId,mk(i))&&store.getShift(staffId,mk(i))!=="none"&&store.getShift(staffId,mk(i))!=="off"&&store.getShift(staffId,mk(i))!=="holiday"){
+        noClockDays++;workDays++;
+      }
+    }
+    return {workDays,totalH:Math.round(totalH*10)/10,overtimeH:Math.round(overtimeH*10)/10,lateDays,earlyDays,noClockDays,punchDays};
+  };
+
+  // 月次集計印刷
+  const printMonthly=()=>{
+    const rows=fStaff.map(s=>{
+      const m=calcMonthSummary(s.id);
+      return `<tr>
+        <td style="font-weight:700;text-align:left;padding:5px 7px;">${s.name}</td>
+        <td style="text-align:center;">${(s.data||s).role==="manager"?"管理者":(s.data||s).employmentType||"—"}</td>
+        <td style="text-align:center;font-weight:700;color:#1a4a8a;">${m.workDays}日</td>
+        <td style="text-align:center;font-weight:700;color:#1a7a3a;">${m.totalH}h</td>
+        <td style="text-align:center;color:${m.overtimeH>0?"#c0392b":"#999"};font-weight:${m.overtimeH>0?700:400};">${m.overtimeH>0?"+"+m.overtimeH+"h":"—"}</td>
+        <td style="text-align:center;color:${m.lateDays>0?"#e08020":"#999"};">${m.lateDays>0?m.lateDays+"日":"—"}</td>
+        <td style="text-align:center;color:${m.earlyDays>0?"#e08020":"#999"};">${m.earlyDays>0?m.earlyDays+"日":"—"}</td>
+        <td style="text-align:center;color:${m.noClockDays>0?"#c0392b":"#999"};font-weight:${m.noClockDays>0?700:400};">${m.noClockDays>0?m.noClockDays+"日":"—"}</td>
+        <td style="border-left:1px dashed #ccc;min-width:60px;"></td>
+      </tr>`;
+    }).join("");
+    const html=`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"/>
+    <title>勤務実績集計表 ${vm.y}年${vm.m}月</title>
+    <style>
+      @page{size:A4 landscape;margin:12mm 10mm;}
+      *{box-sizing:border-box;} body{font-family:'MS Gothic',Meiryo,sans-serif;font-size:9pt;color:#111;}
+      h2{font-size:13pt;margin-bottom:4px;} .meta{font-size:8pt;color:#555;margin-bottom:8px;}
+      table{border-collapse:collapse;width:100%;font-size:9pt;}
+      th,td{border:1px solid #ccc;padding:4px 6px;}
+      th{background:#dce8f8;font-weight:700;text-align:center;}
+      .sign-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px;}
+      .sign-box{border:1px solid #aaa;padding:8px;min-height:44px;border-radius:3px;}
+      .sign-lbl{font-size:8pt;color:#666;}
+    </style></head><body>
+    <h2>⏱ 勤務実績集計表</h2>
+    <div class="meta">事業所: ${facName}　対象: ${vm.y}年${vm.m}月　出力日: ${new Date().toLocaleDateString("ja-JP")}</div>
+    <div style="font-size:8pt;color:#888;margin-bottom:6px;">※ 勤務時間は打刻データから自動計算（休憩1時間控除）。シフトと打刻の差から遅刻・残業を判定。</div>
+    <table>
+      <thead><tr>
+        <th style="text-align:left;">氏名</th><th>職種・雇用</th>
+        <th>出勤日数</th><th>実働時間</th><th>時間外</th><th>遅刻日数</th><th>早退日数</th><th>未打刻日</th>
+        <th>確認サイン</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="sign-row">
+      <div class="sign-box"><div class="sign-lbl">管理者 確認印</div></div>
+      <div class="sign-box"><div class="sign-lbl">作成者</div></div>
+      <div class="sign-box"><div class="sign-lbl">確認日: ${new Date().toLocaleDateString("ja-JP")}</div></div>
+    </div></body></html>`;
+    const w=window.open("","_blank","width=1200,height=800");
+    if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),400);}
+  };
+
+  // 個人別勤怠台帳 印刷
+  const printPersonal=staffId=>{
+    const s=fStaff.find(x=>x.id===staffId);if(!s) return;
+    const rows=Array.from({length:days},(_,i)=>{
+      const d=i+1;const date=mk(d);const dw=new Date(date).getDay();
+      const r=calcDay(staffId,date);
+      const st=SHIFT_TYPES.find(x=>x.key===r.shiftKey);
+      const rowBg=r.status==="公休"?"#f8f8f8":r.status==="有給"?"#f5eeff":r.status==="未打刻"?"#fdf0ee":"";
+      return `<tr style="background:${rowBg};">
+        <td style="text-align:center;font-size:8pt;color:${dw===0?"#c0392b":dw===6?"#1a4a8a":"#333"};font-weight:700;">${d}（${dow[dw]}）</td>
+        <td style="text-align:center;font-size:8pt;color:${st?.text||"#999"};">${st?.label||"—"}</td>
+        <td style="text-align:center;font-family:monospace;">${r.inTime||"—"}</td>
+        <td style="text-align:center;font-family:monospace;">${r.outTime||"—"}</td>
+        <td style="text-align:center;font-family:monospace;font-weight:700;">${r.workedH!=null&&r.workedH>0?r.workedH+"h":"—"}</td>
+        <td style="text-align:center;color:${r.overtimeH>0?"#c0392b":"#999"};">${r.overtimeH>0?"+"+r.overtimeH+"h":"—"}</td>
+        <td style="text-align:center;font-size:9pt;">
+          ${r.lateMin>0?`<span style="color:#e08020;font-weight:700;">遅${r.lateMin}分</span>`:""}
+          ${r.earlyMin>0?`<span style="color:#e08020;font-weight:700;">早${r.earlyMin}分</span>`:""}
+          ${r.status==="未打刻"||r.status==="退勤未打刻"?`<span style="color:#c0392b;font-weight:700;">${r.status}</span>`:""}
+          ${r.status==="公休"?"公休":r.status==="有給"?"有給":""}
+        </td>
+        <td style="min-width:50px;border-left:1px dashed #ccc;"></td>
+      </tr>`;
+    }).join("");
+    const m=calcMonthSummary(staffId);
+    const html=`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"/>
+    <title>勤怠台帳 ${s.name} ${vm.y}年${vm.m}月</title>
+    <style>
+      @page{size:A4 portrait;margin:15mm 12mm;}
+      *{box-sizing:border-box;} body{font-family:'MS Gothic',Meiryo,sans-serif;font-size:9pt;color:#111;}
+      h2{font-size:14pt;border-bottom:2px solid #1a3a6a;padding-bottom:5px;margin-bottom:8px;}
+      .info-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;}
+      .info-item{border:1px solid #ccc;padding:5px 8px;border-radius:3px;}
+      .info-lbl{font-size:7pt;color:#666;margin-bottom:1px;}
+      .info-val{font-size:10pt;font-weight:700;}
+      .sum-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:10px;}
+      .sum-box{border:1px solid #ccc;padding:5px 7px;text-align:center;border-radius:3px;}
+      .sum-val{font-size:13pt;font-weight:900;font-family:monospace;}
+      .sum-lbl{font-size:7pt;color:#666;}
+      table{border-collapse:collapse;width:100%;font-size:9pt;}
+      th,td{border:1px solid #ccc;padding:4px 6px;}
+      th{background:#dce8f8;font-weight:700;text-align:center;}
+      .sign-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;}
+      .sign-box{border:1px solid #aaa;padding:8px;min-height:48px;border-radius:3px;}
+      .sign-lbl{font-size:8pt;color:#666;}
+    </style></head><body>
+    <h2>⏱ 勤怠台帳（個人）</h2>
+    <div class="info-grid">
+      <div class="info-item"><div class="info-lbl">氏名</div><div class="info-val">${s.name}</div></div>
+      <div class="info-item"><div class="info-lbl">所属施設</div><div class="info-val">${facName}</div></div>
+      <div class="info-item"><div class="info-lbl">対象年月</div><div class="info-val">${vm.y}年${vm.m}月</div></div>
+    </div>
+    <div class="sum-grid">
+      <div class="sum-box"><div class="sum-val" style="color:#1a4a8a;">${m.workDays}</div><div class="sum-lbl">出勤日数</div></div>
+      <div class="sum-box"><div class="sum-val" style="color:#1a7a3a;">${m.totalH}h</div><div class="sum-lbl">実働時間</div></div>
+      <div class="sum-box"><div class="sum-val" style="color:${m.overtimeH>0?"#c0392b":"#999"};">${m.overtimeH>0?"+"+m.overtimeH:"0"}h</div><div class="sum-lbl">時間外</div></div>
+      <div class="sum-box"><div class="sum-val" style="color:${m.noClockDays>0?"#c0392b":"#999"};">${m.noClockDays}</div><div class="sum-lbl">未打刻日</div></div>
+    </div>
+    <table>
+      <thead><tr><th>日付</th><th>シフト</th><th>出勤</th><th>退勤</th><th>実働</th><th>残業</th><th>備考</th><th>確認</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="sign-row">
+      <div class="sign-box"><div class="sign-lbl">本人 確認サイン</div></div>
+      <div class="sign-box"><div class="sign-lbl">管理者 確認印　　確認日: ${new Date().toLocaleDateString("ja-JP")}</div></div>
+    </div></body></html>`;
+    const w=window.open("","_blank","width=900,height=750");
+    if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),400);}
+  };
+
+  // CSV出力
+  const downloadCSV=()=>{
+    const headers=["職員ID","氏名","雇用区分","出勤日数","実働時間(h)","時間外(h)","遅刻日数","早退日数","未打刻日数"];
+    const rows=fStaff.map(s=>{
+      const m=calcMonthSummary(s.id);
+      const sd=s.data||s;
+      return [s.id,s.name,sd.employmentType||"—",m.workDays,m.totalH,m.overtimeH,m.lateDays,m.earlyDays,m.noClockDays];
+    });
+    const csv=[headers,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"}));
+    a.download=`kintai_${yearMonth}_${facName}.csv`;a.click();
+  };
+
+  const selStaff=fStaff.find(s=>s.id===selStaffId)||fStaff[0];
+
+  return <div className="fl-wrap">
+    <div className="fl-hd">
+      <button className="bback" onClick={onBack}>← 戻る</button>
+      <div className="fl-title">⏱ 勤務実績</div>
+    </div>
+
+    {/* 年月ナビ */}
+    <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:12,flexWrap:"wrap"}}>
+      <button className="cn" onClick={()=>setVm(v=>v.m===1?{y:v.y-1,m:12}:{y:v.y,m:v.m-1})}>‹</button>
+      <div style={{fontSize:16,fontWeight:900,minWidth:90,textAlign:"center"}}>{vm.y}年 {vm.m}月</div>
+      <button className="cn" onClick={()=>setVm(v=>v.m===12?{y:v.y+1,m:1}:{y:v.y,m:v.m+1})}>›</button>
+      <div style={{display:"flex",gap:5,marginLeft:8,flexWrap:"wrap"}}>
+        {[{id:"summary",icon:"📊",label:"月次集計"},{id:"personal",icon:"👤",label:"個人別実績"},{id:"alert",icon:"🚨",label:"アラート"}].map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)}
+            style={{padding:"7px 13px",borderRadius:9,border:"2px solid",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,
+              borderColor:tab===t.id?"var(--tl)":"var(--bd)",background:tab===t.id?"rgba(58,160,216,0.2)":"var(--bg)",color:tab===t.id?"var(--tl)":"var(--tx3)"}}>
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+      {isMgr&&<div style={{display:"flex",gap:6,marginLeft:"auto"}}>
+        <button className="bexp" onClick={downloadCSV}>⬇ CSV</button>
+        <button className="bexp" style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={printMonthly}>🖨️ 集計印刷</button>
+      </div>}
+    </div>
+
+    {/* ── 月次集計タブ ── */}
+    {tab==="summary"&&<>
+      <div style={{overflowX:"auto",marginBottom:16}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:560}}>
+          <thead><tr style={{background:"var(--bg2)"}}>
+            {["職員名","雇用区分","出勤日数","実働時間","時間外","遅刻","早退","未打刻","台帳"].map(h=>(
+              <th key={h} style={{padding:"8px 9px",textAlign:"left",color:"var(--tx2)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--bd)",whiteSpace:"nowrap"}}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>{fStaff.map(s=>{
+            const m=calcMonthSummary(s.id);const sd=s.data||s;
+            return <tr key={s.id} style={{borderBottom:"1px solid var(--bd)"}}>
+              <td style={{padding:"8px 9px",fontWeight:700}}>{s.name}</td>
+              <td style={{padding:"8px 9px",fontSize:11,color:"var(--tx3)"}}>{sd.role==="manager"?"管理者":sd.employmentType||"—"}</td>
+              <td style={{padding:"8px 9px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:700,color:"var(--tl)"}}>{m.workDays}日</td>
+              <td style={{padding:"8px 9px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:700,color:"var(--gr)"}}>{m.totalH}h</td>
+              <td style={{padding:"8px 9px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:m.overtimeH>0?700:400,color:m.overtimeH>0?"var(--ro)":"var(--tx3)"}}>{m.overtimeH>0?"+"+m.overtimeH+"h":"—"}</td>
+              <td style={{padding:"8px 9px",textAlign:"right",color:m.lateDays>0?"var(--am)":"var(--tx3)",fontWeight:m.lateDays>0?700:400}}>{m.lateDays>0?m.lateDays+"日":"—"}</td>
+              <td style={{padding:"8px 9px",textAlign:"right",color:m.earlyDays>0?"var(--am)":"var(--tx3)",fontWeight:m.earlyDays>0?700:400}}>{m.earlyDays>0?m.earlyDays+"日":"—"}</td>
+              <td style={{padding:"8px 9px",textAlign:"right",color:m.noClockDays>0?"var(--ro)":"var(--tx3)",fontWeight:m.noClockDays>0?700:400}}>{m.noClockDays>0?m.noClockDays+"日":"—"}</td>
+              <td style={{padding:"8px 9px"}}>
+                <button onClick={()=>printPersonal(s.id)}
+                  style={{fontSize:11,padding:"4px 9px",borderRadius:7,background:"rgba(58,160,216,0.1)",border:"1px solid rgba(58,160,216,0.4)",color:"var(--tl)",fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                  🖨
+                </button>
+              </td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
+      {/* 全体集計カード */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8}}>
+        {(()=>{
+          const all=fStaff.map(s=>calcMonthSummary(s.id));
+          return [
+            {label:"総出勤日数",val:all.reduce((s,m)=>s+m.workDays,0)+"日",color:"var(--tl)"},
+            {label:"総実働時間",val:Math.round(all.reduce((s,m)=>s+m.totalH,0)*10)/10+"h",color:"var(--gr)"},
+            {label:"時間外合計",val:Math.round(all.reduce((s,m)=>s+m.overtimeH,0)*10)/10+"h",color:"var(--ro)"},
+            {label:"遅刻延べ日数",val:all.reduce((s,m)=>s+m.lateDays,0)+"日",color:"var(--am)"},
+            {label:"未打刻件数",val:all.reduce((s,m)=>s+m.noClockDays,0)+"件",color:"var(--ro)"},
+          ].map(c=>(
+            <div key={c.label} style={{background:"var(--bg2)",borderRadius:9,padding:"10px 12px",textAlign:"center"}}>
+              <div style={{fontSize:18,fontWeight:900,color:c.color,fontFamily:"'DM Mono',monospace"}}>{c.val}</div>
+              <div style={{fontSize:10,color:"var(--tx3)",marginTop:3}}>{c.label}</div>
+            </div>
+          ));
+        })()}
+      </div>
+    </>}
+
+    {/* ── 個人別実績タブ ── */}
+    {tab==="personal"&&<>
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
+        {fStaff.map(s=>(
+          <button key={s.id} onClick={()=>setSelStaffId(s.id)}
+            style={{padding:"8px 14px",borderRadius:9,border:"2px solid",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,
+              borderColor:(selStaffId||fStaff[0]?.id)===s.id?"var(--tl)":"var(--bd)",
+              background:(selStaffId||fStaff[0]?.id)===s.id?"rgba(58,160,216,0.2)":"var(--bg)",
+              color:(selStaffId||fStaff[0]?.id)===s.id?"var(--tl)":"var(--tx3)"}}>
+            {s.name}
+          </button>
+        ))}
+      </div>
+      {selStaff&&(()=>{
+        const m=calcMonthSummary(selStaff.id);
+        return <>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
+            {[{label:"出勤日数",val:m.workDays+"日",c:"var(--tl)"},{label:"実働時間",val:m.totalH+"h",c:"var(--gr)"},{label:"時間外",val:m.overtimeH>0?"+"+m.overtimeH+"h":"0h",c:m.overtimeH>0?"var(--ro)":"var(--tx3)"},{label:"未打刻",val:m.noClockDays+"日",c:m.noClockDays>0?"var(--ro)":"var(--tx3)"}].map(c=>(
+              <div key={c.label} className="stat-card"><div className="stat-label">{c.label}</div><div className="stat-val" style={{color:c.c,fontSize:20}}>{c.val}</div></div>
+            ))}
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
+              <thead><tr style={{background:"var(--bg2)"}}>
+                {["日付","シフト","出勤打刻","退勤打刻","実働時間","時間外","備考"].map(h=>(
+                  <th key={h} style={{padding:"7px 8px",textAlign:"center",color:"var(--tx2)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--bd)",whiteSpace:"nowrap"}}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>{Array.from({length:days},(_,i)=>{
+                const d=i+1;const date=mk(d);const dw=new Date(date).getDay();
+                const r=calcDay(selStaff.id,date);
+                const st=SHIFT_TYPES.find(x=>x.key===r.shiftKey);
+                const rowBg=r.status==="公休"?"rgba(100,116,139,0.07)":r.status==="有給"?"rgba(144,72,216,0.07)":r.status==="未打刻"||r.status==="退勤未打刻"?"rgba(224,56,56,0.06)":"";
+                return <tr key={d} style={{borderBottom:"1px solid var(--bd)",background:rowBg}}>
+                  <td style={{padding:"6px 8px",textAlign:"center",fontWeight:700,color:dw===0?"var(--ro)":dw===6?"var(--tl)":"var(--tx)",fontFamily:"'DM Mono',monospace",fontSize:11}}>
+                    {vm.m}/{d}（{dow[dw]}）
+                  </td>
+                  <td style={{padding:"6px 8px",textAlign:"center"}}>
+                    {st?<span style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:st.color,color:st.text,fontWeight:700}}>{st.label}</span>:<span style={{color:"var(--tx3)",fontSize:10}}>—</span>}
+                  </td>
+                  <td style={{padding:"6px 8px",textAlign:"center",fontFamily:"'DM Mono',monospace",color:r.lateMin>0?"var(--am)":"var(--tx)"}}>
+                    {r.inTime||<span style={{color:"var(--tx3)"}}>—</span>}
+                    {r.lateMin>0&&<span style={{fontSize:9,color:"var(--am)",marginLeft:3}}>+{r.lateMin}分</span>}
+                  </td>
+                  <td style={{padding:"6px 8px",textAlign:"center",fontFamily:"'DM Mono',monospace",color:r.earlyMin>0?"var(--am)":"var(--tx)"}}>
+                    {r.outTime||<span style={{color:"var(--tx3)"}}>—</span>}
+                    {r.earlyMin>0&&<span style={{fontSize:9,color:"var(--am)",marginLeft:3}}>-{r.earlyMin}分</span>}
+                  </td>
+                  <td style={{padding:"6px 8px",textAlign:"center",fontFamily:"'DM Mono',monospace",fontWeight:700,color:"var(--tl)"}}>
+                    {r.workedH>0?r.workedH+"h":"—"}
+                  </td>
+                  <td style={{padding:"6px 8px",textAlign:"center",fontFamily:"'DM Mono',monospace",color:"var(--ro)",fontWeight:700}}>
+                    {r.overtimeH>0?"+"+r.overtimeH+"h":"—"}
+                  </td>
+                  <td style={{padding:"6px 8px",textAlign:"center",fontSize:10}}>
+                    {r.status==="公休"&&<span style={{color:"var(--tx3)"}}>公休</span>}
+                    {r.status==="有給"&&<span style={{color:"var(--pu)",fontWeight:700}}>有給</span>}
+                    {r.status==="未打刻"&&<span style={{color:"var(--ro)",fontWeight:700}}>未打刻</span>}
+                    {r.status==="退勤未打刻"&&<span style={{color:"var(--am)",fontWeight:700}}>退勤未打刻</span>}
+                  </td>
+                </tr>;
+              })}</tbody>
+            </table>
+          </div>
+          <div style={{marginTop:10,display:"flex",justifyContent:"flex-end"}}>
+            <button onClick={()=>printPersonal(selStaff.id)}
+              style={{padding:"9px 18px",borderRadius:10,background:"linear-gradient(135deg,#1a4a8a,#2d6ed6)",color:"#fff",border:"none",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+              🖨 勤怠台帳を印刷
+            </button>
+          </div>
+        </>;
+      })()}
+    </>}
+
+    {/* ── アラートタブ ── */}
+    {tab==="alert"&&<>
+      <div className="dash-title" style={{marginBottom:10}}>🚨 打刻アラート（{vm.y}年{vm.m}月）</div>
+      {(()=>{
+        const alerts=[];
+        fStaff.forEach(s=>{
+          for(let i=1;i<=days;i++){
+            const date=mk(i);const r=calcDay(s.id,date);
+            if(r.status==="未打刻") alerts.push({level:"danger",text:`${s.name}：${vm.m}/${i}（${dow[new Date(date).getDay()]}）出勤打刻なし（シフト: ${SHIFT_TYPES.find(x=>x.key===r.shiftKey)?.label||r.shiftKey}）`,staffId:s.id,date});
+            else if(r.status==="退勤未打刻") alerts.push({level:"warn",text:`${s.name}：${vm.m}/${i}（${dow[new Date(date).getDay()]}）退勤打刻なし`,staffId:s.id,date});
+            else if(r.lateMin>=10) alerts.push({level:"warn",text:`${s.name}：${vm.m}/${i}（${dow[new Date(date).getDay()]}）遅刻 ${r.lateMin}分`,staffId:s.id,date});
+            else if(r.overtimeH>=1) alerts.push({level:"info",text:`${s.name}：${vm.m}/${i}（${dow[new Date(date).getDay()]}）残業 ${r.overtimeH}時間`,staffId:s.id,date});
+          }
+        });
+        if(alerts.length===0) return <div style={{background:"rgba(44,170,96,0.1)",border:"1px solid rgba(44,170,96,0.4)",borderRadius:10,padding:"14px 16px",display:"flex",gap:10,alignItems:"center"}}>
+          <span style={{fontSize:20}}>✅</span><span style={{fontWeight:700,color:"var(--gr)"}}>打刻アラートはありません</span>
+        </div>;
+        return <div>{alerts.map((a,i)=>(
+          <div key={i} className={"alert-row alert-"+(a.level==="danger"?"danger":a.level==="warn"?"warn":"na")} style={{marginBottom:5}}>
+            <span className="alert-icon">{a.level==="danger"?"🚨":a.level==="warn"?"⚠️":"ℹ️"}</span>
+            <span className="alert-text" style={{color:a.level==="danger"?"var(--ro)":a.level==="warn"?"var(--am)":"var(--tl)"}}>{a.text}</span>
+          </div>
+        ))}</div>;
+      })()}
+    </>}
+  </div>;
+}
+
 // ==================== APP ROOT ====================
 
 // ==================== 生徒予定表 ====================
@@ -8905,6 +9295,7 @@ function Sidebar({user,screen,onNav,onLogout,unreadCount,open,onClose,onChangeFa
     {id:"schedule",icon:"📅",label:"生徒予定表"},
     {id:"users",icon:"👤",label:"利用者管理"},
     {id:"shift",icon:"📆",label:"シフト管理"},
+    {id:"kintai",icon:"⏱",label:"勤務実績"},
     {id:"paidleave",icon:"🌴",label:"有給管理"},
     ...(isMgr?[
       {sec:"管理者専用"},
@@ -9000,7 +9391,7 @@ export default function App(){
     user_arrive:"利用者 来所",user_depart:"利用者 退所",photo:"写真記録",
     service:"サービス提供記録",messages:"保護者連絡",schedule:"生徒予定表",
     daily:"業務日報",paidleave:"有給管理",users:"利用者管理",
-    shift:"シフト管理",attendance:"出欠管理",transport:"送迎管理",
+    shift:"シフト管理",kintai:"勤務実績",attendance:"出欠管理",transport:"送迎管理",
     kokuho:"国保連請求",staffmgmt:"スタッフ管理",admin:"管理画面",audit:"監査モード",
     isp:"個別支援計画",
   };
@@ -9015,6 +9406,7 @@ export default function App(){
     case "service":return <ServiceRecord user={user} onBack={()=>setScreen("home")} store={store}/>;
     case "attendance":return <AttendanceScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
     case "shift":return <ShiftScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
+    case "kintai":return <WorkRecordScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
     case "transport":return <TransportScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
     case "messages":return <ParentMessages user={user} store={store} onBack={()=>setScreen("home")}/>;
     case "daily":return <DailyReport user={user} store={store} onBack={()=>setScreen("home")}/>;
