@@ -2404,9 +2404,9 @@ function PhotoRecord({user,onBack,store}){
   if(mode==="new")return <FlowWrap title="📸 写真記録" onBack={()=>setMode("gallery")}>
     <div className="slbl">STEP 1 — 利用者を選択</div><div className="ng">{users.map(u=><button key={u.id} className={`nb ${sel?.id===u.id?"s":""}`} onClick={()=>setSel(u)}>{u.name}</button>)}</div>
     <hr className="div"/><div className="slbl">STEP 2 — 活動種別</div><div className="ng">{ACTIVITY_TYPES.map(a=><button key={a} className={`nb ${act===a?"s":""}`} onClick={()=>setAct(a)} style={{fontSize:12}}>{a}</button>)}</div>
-    <hr className="div"/><div className="slbl">STEP 3 — 写真撮影</div><Cam cap={cap} onCap={()=>setCap(!cap)}/>
+    <hr className="div"/><div className="slbl">STEP 3 — 写真撮影 <span style={{fontSize:10,color:"var(--tx3)",fontWeight:400}}>（任意）</span></div><Cam cap={cap} onCap={()=>setCap(!cap)}/>
     <hr className="div"/><div className="slbl">コメント（任意）</div><textarea className="fta" placeholder="活動の様子を記入..." value={cmt} onChange={e=>setCmt(e.target.value)}/>
-    <button className="bsave" disabled={!sel||!act||!cap} onClick={save} style={{marginTop:14}}>保存する</button>
+    <button className="bsave" disabled={!sel||!act} onClick={save} style={{marginTop:14}}>保存する</button>
   </FlowWrap>;
   return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">📸 写真ギャラリー</div></div>
     <div style={{paddingBottom:8,marginBottom:12}}><button className="bsave" onClick={()=>setMode("new")} style={{maxWidth:200}}>＋ 写真を撮影・記録</button></div>
