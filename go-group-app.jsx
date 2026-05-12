@@ -4870,6 +4870,8 @@ function ScheduleScreen({ user, store, onBack }) {
   const [viewMode, setViewMode] = useState("calendar");
   const [editCell, setEditCell] = useState(null);
   const [selDate, setSelDate] = useState(todayISO());
+  const [showAddModal, setShowAddModal] = useState(false); // 生徒追加モーダル
+  const [addChecked, setAddChecked] = useState([]); // 追加選択中の生徒ID
 
   const isAdmin = user.role === "admin";
   const isMgr = user.role === "manager" || user.role === "admin";
@@ -4979,7 +4981,10 @@ function ScheduleScreen({ user, store, onBack }) {
         </div>
       </div>
       <div style={{marginBottom:12}}>
-        <div style={{fontSize:15,fontWeight:900,marginBottom:8}}>{dlabel(selDate)} の状況</div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontSize:15,fontWeight:900}}>{dlabel(selDate)} の状況</div>
+          {isMgr&&<button onClick={()=>{setAddChecked([]);setShowAddModal(true);}} style={{padding:"7px 14px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--ac)",color:"#fff",border:"none",boxShadow:"var(--sh)"}}>＋ 生徒を追加</button>}
+        </div>
         {(()=>{const d=parseInt(selDate.split("-")[2]);const c=countByDay(d);const total=users.length;return(
           <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
             <div style={{background:"#d0eedd",borderRadius:10,padding:"8px 14px",display:"flex",gap:6,alignItems:"center"}}><span style={{fontSize:20,fontWeight:900,color:"#155a30"}}>{c.come}</span><span style={{fontSize:11,color:"#155a30"}}>来所予定</span></div>
@@ -5008,6 +5013,57 @@ function ScheduleScreen({ user, store, onBack }) {
           })}
         </div>
       </div>
+
+      {/* 生徒追加モーダル */}
+      {showAddModal&&(()=>{
+        const d=parseInt(selDate.split("-")[2]);
+        // 全施設の生徒から「未定・欠席」の生徒を選択可能に表示
+        const allUsers=store.dynUsers.filter(u=>u.active!==false);
+        const toggle=id=>setAddChecked(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+        const confirm=()=>{
+          addChecked.forEach(id=>{
+            const u=store.dynUsers.find(x=>x.id===id);
+            if(u) setSchedule(id,d,"来所予定",false,false);
+          });
+          setShowAddModal(false);
+        };
+        return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",zIndex:1000,display:"flex",alignItems:"flex-end"}} onClick={()=>setShowAddModal(false)}>
+          <div style={{background:"var(--wh)",borderRadius:"18px 18px 0 0",padding:20,width:"100%",maxHeight:"75vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div style={{fontSize:15,fontWeight:900}}>📋 {dlabel(selDate)}　生徒を追加</div>
+              <button onClick={()=>setShowAddModal(false)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"var(--tx3)"}}>×</button>
+            </div>
+            <div style={{fontSize:11,color:"var(--tx3)",marginBottom:12}}>来所予定にする生徒を選んでください</div>
+            {/* 施設ごとにグルーピング */}
+            {FACILITIES.map(fac=>{
+              const facUsers=allUsers.filter(u=>u.facilityId===fac.id);
+              if(facUsers.length===0) return null;
+              return <div key={fac.id} style={{marginBottom:14}}>
+                <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",marginBottom:6,padding:"3px 8px",background:"var(--bg2)",borderRadius:6}}>{fac.name}</div>
+                {facUsers.map(u=>{
+                  const st=getStatus(u.id,d);
+                  const checked=addChecked.includes(u.id);
+                  return <div key={u.id} onClick={()=>toggle(u.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 8px",borderRadius:9,marginBottom:4,background:checked?"#e8f4fd":"var(--bg)",border:"1.5px solid "+(checked?"var(--tl)":"var(--bd)"),cursor:"pointer"}}>
+                    <div style={{width:20,height:20,borderRadius:5,border:"2px solid "+(checked?"var(--tl)":"var(--bd)"),background:checked?"var(--tl)":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      {checked&&<span style={{color:"#fff",fontSize:13,fontWeight:900}}>✓</span>}
+                    </div>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700,fontSize:13}}>{u.name}</div>
+                      {st&&<div style={{fontSize:10,color:SCHEDULE_STATUS[st]?.color||"var(--tx3)"}}>{SCHEDULE_STATUS[st]?.label||st}</div>}
+                    </div>
+                  </div>;
+                })}
+              </div>;
+            })}
+            <div style={{display:"flex",gap:10,paddingTop:10}}>
+              <button onClick={()=>setShowAddModal(false)} style={{flex:1,padding:"12px",borderRadius:10,border:"1.5px solid var(--bd)",background:"var(--bg)",fontFamily:"'Noto Sans JP',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>キャンセル</button>
+              <button onClick={confirm} disabled={addChecked.length===0} style={{flex:2,padding:"12px",borderRadius:10,border:"none",background:addChecked.length>0?"var(--ac)":"var(--bd)",color:"#fff",fontFamily:"'Noto Sans JP',sans-serif",fontWeight:700,fontSize:13,cursor:addChecked.length>0?"pointer":"default"}}>
+                {addChecked.length>0?`✅ ${addChecked.length}名を来所予定に追加`:"生徒を選んでください"}
+              </button>
+            </div>
+          </div>
+        </div>;
+      })()}
     </div>
   );
 
