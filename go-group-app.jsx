@@ -724,6 +724,223 @@ function printISP(u, isp, facilityName) {
   printHTML(html, `個別支援計画_${u.name}_${isp.period}`);
 }
 
+// ─── ISP書類印刷（isp_records形式・全docType対応）A4縦 ───
+function printIspRecord(rec, u, facilityName){
+  const c = rec.content || {};
+  const statusLabels = {
+    ai_draft:"AI原案",staff_checked:"職員確認済",cdsm_approved:"児発管承認",
+    manager_confirmed:"管理者確認",parent_explained:"保護者説明済",
+    parent_consented:"保護者同意済",finalized:"確定"
+  };
+  const statusLabel = statusLabels[rec.status] || rec.status;
+  const docLabel = {
+    isp_plan:"個別支援計画書", assessment:"アセスメント記録票",
+    weekly_plan:"週間支援計画", monitoring:"モニタリング記録",
+    meeting:"支援会議記録", consent:"保護者同意書"
+  }[rec.docType] || rec.docType;
+
+  const row=(label,val,full=false)=>{
+    if(!val) return "";
+    return `<tr>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;font-weight:700;background:#f5f5f5;width:${full?"100%":"140px"};vertical-align:top;white-space:nowrap;">${label}</td>
+      <td style="border:1px solid #ccc;padding:6px 8px;font-size:12px;vertical-align:top;white-space:pre-wrap;">${String(val).replace(/</g,"&lt;").replace(/>/g,"&gt;")}</td>
+    </tr>`;
+  };
+
+  const header = `
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+    <div>
+      <h2 style="font-size:18px;font-weight:900;margin:0 0 4px;">${docLabel}</h2>
+      <div style="font-size:11px;color:#666;">ステータス：${statusLabel}　／　作成者：${rec.createdBy||""}　／　作成日：${(rec.createdAt||"").slice(0,10)}</div>
+    </div>
+    <div style="text-align:right;font-size:11px;color:#666;border:1px solid #ccc;padding:6px 10px;border-radius:6px;">
+      <div style="font-weight:700;font-size:13px;">${u.name||""}</div>
+      <div>${u.grade||""} / ${u.jukyushaNo||""}</div>
+      <div>${facilityName}</div>
+    </div>
+  </div>`;
+
+  let bodyRows = "";
+
+  if(rec.docType === "isp_plan"){
+    bodyRows = [
+      row("計画期間", c.validFrom&&c.validTo ? `${c.validFrom} 〜 ${c.validTo}` : (c.validFrom||"")),
+      row("支援期間", c.supportPeriod),
+      row("本人のニーズ", c.userNeeds),
+      row("保護者のニーズ", c.parentNeeds),
+      row("長期目標", c.longGoal),
+      row("長期目標期間", c.longGoalTerm),
+      row("短期目標", c.shortGoal),
+      row("短期目標期間", c.shortGoalTerm),
+      row("支援内容", c.supportContent),
+      row("具体的な手立て", c.specificMethods),
+      row("担当者", c.staffInCharge),
+      row("児発管名", c.cdsmName),
+      row("支援頻度", c.frequency),
+      row("達成時期", c.achievementDate),
+      row("評価方法", c.evaluationMethod),
+      row("見直し予定日", c.reviewDate),
+    ].filter(Boolean).join("");
+  } else if(rec.docType === "assessment"){
+    bodyRows = [
+      row("障害種別", c.disabilityType),
+      row("障害特性", c.characteristics),
+      row("本人の困りごと", c.concerns),
+      row("保護者の希望", c.parentWishes),
+      row("学校での様子", c.schoolSituation),
+      row("家庭での様子", c.homeLife),
+      row("本人の強み", c.strengths),
+      row("前回振り返り", c.previousIspReview),
+      row("職員所見", c.staffObservations),
+    ].filter(Boolean).join("");
+  } else if(rec.docType === "weekly_plan"){
+    const slots = c.slots||[];
+    const slotRows = slots.filter(s=>s.attend).map(s=>`
+      <tr>
+        <td style="border:1px solid #ccc;padding:6px 8px;font-size:12px;font-weight:700;background:#f5f5f5;width:60px;text-align:center;">${s.day}曜</td>
+        <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;">${s.time||""}</td>
+        <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;white-space:pre-wrap;">${s.activities||""}</td>
+        <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;white-space:pre-wrap;">${s.goals||""}</td>
+        <td style="border:1px solid #ccc;padding:6px 8px;font-size:11px;white-space:pre-wrap;">${s.notes||""}</td>
+      </tr>`).join("");
+    bodyRows = `<tr style="background:#f5f5f5;">
+      <th style="border:1px solid #ccc;padding:5px;font-size:11px;">曜日</th>
+      <th style="border:1px solid #ccc;padding:5px;font-size:11px;">時間帯</th>
+      <th style="border:1px solid #ccc;padding:5px;font-size:11px;">活動内容</th>
+      <th style="border:1px solid #ccc;padding:5px;font-size:11px;">支援目標</th>
+      <th style="border:1px solid #ccc;padding:5px;font-size:11px;">特記事項</th>
+    </tr>${slotRows}`;
+    if(c.staffNote) bodyRows += row("職員全体方針", c.staffNote);
+  } else if(rec.docType === "monitoring"){
+    bodyRows = [
+      row("実施日", c.monitoringDate||c.date),
+      row("対象期間", c.targetPeriod),
+      row("担当者", c.responsibleStaff),
+      row("児発管名", c.cdsmName),
+      row("長期目標達成状況", c.longGoalResult),
+      row("短期目標達成状況", c.shortGoalResult),
+      row("できるようになったこと", c.achievedItems),
+      row("残る課題", c.remainingChallenges),
+      row("支援変更案", c.supportChanges),
+      row("次回計画への反映", c.nextPlanReflection),
+      row("保護者意見", c.parentOpinion),
+      row("職員所見", c.staffObservation),
+      row("総合評価", c.overallEval),
+    ].filter(Boolean).join("");
+  } else if(rec.docType === "meeting"){
+    bodyRows = [
+      row("会議種別", c.meetingType),
+      row("開催日", c.date),
+      row("場所", c.location),
+      row("出席者", c.attendees),
+      row("議題", c.agenda),
+      row("討議内容", c.discussion),
+      row("決定事項", c.decisions),
+      row("次回予定", c.nextMeeting),
+    ].filter(Boolean).join("");
+  } else if(rec.docType === "consent"){
+    bodyRows = [
+      row("説明日", c.explanationDate||c.date),
+      row("説明者", c.explainedBy),
+      row("保護者名", c.parentName),
+      row("続柄", c.relationship),
+      row("同意文書", c.consentContent),
+      row("署名日", c.parentSignedAt),
+      row("備考", c.notes),
+    ].filter(Boolean).join("");
+  } else {
+    // 未知のdocTypeは全フィールドを汎用表示
+    bodyRows = Object.entries(c).filter(([k,v])=>v&&k!=="generatedFrom").map(([k,v])=>row(k,v)).join("");
+  }
+
+  // 署名欄（全docTypeに共通）
+  const signArea = `
+  <table style="width:100%;border-collapse:collapse;margin-top:18px;">
+    <tr>
+      <td style="border:1px solid #ccc;padding:14px 12px;font-size:11px;width:50%;">
+        説明・同意日　　令和　　年　　月　　日<br/><br/>
+        保護者氏名　　　　　　　　　　　　　　㊞
+      </td>
+      <td style="border:1px solid #ccc;padding:14px 12px;font-size:11px;">
+        ${facilityName}<br/><br/>
+        児童発達支援管理責任者　${c.cdsmName||c.explainedBy||""}　　㊞
+      </td>
+    </tr>
+  </table>`;
+
+  const html = `<div style="font-family:'Noto Sans JP',sans-serif;max-width:760px;margin:0 auto;padding:24px 20px;">
+    ${header}
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+      ${bodyRows}
+    </table>
+    ${rec.docType==="isp_plan"||rec.docType==="consent"||rec.docType==="monitoring" ? signArea : ""}
+  </div>`;
+
+  printHTML(html, `${docLabel}_${u.name}_${(rec.content?.validFrom||rec.content?.date||rec.createdAt||"").slice(0,10)}`);
+}
+
+// ─── ISP全書類 一括印刷（利用者の全確定書類をまとめてA4印刷）───
+function printIspAllRecords(myRecs, u, facilityName){
+  const statusLabels = {
+    ai_draft:"AI原案",staff_checked:"職員確認済",cdsm_approved:"児発管承認",
+    manager_confirmed:"管理者確認",parent_explained:"保護者説明済",
+    parent_consented:"保護者同意済",finalized:"確定"
+  };
+  const docLabel = {
+    isp_plan:"個別支援計画書", assessment:"アセスメント記録票",
+    weekly_plan:"週間支援計画", monitoring:"モニタリング記録",
+    meeting:"支援会議記録", consent:"保護者同意書"
+  };
+
+  const docOrder = ["assessment","isp_plan","weekly_plan","monitoring","meeting","consent"];
+  const sortedRecs = [...myRecs].sort((a,b)=>{
+    const ai = docOrder.indexOf(a.docType); const bi = docOrder.indexOf(b.docType);
+    if(ai!==bi) return ai-bi;
+    return a.createdAt > b.createdAt ? -1 : 1;
+  });
+
+  if(sortedRecs.length===0){ alert("印刷できる書類がありません"); return; }
+
+  const pages = sortedRecs.map((rec,idx)=>{
+    const c = rec.content||{};
+    const label = docLabel[rec.docType]||rec.docType;
+    const status = statusLabels[rec.status]||rec.status;
+    const pb = idx<sortedRecs.length-1 ? `<div style="page-break-after:always;"></div>` : "";
+
+    const fieldMap = {
+      isp_plan:["validFrom:計画開始日","validTo:計画終了日","supportPeriod:支援期間","userNeeds:本人のニーズ","parentNeeds:保護者のニーズ","longGoal:長期目標","longGoalTerm:長期目標期間","shortGoal:短期目標","shortGoalTerm:短期目標期間","supportContent:支援内容","specificMethods:具体的な手立て","staffInCharge:担当者","cdsmName:児発管","frequency:支援頻度","achievementDate:達成時期","evaluationMethod:評価方法","reviewDate:見直し予定日"],
+      assessment:["disabilityType:障害種別","characteristics:障害特性","concerns:本人の困りごと","parentWishes:保護者の希望","schoolSituation:学校での様子","homeLife:家庭での様子","strengths:強み","previousIspReview:前回振り返り","staffObservations:職員所見"],
+      monitoring:["monitoringDate:実施日","targetPeriod:対象期間","responsibleStaff:担当","longGoalResult:長期目標達成状況","shortGoalResult:短期目標達成状況","achievedItems:できるようになったこと","remainingChallenges:残る課題","supportChanges:支援変更案","nextPlanReflection:次回反映","parentOpinion:保護者意見","overallEval:総合評価"],
+      meeting:["date:開催日","meetingType:会議種別","location:場所","attendees:出席者","agenda:議題","discussion:討議内容","decisions:決定事項","nextMeeting:次回予定"],
+      consent:["date:説明日","explainedBy:説明者","parentName:保護者名","relationship:続柄","consentContent:同意内容","parentSignedAt:署名日"],
+      weekly_plan:["staffNote:職員全体方針"],
+    };
+    const fields = fieldMap[rec.docType]||[];
+    const rows = fields.map(f=>{
+      const [key,lbl]=f.split(":");
+      const val=c[key];
+      if(!val) return "";
+      return `<tr><td style="border:1px solid #ccc;padding:5px 7px;font-size:10px;font-weight:700;background:#f5f5f5;width:130px;white-space:nowrap;">${lbl}</td><td style="border:1px solid #ccc;padding:5px 7px;font-size:11px;white-space:pre-wrap;">${String(val).replace(/</g,"&lt;").replace(/>/g,"&gt;")}</td></tr>`
+    }).join("");
+
+    return `<div style="font-family:'Noto Sans JP',sans-serif;padding:20px 18px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #3aa0d8;padding-bottom:8px;margin-bottom:12px;">
+        <div>
+          <span style="font-size:17px;font-weight:900;">${label}</span>
+          <span style="margin-left:10px;font-size:10px;color:#888;border:1px solid #ccc;border-radius:4px;padding:2px 7px;">${status}</span>
+        </div>
+        <div style="text-align:right;font-size:11px;color:#555;">
+          <span style="font-weight:700;">${u.name}</span> 　${u.grade||""}　${facilityName}
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:12px;">${rows}</table>
+      <div style="font-size:10px;color:#aaa;text-align:right;margin-top:8px;">作成: ${rec.createdBy||""}　${(rec.createdAt||"").slice(0,10)}</div>
+    </div>${pb}`;
+  }).join("");
+
+  printHTML(`<div>${pages}</div>`, `ISP全書類_${u.name}_${new Date().toLocaleDateString("ja-JP")}`);
+}
+
 // 個別支援計画（原案）印刷
 function printIspDraft(u, d, facilityName) {
   const WD = ["月","火","水","木","金","土","日・祝"];
@@ -1827,6 +2044,19 @@ function useStore() {
     {id:"t3",userId:"u1",userName:"利用者 A",facilityId:"f1",direction:"退所",driver:"田中 美穂",method:"車",address:"〇〇市△△1-2-3",note:""},
     {id:"t4",userId:"u3",userName:"利用者 C",facilityId:"f1",direction:"退所",driver:"佐藤 健太",method:"車",address:"〇〇市△△4-5-6",note:""},
   ]);
+  // 送迎ルートデータ（ルートごとに停留所リストを管理）
+  const [routes, setRoutes] = useState([
+    {id:"rt1",facilityId:"f1",name:"ルートA（午後）",direction:"来所",driver:"田中 美穂",vehicle:"白いワンボックス",color:"#3aa0d8",
+      stops:[
+        {order:1,userId:"u1",userName:"利用者 A",address:"〇〇市△△1-2-3",estimatedTime:"14:00",note:""},
+        {order:2,userId:"u3",userName:"利用者 C",address:"〇〇市△△4-5-6",estimatedTime:"14:15",note:""},
+      ]},
+    {id:"rt2",facilityId:"f1",name:"ルートA（帰宅）",direction:"退所",driver:"田中 美穂",vehicle:"白いワンボックス",color:"#2caa60",
+      stops:[
+        {order:1,userId:"u3",userName:"利用者 C",address:"〇〇市△△4-5-6",estimatedTime:"17:30",note:""},
+        {order:2,userId:"u1",userName:"利用者 A",address:"〇〇市△△1-2-3",estimatedTime:"17:45",note:""},
+      ]},
+  ]);
   // 個別支援計画
   const [isps, setIsps] = useState([
     {id:"isp1",userId:"u1",facilityId:"f1",period:"2026年4月〜2026年9月",createdAt:"2026-03-01",goals:["コミュニケーション能力の向上","運動・身体機能の維持・向上"],longGoal:"友達と一緒に楽しく活動できるようになる",shortGoal:"挨拶や簡単な会話を自発的に行う",support:"ソーシャルスキルトレーニングを週2回実施",evaluation:"月1回モニタリングを実施",progress:45,status:"実施中"},
@@ -1930,7 +2160,20 @@ function useStore() {
       time:updated.time,read:true,replies:updated.replies||[],data:updated});
     return updated;
   }));
+  // メッセージのプロパティを任意に更新（parentRead管理など）
+  const updMsg = (id, changes) => setMsgs(p=>p.map(m=>{
+    if(m.id!==id) return m;
+    const updated={...m,...changes};
+    sbSave("messages",{id:updated.id,user_id:updated.userId,user_name:updated.userName,
+      facility_id:updated.facilityId,from_name:updated.from,body:updated.body,
+      time:updated.time,read:updated.read,replies:updated.replies||[],data:updated});
+    return updated;
+  }));
   const updTr = data => { setTrData(data); data.forEach(t=>sbSave("transport_data",{id:t.id,facility_id:t.facilityId||null,data:t})); };
+  // ─ 送迎ルートCRUD ─
+  const addRoute = r => setRoutes(p=>[...p,r]);
+  const updRoute = (id,ch) => setRoutes(p=>p.map(r=>r.id===id?{...r,...ch}:r));
+  const delRoute = id => setRoutes(p=>p.filter(r=>r.id!==id));
   const addIsp = isp => {
     setIsps(p=>[...p,isp]);
     sbSave("isps", {id:isp.id, facility_id:isp.facilityId||null, user_id:isp.userId||null, data:isp});
@@ -1973,6 +2216,103 @@ function useStore() {
       updated_at:     new Date().toISOString(),
       data:           k
     });
+  };
+
+  // ============================================================
+  // 全体パイプライン同期
+  // ISP → 実績(recs) → 日報(dailyReports) → 請求(kokuho)
+  // 呼び出し元: 日報確定・月次請求画面・手動ボタン
+  // ============================================================
+  const fullPipelineSync = (facilityId, yearMonth, city="その他") => {
+    const [y, m] = yearMonth.split("-").map(Number);
+    const ISP_BILLING_STAT = ["finalized","parent_consented","manager_confirmed"];
+
+    // ── Step1: 実績レコード（recs）から来所日数・送迎日数を集計 ──
+    const monthRecs = recs.filter(r=>
+      r.facilityId===facilityId &&
+      (r.time||"").slice(0,7)===yearMonth &&
+      r.type==="service"
+    );
+    // ── Step2: 確定日報からも補完（実績レコードにない日を拾う） ──
+    const confirmedReps = dailyReports.filter(r=>
+      r.facilityId===facilityId &&
+      r.date.startsWith(yearMonth) &&
+      (r.status==="確認済"||r.status==="確定")
+    );
+
+    // userId → {days:Set<date>, transportDays, ispId}
+    const attendMap = {};
+    const ensure = (uid, name) => {
+      if(!attendMap[uid]) attendMap[uid]={userId:uid,userName:name,days:new Set(),transportDays:0,ispId:""};
+    };
+
+    // 実績レコードから
+    monthRecs.forEach(r=>{
+      ensure(r.userId, r.userName||"");
+      const d=(r.time||"").slice(0,10);
+      if(d) attendMap[r.userId].days.add(d);
+      if(r.transport==="あり") attendMap[r.userId].transportDays++;
+      if(r.ispId&&!attendMap[r.userId].ispId) attendMap[r.userId].ispId=r.ispId;
+    });
+    // 確定日報から（実績にない日を補完）
+    confirmedReps.forEach(rep=>{
+      (rep.userList||[]).filter(u=>u.status==="出席"||u.status==="早退").forEach(u=>{
+        ensure(u.id||u.userId, u.name||u.userName||"");
+        const uid=u.id||u.userId;
+        if(rep.date&&!attendMap[uid].days.has(rep.date)){
+          attendMap[uid].days.add(rep.date);
+          if(u.transport==="あり"||u.transport==="送迎") attendMap[uid].transportDays++;
+        }
+      });
+    });
+
+    let synced=0;
+    Object.values(attendMap).forEach(agg=>{
+      const days=agg.days.size;
+      if(days===0) return;
+
+      // ISP状態から加算を自動設定
+      const activeIsp=(ispRecords||[])
+        .filter(r=>r.userId===agg.userId&&r.docType==="isp_plan"&&ISP_BILLING_STAT.includes(r.status))
+        .sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+
+      const ex=kokuho.find(k=>
+        k.userId===agg.userId&&k.facilityId===facilityId&&k.year===y&&k.month===m
+      );
+      let newAddons=[...(ex?.addons||[])];
+
+      // 送迎加算を自動追加（往復）
+      if(agg.transportDays>0&&!newAddons.some(a=>a.key?.startsWith("tr_"))){
+        const tr=ADDON_MASTER.find(a=>a.key==="tr_both");
+        if(tr) newAddons.push({...tr,autoAdded:true,autoAddedAt:new Date().toISOString()});
+      }
+      // 個別サポート加算を自動追加（ISP確定済み）
+      if(activeIsp&&!newAddons.some(a=>a.key==="indiv")){
+        const ind=ADDON_MASTER.find(a=>a.key==="indiv");
+        if(ind) newAddons.push({...ind,autoAdded:true,ispId:activeIsp.id,autoAddedAt:new Date().toISOString()});
+      }
+
+      if(ex){
+        updKokuho(ex.id,{
+          serviceDays:days,
+          transportDays:agg.transportDays,
+          addons:newAddons,
+          lastSyncedAt:new Date().toISOString(),
+          lastSyncedFrom:"pipeline",
+        });
+      } else {
+        addKokuho({
+          id:genId(),userId:agg.userId,userName:agg.userName,
+          facilityId,year:y,month:m,
+          serviceDays:days,transportDays:agg.transportDays,
+          serviceCode:"6612B",unitPrice:530,timeType:"放課後",
+          addons:newAddons,city,status:"未請求",
+          lastSyncedAt:new Date().toISOString(),lastSyncedFrom:"pipeline",
+        });
+      }
+      synced++;
+    });
+    return synced;
   };
 
   const [dynUsers, setDynUsers] = useState(INITIAL_USERS);
@@ -2197,9 +2537,24 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType};
+  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType};
 }
 
+
+// ==================== IME対応 テキスト入力ヘルパー ====================
+// 日本語入力（IME変換中）にReactのcontrolled inputが確定してしまう問題を防ぐ。
+// 使い方: const imeProps = useImeInput(value, onChange);
+//         <input {...imeProps} className="fi" />
+//         <textarea {...imeProps} className="fta" />
+function useImeInput(value, onChange) {
+  const composingRef = useRef(false);
+  return {
+    value: value||"",
+    onChange: e => { if(!composingRef.current) onChange(e.target.value); },
+    onCompositionStart: () => { composingRef.current = true; },
+    onCompositionEnd: e => { composingRef.current = false; onChange(e.target.value); },
+  };
+}
 
 // ==================== TIME PICKER（ドラムロール式） ====================
 function TimePicker({value, onChange, label=""}){
@@ -3214,40 +3569,474 @@ function ShiftScreen({user,store,onBack}){
 }
 
 // ==================== TRANSPORT ====================
+// ─── 送迎管理画面（強化版）─── 3タブ: 本日の送迎 / ルート管理 / 記録履歴
 function TransportScreen({user,store,onBack}){
+  const [tab,setTab]=useState("today");          // today / routes / history
   const [dir,setDir]=useState("来所");
-  const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
-  const list=store.trData.filter(t=>t.facilityId===user.selectedFacilityId&&t.direction===dir);
-  const METHODS=["車","徒歩","なし"];const mcls={"車":"trb trcar","徒歩":"trb trwalk","なし":"trb trnone"};
-  const setMethod=(id,m)=>store.updTr(store.trData.map(t=>t.id===id?{...t,method:m}:t));
-  const facNameTr=FACILITIES.find(f=>f.id===user.selectedFacilityId)?.name||"";
-  return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">🚌 送迎管理</div><button className="bexp" style={{marginLeft:"auto",background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={()=>printTransport(list,dir,facNameTr)}>🖨️ 印刷</button></div>
-    <div>
-      <div className="togr" style={{marginBottom:14}}>{["来所","退所"].map(d=><button key={d} className={`tg ${dir===d?"on":""}`} onClick={()=>setDir(d)}>{d}送迎</button>)}</div>
-      <div className="panel" style={{marginBottom:12}}><div className="ptit">本日の{dir}送迎一覧 — {fac?.name}</div>
-        {list.length===0?<div style={{color:"var(--g6)",fontSize:12,padding:"14px 0"}}>本日の{dir}送迎予定はありません</div>
-        :list.map(t=><div key={t.id} className="trc"><div className="trh2"><div><div className="trn">{t.userName}</div><div style={{fontSize:11,color:"var(--g4)",marginTop:3}}>📍 {t.address}</div></div></div>
-          <div className="tra">{METHODS.map(m=><button key={m} className={t.method===m?mcls[m]:"trb trnone"} onClick={()=>setMethod(t.id,m)}>{m}</button>)}</div>
-          <div style={{fontSize:11,color:"var(--g4)",marginTop:6}}>担当: <strong style={{color:"var(--wh)"}}>{t.driver}</strong>{t.note&&(" ／ "+t.note)}</div>
-        </div>)}
+  const [editRoute,setEditRoute]=useState(null); // ルート編集中
+  const [showNewRoute,setShowNewRoute]=useState(false);
+
+  const facId=user.selectedFacilityId;
+  const facName=FACILITIES.find(f=>f.id===facId)?.name||"";
+  const today=todayISO();
+
+  // 施設の利用者一覧
+  const facUsers=store.dynUsers.filter(u=>u.facilityId===facId&&u.active!==false);
+  // 本日のルート（方向フィルタ）
+  const todayRoutes=(store.routes||[]).filter(r=>r.facilityId===facId&&r.direction===dir);
+  // 本日のrecs（来所/退所）
+  const todayRecs=store.recs.filter(r=>r.facilityId===facId&&r.time?.slice(0,10)===today);
+  const arrivals=todayRecs.filter(r=>r.type==="user_in");
+  const departures=todayRecs.filter(r=>r.type==="user_out");
+
+  // ルート印刷
+  const printRoute=(route)=>{
+    const stopsHtml=(route.stops||[]).map((s,i)=>`
+      <tr>
+        <td style="border:1px solid #ccc;padding:8px;text-align:center;font-weight:700;">${s.order||i+1}</td>
+        <td style="border:1px solid #ccc;padding:8px;font-weight:700;">${s.userName||""}</td>
+        <td style="border:1px solid #ccc;padding:8px;">${s.address||""}</td>
+        <td style="border:1px solid #ccc;padding:8px;text-align:center;">${s.estimatedTime||""}</td>
+        <td style="border:1px solid #ccc;padding:8px;">${s.note||""}</td>
+        <td style="border:1px solid #ccc;padding:8px;width:80px;"></td>
+      </tr>`).join("");
+    const html=`<div style="font-family:'Noto Sans JP',sans-serif;max-width:780px;margin:0 auto;padding:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;border-bottom:2px solid #3aa0d8;padding-bottom:10px;">
+        <div>
+          <h2 style="font-size:18px;font-weight:900;margin:0 0 4px;">送迎ルート表</h2>
+          <div style="font-size:14px;font-weight:700;color:#3aa0d8;">${route.name} — ${route.direction}</div>
+        </div>
+        <div style="text-align:right;font-size:11px;color:#666;">
+          <div>${facName}</div>
+          <div>ドライバー: ${route.driver||"未設定"}</div>
+          <div>車両: ${route.vehicle||"未設定"}</div>
+          <div style="margin-top:4px;font-size:10px;">印刷日: ${new Date().toLocaleDateString("ja-JP")}</div>
+        </div>
       </div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+        <thead>
+          <tr style="background:#e8f0ff;">
+            <th style="border:1px solid #ccc;padding:8px;width:50px;">順番</th>
+            <th style="border:1px solid #ccc;padding:8px;width:130px;">利用者名</th>
+            <th style="border:1px solid #ccc;padding:8px;">住所</th>
+            <th style="border:1px solid #ccc;padding:8px;width:80px;">予定時刻</th>
+            <th style="border:1px solid #ccc;padding:8px;">備考</th>
+            <th style="border:1px solid #ccc;padding:8px;width:80px;">実施確認</th>
+          </tr>
+        </thead>
+        <tbody>${stopsHtml}</tbody>
+      </table>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="border:1px solid #ccc;padding:14px;">出発時刻：　　：　　</td>
+          <td style="border:1px solid #ccc;padding:14px;">帰着時刻：　　：　　</td>
+          <td style="border:1px solid #ccc;padding:14px;">担当者確認印：　　　　㊞</td>
+        </tr>
+      </table>
+    </div>`;
+    printHTML(html, `送迎ルート_${route.name}_${today}`);
+  };
+
+  // ─── ルート編集フォーム ───
+  if(editRoute!==null||showNewRoute){
+    const isNew=showNewRoute&&editRoute===null;
+    const initRoute=isNew
+      ?{id:genId(),facilityId:facId,name:"",direction:dir,driver:"",vehicle:"",color:"#3aa0d8",stops:[]}
+      :editRoute;
+    return <RouteEditForm
+      route={initRoute} facUsers={facUsers} isNew={isNew}
+      onSave={r=>{
+        if(isNew) store.addRoute(r); else store.updRoute(r.id,r);
+        setEditRoute(null);setShowNewRoute(false);
+        store.showToast(isNew?"ルートを作成しました":"ルートを更新しました");
+      }}
+      onCancel={()=>{setEditRoute(null);setShowNewRoute(false);}}
+      onDelete={id=>{store.delRoute(id);setEditRoute(null);store.showToast("ルートを削除しました","warn");}}
+    />;
+  }
+
+  return <div className="fl-wrap">
+    {/* ヘッダー */}
+    <div className="fl-hd">
+      <button className="bback" onClick={onBack}>← 戻る</button>
+      <div className="fl-title">🚌 送迎管理</div>
+      {tab==="today"&&<button className="bexp" style={{marginLeft:"auto",fontSize:11,padding:"5px 10px"}}
+        onClick={()=>printTransport(store.trData.filter(t=>t.facilityId===facId&&t.direction===dir),dir,facName)}>
+        🖨 従来印刷
+      </button>}
+    </div>
+
+    {/* タブ */}
+    <div style={{display:"flex",gap:6,padding:"10px 14px",background:"var(--bg)",borderBottom:"1px solid var(--bd)"}}>
+      {[
+        {id:"today", icon:"🚌", label:"本日の送迎"},
+        {id:"routes",icon:"📍", label:`ルート管理 (${(store.routes||[]).filter(r=>r.facilityId===facId).length})`},
+        {id:"history",icon:"📋", label:"記録履歴"},
+      ].map(t=>(
+        <button key={t.id} onClick={()=>setTab(t.id)}
+          style={{padding:"7px 12px",borderRadius:9,fontWeight:700,fontSize:11,cursor:"pointer",border:"1.5px solid",fontFamily:"'Noto Sans JP',sans-serif",
+            background:tab===t.id?"var(--tl)":"var(--wh)",color:tab===t.id?"#fff":"var(--tx3)",borderColor:tab===t.id?"var(--tl)":"var(--bd)"}}>
+          {t.icon} {t.label}
+        </button>
+      ))}
+    </div>
+
+    <div style={{padding:14}}>
+
+    {/* ═══ 本日の送迎タブ ═══ */}
+    {tab==="today"&&<div>
+      {/* 方向切替 */}
+      <div className="togr" style={{marginBottom:14}}>
+        {["来所","退所"].map(d=><button key={d} className={`tg ${dir===d?"on":""}`} onClick={()=>setDir(d)}>{d}</button>)}
+      </div>
+
+      {/* 本日の状況サマリー */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+        {[
+          {label:dir==="来所"?"来所済み":"退所済み", val:dir==="来所"?arrivals.filter(r=>r.transport==="あり").length:departures.filter(r=>r.transport==="あり").length, color:"var(--gr)"},
+          {label:"送迎予定数", val:todayRoutes.reduce((s,r)=>s+(r.stops||[]).length,0), color:"var(--tl)"},
+          {label:"ルート数", val:todayRoutes.length, color:"var(--pu)"},
+        ].map(s=>(
+          <div key={s.label} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 8px",textAlign:"center",boxShadow:"var(--sh)"}}>
+            <div style={{fontSize:22,fontWeight:900,color:s.color,fontFamily:"'DM Mono',monospace"}}>{s.val}</div>
+            <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ルートごとの送迎状況 */}
+      {todayRoutes.length===0
+        ?<div style={{background:"var(--bg)",borderRadius:11,padding:"20px 14px",textAlign:"center",color:"var(--tx3)",fontSize:13}}>
+          {dir}の送迎ルートが未設定です。「ルート管理」タブから追加してください。
+        </div>
+        :todayRoutes.map(route=>{
+          const completedStops=(route.stops||[]).filter(s=>{
+            const rec=(dir==="来所"?arrivals:departures).find(r=>r.userId===s.userId);
+            return !!rec&&rec.transport==="あり";
+          });
+          const pct=(route.stops||[]).length>0?completedStops.length/(route.stops||[]).length*100:0;
+          return <div key={route.id} style={{background:"var(--wh)",border:`2px solid ${route.color||"var(--tl)"}`,borderRadius:12,padding:14,marginBottom:14,boxShadow:"var(--sh)"}}>
+            {/* ルートヘッダー */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+              <div>
+                <div style={{fontWeight:900,fontSize:14,color:route.color||"var(--tl)"}}>{route.name}</div>
+                <div style={{fontSize:11,color:"var(--tx3)",marginTop:3}}>
+                  🚗 {route.vehicle||"車両未設定"} 　👤 {route.driver||"担当未設定"}
+                </div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:12,fontWeight:700,color:route.color||"var(--tl)"}}>
+                  {completedStops.length}/{(route.stops||[]).length}件完了
+                </div>
+                <div style={{marginTop:4,width:80,height:6,borderRadius:3,background:"var(--bd)",overflow:"hidden"}}>
+                  <div style={{height:"100%",borderRadius:3,background:route.color||"var(--tl)",width:`${pct}%`,transition:"width .3s"}}/>
+                </div>
+              </div>
+            </div>
+            {/* 停留所リスト */}
+            {(route.stops||[]).sort((a,b)=>a.order-b.order).map((s,i)=>{
+              const rec=(dir==="来所"?arrivals:departures).find(r=>r.userId===s.userId);
+              const done=rec&&rec.transport==="あり";
+              return <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderTop:i>0?"1px dashed var(--bd)":"none"}}>
+                {/* 順番バッジ */}
+                <div style={{width:28,height:28,borderRadius:"50%",background:done?(route.color||"var(--tl)"):"var(--bg)",border:`2px solid ${done?(route.color||"var(--tl)"):"var(--bd)"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:900,color:done?"#fff":"var(--tx3)",flexShrink:0}}>
+                  {s.order||i+1}
+                </div>
+                {/* 利用者情報 */}
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:13,color:done?"var(--gr)":"var(--tx)"}}>{s.userName}</div>
+                  <div style={{fontSize:10,color:"var(--tx3)",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>📍 {s.address||"住所未設定"}</div>
+                  {s.note&&<div style={{fontSize:10,color:"var(--am)"}}>{s.note}</div>}
+                </div>
+                {/* 時刻 */}
+                <div style={{textAlign:"right",flexShrink:0}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"var(--tx3)"}}>{s.estimatedTime||"--:--"}</div>
+                  {done&&<div style={{fontSize:10,color:"var(--gr)",fontWeight:700}}>
+                    ✅ {rec.time?.slice(-8,-3)||"完了"}
+                  </div>}
+                  {!done&&<div style={{fontSize:10,color:"var(--am)"}}>未完了</div>}
+                </div>
+              </div>;
+            })}
+            {/* ルート印刷ボタン */}
+            <div style={{marginTop:10,borderTop:"1px solid var(--bd)",paddingTop:10}}>
+              <button className="bexp" style={{width:"100%",fontSize:11,padding:"7px"}}
+                onClick={()=>printRoute(route)}>
+                🖨 このルートの送迎表を印刷
+              </button>
+            </div>
+          </div>;
+        })
+      }
+
+      {/* ルートに含まれていない送迎利用者 */}
+      {(()=>{
+        const routeUserIds=(todayRoutes.flatMap(r=>r.stops||[])).map(s=>s.userId);
+        const unrouted=store.trData.filter(t=>t.facilityId===facId&&t.direction===dir&&!routeUserIds.includes(t.userId));
+        if(unrouted.length===0) return null;
+        return <div style={{background:"var(--bg)",borderRadius:11,padding:12,border:"1px dashed var(--bd)"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--tx3)",marginBottom:8}}>ルート未割当の送迎利用者</div>
+          {unrouted.map(t=>{
+            const rec=(dir==="来所"?arrivals:departures).find(r=>r.userId===t.userId&&r.transport==="あり");
+            return <div key={t.id} className="trc" style={{marginBottom:6}}>
+              <div className="trh2">
+                <div>
+                  <div className="trn">{t.userName}</div>
+                  <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>📍 {t.address}</div>
+                </div>
+                {rec&&<span style={{fontSize:11,color:"var(--gr)",fontWeight:700}}>✅ {rec.time?.slice(-8,-3)}</span>}
+              </div>
+              <div style={{fontSize:11,color:"var(--tx3)"}}>担当: {t.driver||"未設定"}</div>
+            </div>;
+          })}
+        </div>;
+      })()}
+    </div>}
+
+    {/* ═══ ルート管理タブ ═══ */}
+    {tab==="routes"&&<div>
+      <div className="togr" style={{marginBottom:14}}>
+        {["来所","退所"].map(d=><button key={d} className={`tg ${dir===d?"on":""}`} onClick={()=>setDir(d)}>{d}</button>)}
+      </div>
+
+      <button className="bsave" style={{marginBottom:14}} onClick={()=>setShowNewRoute(true)}>
+        ＋ 新しいルートを作成
+      </button>
+
+      {(store.routes||[]).filter(r=>r.facilityId===facId&&r.direction===dir).map(route=>(
+        <div key={route.id} style={{background:"var(--wh)",border:`2px solid ${route.color||"var(--tl)"}`,borderRadius:12,padding:14,marginBottom:12,boxShadow:"var(--sh)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+            <div>
+              <div style={{fontWeight:900,fontSize:14,color:route.color||"var(--tl)"}}>{route.name}</div>
+              <div style={{fontSize:11,color:"var(--tx3)",marginTop:3}}>
+                🚗 {route.vehicle||"車両未設定"} 　👤 {route.driver||"担当未設定"}
+                　🛑 {(route.stops||[]).length}停留所
+              </div>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>printRoute(route)}
+                style={{padding:"5px 10px",borderRadius:8,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.1)",border:"1.5px solid var(--tl)",color:"var(--tl)",fontWeight:700}}>
+                🖨
+              </button>
+              <button onClick={()=>setEditRoute({...route})}
+                style={{padding:"5px 10px",borderRadius:8,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--tl)",color:"var(--tl)",fontWeight:700}}>
+                ✏️ 編集
+              </button>
+            </div>
+          </div>
+          {(route.stops||[]).sort((a,b)=>a.order-b.order).map((s,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderTop:i>0?"1px dashed var(--bd)":"none"}}>
+              <div style={{width:22,height:22,borderRadius:"50%",background:route.color||"var(--tl)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:900,color:"#fff",flexShrink:0}}>
+                {s.order||i+1}
+              </div>
+              <div style={{flex:1}}>
+                <span style={{fontWeight:700,fontSize:12}}>{s.userName}</span>
+                <span style={{fontSize:10,color:"var(--tx3)",marginLeft:8}}>{s.address||""}</span>
+              </div>
+              <div style={{fontSize:11,fontWeight:700,color:"var(--tx3)"}}>{s.estimatedTime||""}</div>
+            </div>
+          ))}
+        </div>
+      ))}
+      {(store.routes||[]).filter(r=>r.facilityId===facId&&r.direction===dir).length===0&&
+        <div style={{background:"rgba(58,160,216,0.06)",border:"1px solid rgba(58,160,216,0.2)",borderRadius:11,padding:"20px 14px",textAlign:"center",color:"var(--tx3)",fontSize:13}}>
+          {dir}のルートがまだありません
+        </div>}
+    </div>}
+
+    {/* ═══ 記録履歴タブ ═══ */}
+    {tab==="history"&&<div>
+      <div className="togr" style={{marginBottom:14}}>
+        {["来所","退所"].map(d=><button key={d} className={`tg ${dir===d?"on":""}`} onClick={()=>setDir(d)}>{d}</button>)}
+      </div>
+      {(()=>{
+        const histRecs=store.recs.filter(r=>r.facilityId===facId&&r.type===(dir==="来所"?"user_in":"user_out")&&r.transport==="あり")
+          .sort((a,b)=>b.time>a.time?1:-1);
+        if(histRecs.length===0) return <div style={{textAlign:"center",color:"var(--tx3)",padding:24}}>送迎記録がありません</div>;
+
+        // 日付ごとにグループ
+        const byDate={};
+        histRecs.forEach(r=>{
+          const d=r.time?.slice(0,10)||"";
+          if(!byDate[d]) byDate[d]=[];
+          byDate[d].push(r);
+        });
+        return Object.entries(byDate).sort((a,b)=>b[0]>a[0]?1:-1).slice(0,20).map(([date,recs])=>(
+          <div key={date} style={{marginBottom:14}}>
+            <div style={{fontSize:12,fontWeight:700,color:"var(--tl)",marginBottom:8,paddingBottom:4,borderBottom:"1px solid var(--bd)"}}>
+              📅 {date} ({recs.length}件)
+            </div>
+            {recs.map((r,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"var(--wh)",borderRadius:9,border:"1px solid var(--bd)",marginBottom:6,boxShadow:"var(--sh)"}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:13}}>{r.userName}</div>
+                  <div style={{fontSize:10,color:"var(--tx3)"}}>体温: {r.temp||"-"}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"var(--tl)"}}>{r.time?.slice(-8,-3)||""}</div>
+                  <div style={{fontSize:10,color:"var(--tx3)"}}>記録: {r.createdBy||""}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ));
+      })()}
+    </div>}
+
+    </div>
+  </div>;
+}
+
+// ─── ルート編集フォーム（TransportScreen から分離） ───
+function RouteEditForm({route, facUsers, isNew, onSave, onCancel, onDelete}){
+  const [f,setF]=useState({...route});
+  const [stops,setStops]=useState(route.stops?[...route.stops.map(s=>({...s}))]:[] );
+  const upd=(k,v)=>setF(p=>({...p,[k]:v}));
+
+  const addStop=()=>{
+    const next={order:stops.length+1,userId:"",userName:"",address:"",estimatedTime:"",note:""};
+    setStops(p=>[...p,next]);
+  };
+  const removeStop=(i)=>setStops(p=>p.filter((_,j)=>j!==i).map((s,j)=>({...s,order:j+1})));
+  const updStop=(i,k,v)=>{
+    setStops(p=>p.map((s,j)=>{
+      if(j!==i) return s;
+      // ユーザー選択時は名前と住所を自動入力
+      if(k==="userId"){
+        const u=facUsers.find(x=>x.id===v);
+        return {...s,userId:v,userName:u?.name||"",address:u?.address||""};
+      }
+      return {...s,[k]:v};
+    }));
+  };
+  const moveStop=(i,dir2)=>{
+    if(dir2===-1&&i===0) return;
+    if(dir2===1&&i===stops.length-1) return;
+    const arr=[...stops];
+    [arr[i],arr[i+dir2]]=[arr[i+dir2],arr[i]];
+    setStops(arr.map((s,j)=>({...s,order:j+1})));
+  };
+
+  const ROUTE_COLORS=["#3aa0d8","#2caa60","#f07020","#9048d8","#e03838","#a08020"];
+
+  return <div style={{paddingBottom:28}}>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+      <button className="bback" onClick={onCancel}>← 戻る</button>
+      <div style={{fontSize:15,fontWeight:900}}>{isNew?"📍 新しいルートを作成":"📍 ルートを編集"}</div>
+    </div>
+
+    {/* 基本情報 */}
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,marginBottom:12,boxShadow:"var(--sh)"}}>
+      <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",marginBottom:12}}>▍基本情報</div>
+      <div className="fg"><label className="fl">ルート名 <span style={{color:"var(--ro)"}}>*</span></label>
+        <input className="fi" value={f.name} onChange={e=>upd("name",e.target.value)} placeholder="例: ルートA（午後）"/></div>
+      <div className="fg"><label className="fl">方向</label>
+        <div style={{display:"flex",gap:8}}>
+          {["来所","退所"].map(d=><button key={d} onClick={()=>upd("direction",d)}
+            style={{padding:"7px 16px",borderRadius:9,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",
+              background:f.direction===d?"var(--tl)":"var(--bg)",color:f.direction===d?"#fff":"var(--tx3)",border:`1.5px solid ${f.direction===d?"var(--tl)":"var(--bd)"}`}}>
+            {d}
+          </button>)}
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <div className="fg" style={{marginBottom:0}}><label className="fl">担当ドライバー</label>
+          <input className="fi" value={f.driver} onChange={e=>upd("driver",e.target.value)} placeholder="担当者名"/></div>
+        <div className="fg" style={{marginBottom:0}}><label className="fl">車両</label>
+          <input className="fi" value={f.vehicle} onChange={e=>upd("vehicle",e.target.value)} placeholder="例: 白いワンボックス"/></div>
+      </div>
+      <div className="fg" style={{marginTop:10}}><label className="fl">ルートカラー</label>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {ROUTE_COLORS.map(c=><button key={c} onClick={()=>upd("color",c)}
+            style={{width:28,height:28,borderRadius:"50%",background:c,border:`3px solid ${f.color===c?"var(--tx)":"transparent"}`,cursor:"pointer",flexShrink:0}}/>)}
+        </div>
+      </div>
+    </div>
+
+    {/* 停留所リスト */}
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,marginBottom:12,boxShadow:"var(--sh)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--tl)"}}>▍停留所リスト</div>
+        <button onClick={addStop}
+          style={{padding:"5px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.1)",border:"1.5px solid var(--tl)",color:"var(--tl)"}}>
+          ＋ 停留所追加
+        </button>
+      </div>
+      {stops.length===0&&<div style={{textAlign:"center",color:"var(--tx3)",fontSize:12,padding:"16px 0"}}>停留所がありません。追加してください。</div>}
+      {stops.map((s,i)=>(
+        <div key={i} style={{background:"var(--bg)",borderRadius:10,padding:12,marginBottom:10,border:"1px solid var(--bd)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{width:24,height:24,borderRadius:"50%",background:f.color||"var(--tl)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:900,color:"#fff"}}>
+                {i+1}
+              </div>
+              <span style={{fontSize:11,fontWeight:700,color:"var(--tx2)"}}>停留所 {i+1}</span>
+            </div>
+            <div style={{display:"flex",gap:4}}>
+              <button onClick={()=>moveStop(i,-1)} disabled={i===0}
+                style={{padding:"3px 7px",borderRadius:7,fontSize:12,cursor:i===0?"default":"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1px solid var(--bd)",color:i===0?"var(--bd)":"var(--tx3)",opacity:i===0?0.4:1}}>▲</button>
+              <button onClick={()=>moveStop(i,1)} disabled={i===stops.length-1}
+                style={{padding:"3px 7px",borderRadius:7,fontSize:12,cursor:i===stops.length-1?"default":"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1px solid var(--bd)",color:i===stops.length-1?"var(--bd)":"var(--tx3)",opacity:i===stops.length-1?0.4:1}}>▼</button>
+              <button onClick={()=>removeStop(i)}
+                style={{padding:"3px 8px",borderRadius:7,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.25)",color:"var(--ro)"}}>
+                ✕
+              </button>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div className="fg" style={{marginBottom:0}}><label className="fl">利用者</label>
+              <select className="fi" style={{marginBottom:0}} value={s.userId} onChange={e=>updStop(i,"userId",e.target.value)}>
+                <option value="">選択してください</option>
+                {facUsers.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+            <div className="fg" style={{marginBottom:0}}><label className="fl">予定時刻</label>
+              <input className="fi" style={{marginBottom:0}} type="time" value={s.estimatedTime} onChange={e=>updStop(i,"estimatedTime",e.target.value)}/></div>
+          </div>
+          <div className="fg" style={{marginTop:8,marginBottom:0}}><label className="fl">住所</label>
+            <input className="fi" style={{marginBottom:0}} value={s.address} onChange={e=>updStop(i,"address",e.target.value)} placeholder="自宅住所"/></div>
+          <div className="fg" style={{marginTop:8,marginBottom:0}}><label className="fl">備考</label>
+            <input className="fi" style={{marginBottom:0}} value={s.note} onChange={e=>updStop(i,"note",e.target.value)} placeholder="注意事項など"/></div>
+        </div>
+      ))}
+    </div>
+
+    <div style={{display:"flex",gap:10}}>
+      <button className="bcancel" onClick={onCancel}>キャンセル</button>
+      {!isNew&&<button onClick={()=>{if(window.confirm("このルートを削除しますか？"))onDelete(f.id);}}
+        style={{padding:"10px 16px",borderRadius:10,background:"rgba(224,56,56,0.1)",color:"var(--ro)",fontWeight:700,fontSize:13,border:"1.5px solid rgba(224,56,56,0.3)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+        🗑 削除
+      </button>}
+      <button className="bsave" onClick={()=>onSave({...f,stops})}
+        disabled={!f.name.trim()}
+        style={{opacity:!f.name.trim()?0.5:1,flex:1}}>
+        💾 {isNew?"ルートを作成":"ルートを更新"}
+      </button>
     </div>
   </div>;
 }
 
 // ==================== PARENT MESSAGES (LINE風) ====================
 function ParentMessages({user,store,onBack}){
-  // 利用者ごとのスレッド表示
+  // ─ 基本ステート ─
   const [selUserId,setSelUserId]=useState(null);
-  const [newMode,setNewMode]=useState(false);
-  const [newTo,setNewTo]=useState("");
-  const [newBody,setNewBody]=useState("");
+  const [newMode,setNewMode]=useState(false);       // 新規1件送信
+  const [broadcastMode,setBroadcastMode]=useState(false); // 一斉送信
+  const [msgFilter,setMsgFilter]=useState("all");   // all / unread / waiting
   const [inputText,setInputText]=useState("");
   const [photoData,setPhotoData]=useState(null);
+  const [newTo,setNewTo]=useState("");
+  const [newBody,setNewBody]=useState("");
   const [newPhotoData,setNewPhotoData]=useState(null);
+  // 一斉送信用
+  const [bcText,setBcText]=useState("");
+  const [bcPhoto,setBcPhoto]=useState(null);
+  const [bcSelected,setBcSelected]=useState([]);    // 送信先userId[]
+  const [bcSent,setBcSent]=useState(false);         // 送信完了フラグ
   const msgEndRef=useRef(null);
   const photoInputRef=useRef(null);
   const newPhotoInputRef=useRef(null);
+  const bcPhotoRef=useRef(null);
 
   const allMsgs=store.msgs.filter(m=>user.role==="admin"||m.facilityId===user.selectedFacilityId);
   const facUsers=store.dynUsers.filter(u=>(user.role==="admin"||u.facilityId===user.selectedFacilityId)&&u.active!==false);
@@ -3263,55 +4052,230 @@ function ParentMessages({user,store,onBack}){
     }
   });
 
-  // 利用者ごとの最新メッセージと未読数を集計（メッセージがある利用者のみ表示）
+  // 施設→保護者 / 保護者→施設 判定
+  const isFromFacility=(m)=>m.from&&m.from!=="保護者"&&!m.from.includes("保護者");
+
+  // スレッド集計
   const threads=allThreadUsers.map(u=>{
     const uMsgs=allMsgs.filter(m=>m.userId===u.id).sort((a,b)=>a.time>b.time?1:-1);
     const unread=uMsgs.filter(m=>!m.read).length;
     const latest=uMsgs[uMsgs.length-1];
-    return {user:u,msgs:uMsgs,unread,latest};
-  }).filter(t=>t.msgs.length>0).sort((a,b)=>b.unread-a.unread||(b.latest?.time||"")>(a.latest?.time||"")?1:-1);
+    // 施設→保護者メッセージで「未送信既読」（parentReadがfalse）のもの
+    const waitingRead=uMsgs.filter(m=>isFromFacility(m)&&m.parentRead===false).length;
+    return {user:u,msgs:uMsgs,unread,waitingRead,latest};
+  }).filter(t=>t.msgs.length>0||facUsers.some(u=>u.id===t.user.id));
 
-  const selThread=threads.find(t=>t.user.id===selUserId);
+  // フィルター適用
+  const filteredThreads=threads.filter(t=>{
+    if(msgFilter==="unread") return t.unread>0;
+    if(msgFilter==="waiting") return t.waitingRead>0;
+    return true;
+  }).sort((a,b)=>b.unread-a.unread||(b.latest?.time||"")>(a.latest?.time||"")?1:-1);
+
+  const selThread=filteredThreads.find(t=>t.user.id===selUserId)||threads.find(t=>t.user.id===selUserId);
   const selUser=selThread?.user;
 
-  // 施設→保護者への送信（右吹き出し）と保護者→施設（左吹き出し）を区別
-  const isFromFacility=(m)=>m.from&&m.from!=="保護者"&&!m.from.includes("保護者");
-
-  // メッセージ一覧が更新されたら最下部にスクロール
+  // スクロール
   useEffect(()=>{msgEndRef.current?.scrollIntoView({behavior:"smooth"});},[selUserId,allMsgs.length]);
 
-  // スレッド内でメッセージ送信
+  // スレッドを開いたとき・新着時に未読を既読にする
+  useEffect(()=>{
+    if(!selUserId) return;
+    allMsgs.filter(m=>m.userId===selUserId&&!m.read).forEach(m=>store.markRead(m.id));
+  },[selUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─ スレッド内送信 ─
   const sendInThread=()=>{
     if(!inputText.trim()&&!photoData) return;
     if(!selUserId) return;
     store.addMsg({
       id:genId(),userId:selUserId,userName:selUser?.name||"",
       facilityId:user.selectedFacilityId,from:user.displayName,
-      body:inputText,time:nowStr(),read:true,replies:[],
+      body:inputText,time:nowStr(),read:true,
+      parentRead:false,parentReadAt:null,  // 保護者既読は未確認
+      replies:[],isBroadcast:false,
       ...(photoData?{photoData}:{})
     });
-    setInputText("");
-    setPhotoData(null);
+    setInputText("");setPhotoData(null);
   };
 
-  // 新規メッセージ送信
+  // ─ 新規1件送信 ─
   const sendNew=()=>{
     if(!newTo||(!newBody.trim()&&!newPhotoData)) return;
     const u=facUsers.find(x=>x.id===newTo);
-    store.addMsg({id:genId(),userId:newTo,userName:u?.name||"",facilityId:user.selectedFacilityId,from:user.displayName,body:newBody,time:nowStr(),read:true,replies:[],
+    store.addMsg({
+      id:genId(),userId:newTo,userName:u?.name||"",
+      facilityId:user.selectedFacilityId,from:user.displayName,
+      body:newBody,time:nowStr(),read:true,
+      parentRead:false,parentReadAt:null,
+      replies:[],isBroadcast:false,
       ...(newPhotoData?{photoData:newPhotoData}:{})
     });
     setNewMode(false);setNewTo("");setNewBody("");setNewPhotoData(null);
     setSelUserId(newTo);
   };
 
-  // ===== 新規作成画面 =====
+  // ─ 一斉送信 ─
+  const sendBroadcast=()=>{
+    if(!bcText.trim()&&!bcPhoto) return;
+    if(bcSelected.length===0) return;
+    const batchId=genId(); // 一斉送信グループID
+    bcSelected.forEach(uid=>{
+      const u=facUsers.find(x=>x.id===uid);
+      store.addMsg({
+        id:genId(),userId:uid,userName:u?.name||"",
+        facilityId:user.selectedFacilityId,from:user.displayName,
+        body:bcText,time:nowStr(),read:true,
+        parentRead:false,parentReadAt:null,
+        replies:[],isBroadcast:true,broadcastId:batchId,
+        ...(bcPhoto?{photoData:bcPhoto}:{})
+      });
+    });
+    store.showToast(`📢 ${bcSelected.length}名に一斉送信しました`);
+    setBcSent(true);
+    setBcText("");setBcPhoto(null);
+  };
+
+  // ─ 保護者既読を手動確認 ─
+  const markParentRead=(msgId)=>{
+    store.updMsg(msgId,{parentRead:true,parentReadAt:nowStr()});
+    store.showToast("既読確認を記録しました");
+  };
+
+  // ─── テンプレートメッセージ ───
+  const MSG_TEMPLATES=[
+    "本日も元気に参加できました。",
+    "本日の活動の様子をお伝えします。",
+    "体調にご注意ください。",
+    "次回のご利用日についてご確認ください。",
+    "施設からのお知らせです。",
+    "今週の活動の振り返りをお送りします。",
+  ];
+
+  // ===== 一斉送信画面 =====
+  if(broadcastMode) {
+    const allSelected=bcSelected.length===facUsers.length;
+    const toggleAll=()=>setBcSelected(allSelected?[]:facUsers.map(u=>u.id));
+    const toggleUser=(uid)=>setBcSelected(p=>p.includes(uid)?p.filter(x=>x!==uid):[...p,uid]);
+
+    if(bcSent){
+      // 送信完了後の既読率表示
+      const sentMsgs=allMsgs.filter(m=>m.isBroadcast&&m.from===user.displayName)
+        .filter((m,_,arr)=>arr.some(x=>x.broadcastId===m.broadcastId));
+      const latestBatch=[...new Set(sentMsgs.map(m=>m.broadcastId))][0];
+      const batchMsgs=allMsgs.filter(m=>m.broadcastId===latestBatch);
+      const readCount=batchMsgs.filter(m=>m.parentRead).length;
+      return <FlowWrap title="📢 一斉送信 — 送信完了" onBack={()=>{setBroadcastMode(false);setBcSent(false);}}>
+        <div style={{textAlign:"center",padding:"20px 0"}}>
+          <div style={{fontSize:40,marginBottom:8}}>✅</div>
+          <div style={{fontSize:15,fontWeight:700,color:"var(--gr)"}}>送信完了</div>
+          <div style={{fontSize:12,color:"var(--tx3)",marginTop:4}}>{bcSelected.length}名に送信しました</div>
+        </div>
+        {batchMsgs.length>0&&<>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--tx2)",marginBottom:8}}>📊 既読確認状況</div>
+          <div style={{background:"var(--bg)",borderRadius:12,padding:14,marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+              <span style={{fontSize:13,fontWeight:700}}>既読率</span>
+              <span style={{fontSize:13,fontWeight:700,color:"var(--tl)"}}>{readCount}/{batchMsgs.length}名</span>
+            </div>
+            <div style={{height:8,borderRadius:4,background:"var(--bd)",overflow:"hidden"}}>
+              <div style={{height:"100%",borderRadius:4,background:"var(--tl)",width:`${batchMsgs.length>0?readCount/batchMsgs.length*100:0}%`,transition:"width .5s"}}/>
+            </div>
+            <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:8}}>
+              {batchMsgs.map(m=>{
+                const u2=facUsers.find(x=>x.id===m.userId);
+                return <div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"var(--wh)",borderRadius:9,border:"1px solid var(--bd)"}}>
+                  <span style={{fontSize:12,fontWeight:700}}>{u2?.name||m.userName}</span>
+                  {m.parentRead
+                    ?<span style={{fontSize:11,color:"var(--gr)",fontWeight:700}}>✅ 既読 {m.parentReadAt?.slice(-8)||""}</span>
+                    :<button onClick={()=>markParentRead(m.id)}
+                      style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:"rgba(58,160,216,0.1)",border:"1.5px solid var(--tl)",color:"var(--tl)",fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                      未読 → 確認済みに
+                    </button>}
+                </div>;
+              })}
+            </div>
+          </div>
+        </>}
+        <button className="bsave" onClick={()=>{setBroadcastMode(false);setBcSent(false);}}>スレッド一覧に戻る</button>
+      </FlowWrap>;
+    }
+
+    return <FlowWrap title="📢 一斉送信" onBack={()=>setBroadcastMode(false)}>
+      {/* テンプレート選択 */}
+      <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",marginBottom:6}}>📋 テンプレート</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>
+        {MSG_TEMPLATES.map(t=><button key={t} onClick={()=>setBcText(t)}
+          style={{padding:"5px 10px",borderRadius:9,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",
+            background:bcText===t?"var(--tl)":"var(--bg)",color:bcText===t?"#fff":"var(--tx3)",border:`1.5px solid ${bcText===t?"var(--tl)":"var(--bd)"}`}}>
+          {t}
+        </button>)}
+      </div>
+
+      {/* メッセージ入力 */}
+      <div className="slbl">メッセージ内容 <span style={{color:"var(--ro)"}}>*</span></div>
+      <textarea className="fta" style={{minHeight:100}} placeholder="全員に送るメッセージを入力..." value={bcText} onChange={e=>setBcText(e.target.value)}/>
+
+      {/* 写真添付 */}
+      <input type="file" accept="image/*" ref={bcPhotoRef} style={{display:"none"}}
+        onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setBcPhoto(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14}}>
+        <button onClick={()=>bcPhotoRef.current?.click()}
+          style={{padding:"8px 12px",background:"var(--bg)",border:"1.5px solid var(--bd)",borderRadius:9,cursor:"pointer",fontSize:13,fontFamily:"'Noto Sans JP',sans-serif"}}>
+          📷 写真を添付
+        </button>
+        {bcPhoto&&<div style={{position:"relative",display:"inline-block"}}>
+          <img src={bcPhoto} alt="" style={{height:50,borderRadius:6,border:"1.5px solid var(--bd)"}}/>
+          <button onClick={()=>setBcPhoto(null)} style={{position:"absolute",top:-7,right:-7,background:"var(--ro)",color:"#fff",border:"none",borderRadius:"50%",width:18,height:18,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>×</button>
+        </div>}
+      </div>
+
+      {/* 宛先選択 */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--tl)"}}>👥 送信先 — {bcSelected.length}/{facUsers.length}名選択</div>
+        <button onClick={toggleAll}
+          style={{fontSize:11,padding:"5px 10px",borderRadius:8,background:allSelected?"var(--tl)":"var(--bg)",color:allSelected?"#fff":"var(--tx3)",border:`1.5px solid ${allSelected?"var(--tl)":"var(--bd)"}`,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontWeight:700}}>
+          {allSelected?"選択解除":"全員選択"}
+        </button>
+      </div>
+      <div style={{background:"var(--bg)",borderRadius:10,padding:"6px 0",marginBottom:16}}>
+        {facUsers.map(u=>(
+          <label key={u.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",cursor:"pointer",borderBottom:"1px solid var(--bd)"}}>
+            <input type="checkbox" checked={bcSelected.includes(u.id)} onChange={()=>toggleUser(u.id)} style={{width:16,height:16}}/>
+            <div style={{width:32,height:32,borderRadius:"50%",background:"var(--tl)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:"#fff",fontWeight:700,flexShrink:0}}>
+              {u.name?.[0]||"?"}
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:700}}>{u.name}</div>
+              <div style={{fontSize:10,color:"var(--tx3)"}}>{u.grade||""}</div>
+            </div>
+            {bcSelected.includes(u.id)&&<span style={{fontSize:11,color:"var(--gr)",fontWeight:700}}>✓</span>}
+          </label>
+        ))}
+      </div>
+
+      <button className="bsave" onClick={sendBroadcast}
+        disabled={(!bcText.trim()&&!bcPhoto)||bcSelected.length===0}
+        style={{opacity:(!bcText.trim()&&!bcPhoto)||bcSelected.length===0?0.5:1}}>
+        📢 {bcSelected.length}名に一斉送信する
+      </button>
+    </FlowWrap>;
+  }
+
+  // ===== 新規1件送信画面 =====
   if(newMode) return <FlowWrap title="✉️ 新規メッセージ" onBack={()=>setNewMode(false)}>
     <div className="slbl">宛先（利用者）</div>
     <select className="fi" style={{marginBottom:14}} value={newTo} onChange={e=>setNewTo(e.target.value)}>
       <option value="">選択してください</option>
       {facUsers.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
     </select>
+    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+      {MSG_TEMPLATES.map(t=><button key={t} onClick={()=>setNewBody(t)}
+        style={{padding:"5px 10px",borderRadius:9,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",
+          background:newBody===t?"var(--tl)":"var(--bg)",color:newBody===t?"#fff":"var(--tx3)",border:`1.5px solid ${newBody===t?"var(--tl)":"var(--bd)"}`}}>
+        {t}
+      </button>)}
+    </div>
     <div className="slbl">メッセージ内容</div>
     <textarea className="fta" style={{minHeight:120}} placeholder="保護者へのメッセージを入力..." value={newBody} onChange={e=>setNewBody(e.target.value)}/>
     <input type="file" accept="image/*" ref={newPhotoInputRef} style={{display:"none"}}
@@ -3326,15 +4290,11 @@ function ParentMessages({user,store,onBack}){
     </div>
   </FlowWrap>;
 
-  // スレッドを開いたとき・新着時に未読を既読にする（renderではなくeffectで実行）
-  useEffect(()=>{
-    if(!selUserId) return;
-    allMsgs.filter(m=>m.userId===selUserId&&!m.read).forEach(m=>store.markRead(m.id));
-  },[selUserId]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // ===== チャット画面（利用者スレッド選択時）=====
   if(selUserId&&selUser) {
     const threadMsgs=allMsgs.filter(m=>m.userId===selUserId).sort((a,b)=>a.time>b.time?-1:1).reverse();
+    // 施設→保護者で未既読のメッセージ数
+    const unconfirmedCount=threadMsgs.filter(m=>isFromFacility(m)&&m.parentRead===false).length;
 
     return <div className="fl-wrap" style={{display:"flex",flexDirection:"column",height:"100vh",maxHeight:"100vh"}}>
       {/* ヘッダー */}
@@ -3342,11 +4302,14 @@ function ParentMessages({user,store,onBack}){
         <button className="bback" onClick={()=>setSelUserId(null)}>← 戻る</button>
         <div style={{flex:1}}>
           <div className="fl-title" style={{marginBottom:0}}>💬 {selUser.name}</div>
-          <div style={{fontSize:10,color:"var(--tx3)",marginTop:1}}>{facName} ／ 保護者連絡</div>
+          <div style={{fontSize:10,color:"var(--tx3)",marginTop:1}}>
+            {facName}
+            {unconfirmedCount>0&&<span style={{marginLeft:6,color:"var(--am)",fontWeight:700}}>保護者未読 {unconfirmedCount}件</span>}
+          </div>
         </div>
         <button className="bexp" style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)",fontSize:11,padding:"5px 10px"}}
           onClick={()=>{
-            const lines=threadMsgs.map(m=>`[${m.time}] ${m.from}: ${m.body}`).join("\n");
+            const lines=threadMsgs.map(m=>`[${m.time}] ${isFromFacility(m)?m.from:"保護者"}: ${m.body}${m.parentRead?" (既読)":""}`).join("\n");
             const blob=new Blob(["﻿"+lines],{type:"text/plain"});
             const a=document.createElement("a");a.href=URL.createObjectURL(blob);
             a.download=`連絡帳_${selUser.name}_${todayISO()}.txt`;a.click();
@@ -3358,7 +4321,11 @@ function ParentMessages({user,store,onBack}){
         {threadMsgs.length===0&&<div style={{textAlign:"center",color:"var(--tx3)",fontSize:13,marginTop:40}}>まだメッセージがありません</div>}
         {threadMsgs.map((m,i)=>{
           const fromFac=isFromFacility(m);
+          const isRead=m.parentRead===true;
+          const isUnread=fromFac&&m.parentRead===false;
           return <div key={m.id||i} style={{display:"flex",flexDirection:"column",alignItems:fromFac?"flex-end":"flex-start"}}>
+            {/* 一斉送信ラベル */}
+            {m.isBroadcast&&fromFac&&<div style={{fontSize:9,color:"var(--am)",marginBottom:2,paddingRight:4}}>📢 一斉送信</div>}
             {/* 送信者名 */}
             <div style={{fontSize:10,color:"var(--tx3)",marginBottom:2,paddingLeft:fromFac?0:4,paddingRight:fromFac?4:0}}>
               {fromFac?m.from:"保護者"}
@@ -3370,7 +4337,8 @@ function ParentMessages({user,store,onBack}){
               </div>
               {/* 吹き出し */}
               <div style={{
-                maxWidth:"70%",padding:"9px 13px",borderRadius:fromFac?"16px 4px 16px 16px":"4px 16px 16px 16px",
+                maxWidth:"70%",padding:"9px 13px",
+                borderRadius:fromFac?"16px 4px 16px 16px":"4px 16px 16px 16px",
                 background:fromFac?"var(--tl)":"#fff",
                 color:fromFac?"#fff":"var(--tx)",
                 fontSize:13,lineHeight:1.65,
@@ -3381,20 +4349,18 @@ function ParentMessages({user,store,onBack}){
                 {m.photoData&&<img src={m.photoData} alt="添付画像" style={{display:"block",maxWidth:200,maxHeight:200,borderRadius:8,marginTop:m.body?8:0,cursor:"pointer"}} onClick={()=>window.open(m.photoData)}/>}
               </div>
               {/* 既読・時刻 */}
-              <div style={{fontSize:10,color:"var(--tx3)",flexShrink:0,textAlign:fromFac?"right":"left",minWidth:36}}>
-                {fromFac&&<div style={{color:"var(--tl)",fontWeight:700}}>既読</div>}
+              <div style={{fontSize:10,color:"var(--tx3)",flexShrink:0,textAlign:fromFac?"right":"left",minWidth:40}}>
+                {fromFac&&(
+                  isRead
+                    ?<div style={{color:"var(--gr)",fontWeight:700}}>✅ 既読{m.parentReadAt?<span style={{display:"block",fontSize:9}}>{m.parentReadAt.slice(-8)}</span>:null}</div>
+                    :<button onClick={()=>markParentRead(m.id)}
+                      style={{fontSize:10,color:"var(--am)",fontWeight:700,background:"none",border:"1px dashed var(--am)",borderRadius:5,padding:"2px 5px",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",display:"block",marginBottom:2}}>
+                      未読
+                    </button>
+                )}
                 <div style={{fontFamily:"'DM Mono',monospace"}}>{m.time?.slice(-5)||""}</div>
               </div>
             </div>
-            {/* 返信（旧データとの互換）*/}
-            {(m.replies||[]).map((r,ri)=><div key={ri} style={{display:"flex",flexDirection:"column",alignItems:"flex-end",marginTop:6}}>
-              <div style={{fontSize:10,color:"var(--tx3)",marginBottom:2,paddingRight:4}}>{user.displayName}</div>
-              <div style={{display:"flex",alignItems:"flex-end",gap:6,flexDirection:"row-reverse"}}>
-                <div style={{width:32,height:32,borderRadius:"50%",background:"var(--tl)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:"#fff"}}>🏥</div>
-                <div style={{maxWidth:"70%",padding:"9px 13px",borderRadius:"16px 4px 16px 16px",background:"var(--tl)",color:"#fff",fontSize:13,lineHeight:1.65,boxShadow:"0 1px 3px rgba(0,0,0,0.12)",wordBreak:"break-word"}}>{r}</div>
-                <div style={{fontSize:10,color:"var(--tx3)",minWidth:36,textAlign:"right"}}><div style={{color:"var(--tl)",fontWeight:700}}>既読</div></div>
-              </div>
-            </div>)}
           </div>;
         })}
         <div ref={msgEndRef}/>
@@ -3408,6 +4374,14 @@ function ParentMessages({user,store,onBack}){
           <button onClick={()=>setPhotoData(null)} style={{position:"absolute",top:-7,right:-7,background:"var(--ro)",color:"#fff",border:"none",borderRadius:"50%",width:18,height:18,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>×</button>
         </div>
       </div>}
+
+      {/* テンプレートバー */}
+      <div style={{flexShrink:0,padding:"6px 12px",background:"var(--bg)",borderTop:"1px solid var(--bd)",overflowX:"auto",whiteSpace:"nowrap",display:"flex",gap:6}}>
+        {MSG_TEMPLATES.map(t=><button key={t} onClick={()=>setInputText(t)}
+          style={{padding:"5px 10px",borderRadius:9,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--wh)",border:"1px solid var(--bd)",color:"var(--tx3)",flexShrink:0}}>
+          {t}
+        </button>)}
+      </div>
 
       {/* 入力エリア */}
       <input type="file" accept="image/*" ref={photoInputRef} style={{display:"none"}}
@@ -3433,20 +4407,50 @@ function ParentMessages({user,store,onBack}){
 
   // ===== スレッド一覧画面 =====
   const totalUnread=allMsgs.filter(m=>!m.read).length;
+  const totalWaiting=allMsgs.filter(m=>isFromFacility(m)&&m.parentRead===false).length;
+
   return <div className="fl-wrap">
     <div className="fl-hd">
       <button className="bback" onClick={onBack}>← 戻る</button>
-      <div className="fl-title">
+      <div className="fl-title" style={{flex:1}}>
         💬 保護者連絡
         {totalUnread>0&&<span style={{fontSize:11,background:"var(--ro)",color:"#fff",borderRadius:9,padding:"1px 7px",marginLeft:6}}>{totalUnread}件未読</span>}
       </div>
-      <button className="bnew" style={{marginLeft:"auto",fontSize:12,padding:"6px 12px"}} onClick={()=>setNewMode(true)}>＋ 新規</button>
+      <div style={{display:"flex",gap:6}}>
+        <button className="bexp" style={{fontSize:11,padding:"6px 10px",whiteSpace:"nowrap"}}
+          onClick={()=>{setBcSelected(facUsers.map(u=>u.id));setBroadcastMode(true);}}>
+          📢 一斉送信
+        </button>
+        <button className="bnew" style={{fontSize:12,padding:"6px 12px"}} onClick={()=>setNewMode(true)}>＋ 新規</button>
+      </div>
     </div>
 
-    {threads.length===0
-      ?<div style={{textAlign:"center",color:"var(--tx3)",padding:"48px 0",fontSize:13}}>利用者が登録されていません</div>
+    {/* フィルター + 統計 */}
+    <div style={{padding:"8px 14px",background:"var(--bg)",borderBottom:"1px solid var(--bd)"}}>
+      <div style={{display:"flex",gap:6,marginBottom:8}}>
+        {[
+          {id:"all",   label:"全員"},
+          {id:"unread",label:`未読あり${totalUnread>0?` (${totalUnread})`:""}` },
+          {id:"waiting",label:`保護者未既読${totalWaiting>0?` (${totalWaiting})`:""}` },
+        ].map(f=>(
+          <button key={f.id} onClick={()=>setMsgFilter(f.id)}
+            style={{padding:"5px 11px",borderRadius:9,fontSize:11,cursor:"pointer",fontWeight:700,fontFamily:"'Noto Sans JP',sans-serif",
+              background:msgFilter===f.id?"var(--tl)":"var(--wh)",color:msgFilter===f.id?"#fff":"var(--tx3)",border:`1.5px solid ${msgFilter===f.id?"var(--tl)":"var(--bd)"}`}}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+      <div style={{fontSize:10,color:"var(--tx3)"}}>
+        表示中: {filteredThreads.length}件 　総メッセージ: {allMsgs.length}件
+      </div>
+    </div>
+
+    {filteredThreads.length===0
+      ?<div style={{textAlign:"center",color:"var(--tx3)",padding:"48px 0",fontSize:13}}>
+        {msgFilter==="all"?"利用者が登録されていません":"該当するスレッドがありません"}
+      </div>
       :<div style={{display:"flex",flexDirection:"column",gap:0}}>
-        {threads.map(({user:u,msgs:uMsgs,unread,latest})=><div key={u.id}
+        {filteredThreads.map(({user:u,msgs:uMsgs,unread,waitingRead,latest})=><div key={u.id}
           onClick={()=>setSelUserId(u.id)}
           style={{display:"flex",alignItems:"center",gap:12,padding:"13px 14px",background:"var(--wh)",borderBottom:"1px solid var(--bd)",cursor:"pointer",transition:"background .1s"}}
           onMouseEnter={e=>e.currentTarget.style.background="var(--bg)"}
@@ -3467,11 +4471,19 @@ function ParentMessages({user,store,onBack}){
             <div style={{fontSize:12,color:"var(--tx2)",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
               {latest?`${isFromFacility(latest)?"施設":"保護者"}: ${latest.body}`:"メッセージなし"}
             </div>
+            {waitingRead>0&&<div style={{fontSize:10,color:"var(--am)",fontWeight:700,marginTop:2}}>
+              保護者未既読 {waitingRead}件
+            </div>}
           </div>
-          {/* 未読バッジ */}
-          {unread>0&&<div style={{minWidth:20,height:20,borderRadius:10,background:"var(--ro)",color:"#fff",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,padding:"0 5px"}}>
-            {unread}
-          </div>}
+          {/* バッジエリア */}
+          <div style={{display:"flex",flexDirection:"column",gap:4,alignItems:"center"}}>
+            {unread>0&&<div style={{minWidth:20,height:20,borderRadius:10,background:"var(--ro)",color:"#fff",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 5px"}}>
+              {unread}
+            </div>}
+            {waitingRead>0&&<div style={{minWidth:20,height:20,borderRadius:10,background:"var(--am)",color:"#fff",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 5px"}}>
+              {waitingRead}
+            </div>}
+          </div>
           <div style={{color:"var(--bd)",fontSize:14}}>›</div>
         </div>)}
       </div>
@@ -3814,6 +4826,39 @@ function UserManagement({user,store,onBack}){
   return null;
 }
 
+// ===== フェイスシート 入力フィールド（モジュールレベル定義） =====
+// ★ 重要1: モジュールレベルで定義（内側に定義すると毎レンダーで再マウントされフォーカスが外れる）
+// ★ 重要2: defaultValue（非制御）を使う
+//    → controlled input(value=)だとReactが毎キー入力後にDOM値を上書きし、
+//      iOS日本語IMEの入力バッファを壊してフォーカスが外れる根本原因になる
+//    → 非制御にすることでブラウザ／IMEが入力を自然に処理できる
+//    → フォーカスがないときだけrefで外部valueをDOMに同期する
+function FacesheetField({label, edit, value, onChange, placeholder="", multi=false}){
+  const ref = useRef(null);
+
+  // フォーカスが外れているときのみ、外部から変わったvalueをDOMに同期する
+  // （フォーカス中はIMEが入力を管理しているので絶対に触らない）
+  useEffect(()=>{
+    if(ref.current && document.activeElement !== ref.current){
+      ref.current.value = value||"";
+    }
+  },[value]);
+
+  return <div style={{marginBottom:12}}>
+    <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:5}}>{label}</label>
+    {edit
+      ? multi
+        ? <textarea ref={ref} className="fta" style={{minHeight:60}}
+            defaultValue={value||""} placeholder={placeholder}
+            onChange={e=>onChange(e.target.value)}/>
+        : <input ref={ref} className="fi"
+            defaultValue={value||""} placeholder={placeholder}
+            onChange={e=>onChange(e.target.value)}/>
+      : <div style={{fontSize:13,color:value?"var(--tx)":"var(--tx3)",padding:"8px 0",borderBottom:"1px solid var(--bg2)",lineHeight:1.6,minHeight:28}}>{value||"未記入"}</div>
+    }
+  </div>;
+}
+
 // ===== フェイスシートタブ =====
 function FacesheetTab({u,myFS,user,store}){
   const [edit,setEdit]=useState(!myFS);
@@ -3828,14 +4873,12 @@ function FacesheetTab({u,myFS,user,store}){
   const upd=(k,v)=>setFs(p=>({...p,[k]:v}));
   const save=()=>{const d={...fs,updatedAt:todayISO()};store.saveFS(d);setEdit(false);};
 
-  const Field=({label,fkey,placeholder="",multi=false})=><div style={{marginBottom:12}}>
-    <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:5}}>{label}</label>
-    {edit
-      ?multi?<textarea className="fta" style={{minHeight:60}} value={fs[fkey]||""} placeholder={placeholder} onChange={e=>upd(fkey,e.target.value)}/>
-             :<input className="fi" value={fs[fkey]||""} placeholder={placeholder} onChange={e=>upd(fkey,e.target.value)}/>
-      :<div style={{fontSize:13,color:fs[fkey]?"var(--tx)":"var(--tx3)",padding:"8px 0",borderBottom:"1px solid var(--bg2)",lineHeight:1.6,minHeight:28}}>{fs[fkey]||"未記入"}</div>
-    }
-  </div>;
+  // FacesheetField に渡す onChange ヘルパー（各フィールド用）
+  const fld=(fkey)=>({
+    edit,
+    value: fs[fkey]||"",
+    onChange: v=>upd(fkey,v),
+  });
 
   return <div style={{paddingBottom:28}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -3850,53 +4893,53 @@ function FacesheetTab({u,myFS,user,store}){
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"16px",marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:11,fontWeight:700,color:"var(--ac)",letterSpacing:2,marginBottom:12,paddingBottom:8,borderBottom:"2px solid var(--ac)"}}>基本情報</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
-        <Field label="生年月日" fkey="dob2" placeholder="2015-04-10"/>
-        <Field label="性別" fkey="gender" placeholder="男・女・その他"/>
-        <Field label="障害種別・等級" fkey="disabilityGrade" placeholder="例）療育手帳 B1"/>
-        <Field label="診断名" fkey="diagDetail" placeholder="例）自閉スペクトラム症（ASD）"/>
+        <FacesheetField {...fld("dob2")} label="生年月日" placeholder="2015-04-10"/>
+        <FacesheetField {...fld("gender")} label="性別" placeholder="男・女・その他"/>
+        <FacesheetField {...fld("disabilityGrade")} label="障害種別・等級" placeholder="例）療育手帳 B1"/>
+        <FacesheetField {...fld("diagDetail")} label="診断名" placeholder="例）自閉スペクトラム症（ASD）"/>
       </div>
-      <Field label="障害の特記事項" fkey="disabilityNote" multi placeholder="手帳番号、診断詳細など"/>
+      <FacesheetField {...fld("disabilityNote")} label="障害の特記事項" multi placeholder="手帳番号、診断詳細など"/>
     </div>
     {/* 保護者情報 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"16px",marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:2,marginBottom:12,paddingBottom:8,borderBottom:"2px solid var(--tl)"}}>保護者情報</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
-        <Field label="保護者氏名" fkey="parentName" placeholder="山田 花子"/>
-        <Field label="続柄" fkey="parentRelation" placeholder="母"/>
-        <Field label="連絡先（携帯）" fkey="parentTel" placeholder="090-XXXX-XXXX"/>
-        <Field label="緊急連絡先" fkey="emergencyTel" placeholder="090-XXXX-XXXX"/>
-        <Field label="緊急連絡先氏名" fkey="emergencyName" placeholder="山田 太郎"/>
-        <Field label="緊急連絡先続柄" fkey="emergencyRelation" placeholder="父"/>
+        <FacesheetField {...fld("parentName")} label="保護者氏名" placeholder="山田 花子"/>
+        <FacesheetField {...fld("parentRelation")} label="続柄" placeholder="母"/>
+        <FacesheetField {...fld("parentTel")} label="連絡先（携帯）" placeholder="090-XXXX-XXXX"/>
+        <FacesheetField {...fld("emergencyTel")} label="緊急連絡先" placeholder="090-XXXX-XXXX"/>
+        <FacesheetField {...fld("emergencyName")} label="緊急連絡先氏名" placeholder="山田 太郎"/>
+        <FacesheetField {...fld("emergencyRelation")} label="緊急連絡先続柄" placeholder="父"/>
       </div>
-      <Field label="住所" fkey="address" placeholder="○○市△△1-2-3"/>
+      <FacesheetField {...fld("address")} label="住所" placeholder="○○市△△1-2-3"/>
     </div>
     {/* 学校情報 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"16px",marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:11,fontWeight:700,color:"var(--gr)",letterSpacing:2,marginBottom:12,paddingBottom:8,borderBottom:"2px solid var(--gr)"}}>学校情報</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
-        <Field label="学校名" fkey="school" placeholder="○○小学校 特別支援学級"/>
-        <Field label="学年" fkey="schoolYear" placeholder="4年生"/>
-        <Field label="担任・支援員" fkey="schoolContact" placeholder="鈴木 先生"/>
+        <FacesheetField {...fld("school")} label="学校名" placeholder="○○小学校 特別支援学級"/>
+        <FacesheetField {...fld("schoolYear")} label="学年" placeholder="4年生"/>
+        <FacesheetField {...fld("schoolContact")} label="担任・支援員" placeholder="鈴木 先生"/>
       </div>
     </div>
     {/* 医療情報 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"16px",marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:11,fontWeight:700,color:"var(--ro)",letterSpacing:2,marginBottom:12,paddingBottom:8,borderBottom:"2px solid var(--ro)"}}>医療情報</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
-        <Field label="医療機関名" fkey="medicalInstitution" placeholder="○○クリニック"/>
-        <Field label="主治医" fkey="doctor" placeholder="田中 医師"/>
+        <FacesheetField {...fld("medicalInstitution")} label="医療機関名" placeholder="○○クリニック"/>
+        <FacesheetField {...fld("doctor")} label="主治医" placeholder="田中 医師"/>
       </div>
-      <Field label="服薬状況" fkey="medications" multi placeholder="例）リスパダール 0.5mg 朝・夕食後"/>
-      <Field label="アレルギー・禁忌事項" fkey="allergies" multi placeholder="例）卵アレルギー（重篤）、蜂毒アレルギー"/>
+      <FacesheetField {...fld("medications")} label="服薬状況" multi placeholder="例）リスパダール 0.5mg 朝・夕食後"/>
+      <FacesheetField {...fld("allergies")} label="アレルギー・禁忌事項" multi placeholder="例）卵アレルギー（重篤）、蜂毒アレルギー"/>
     </div>
     {/* 特性・支援情報 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"16px",marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:11,fontWeight:700,color:"var(--pu)",letterSpacing:2,marginBottom:12,paddingBottom:8,borderBottom:"2px solid var(--pu)"}}>特性・支援情報</div>
-      <Field label="得意なこと・強み" fkey="strengths" multi placeholder="例）記憶力が高い、電車の知識が豊富、手先が器用"/>
-      <Field label="苦手なこと・課題" fkey="challenges" multi placeholder="例）突然の予定変更が苦手、大きな音が苦手"/>
-      <Field label="パニックのきっかけ" fkey="triggers" multi placeholder="例）急な予定変更、大きな声、特定の感触"/>
-      <Field label="落ち着くための方法" fkey="calming" multi placeholder="例）一人になれる静かな空間、好きな音楽を聴く"/>
-      <Field label="支援上の特記事項" fkey="notes" multi placeholder="その他、支援員が把握すべき情報"/>
+      <FacesheetField {...fld("strengths")} label="得意なこと・強み" multi placeholder="例）記憶力が高い、電車の知識が豊富、手先が器用"/>
+      <FacesheetField {...fld("challenges")} label="苦手なこと・課題" multi placeholder="例）突然の予定変更が苦手、大きな音が苦手"/>
+      <FacesheetField {...fld("triggers")} label="パニックのきっかけ" multi placeholder="例）急な予定変更、大きな声、特定の感触"/>
+      <FacesheetField {...fld("calming")} label="落ち着くための方法" multi placeholder="例）一人になれる静かな空間、好きな音楽を聴く"/>
+      <FacesheetField {...fld("notes")} label="支援上の特記事項" multi placeholder="その他、支援員が把握すべき情報"/>
     </div>
     {/* 受給者証期限アラート */}
     {(u.jukyushaExpiry||(myFS?.jukyushaExpiry))&&(()=>{
@@ -4152,15 +5195,58 @@ function MonitoringTab({u,myMonitorings,myIsps,user,store}){
   const setIN=(k,v)=>setItemNotes(p=>({...p,[k]:v}));
   const RESULT_OPTS=[{v:"達成",c:"var(--gr2)",bg:"rgba(44,170,96,0.2)"},{v:"概ね達成",c:"var(--tl)",bg:"rgba(58,160,216,0.2)"},{v:"一部達成",c:"var(--am)",bg:"rgba(224,168,40,0.18)"},{v:"未達成",c:"var(--ro)",bg:"rgba(224,56,56,0.15)"},{v:"継続",c:"var(--pu)",bg:"rgba(144,72,216,0.18)"}];
 
+  const [monDoneInfo, setMonDoneInfo] = useState(null); // 完了後の情報表示
+  const SCORE_MAP={"達成":100,"概ね達成":80,"一部達成":50,"未達成":20,"継続":50};
+
   const save=()=>{
     const isp=myIsps.find(x=>x.id===selIsp);
     const rec={id:genId(),userId:u.id,facilityId:u.facilityId,ispId:selIsp,ispPeriod:isp?.period||"",date,staffName,itemScores,itemNotes,nextPlan,parentComment,overallNote,createdAt:todayISO()};
     store.addMonitoring(rec);
+
+    // ★ ISP進捗を自動更新（評価スコアの平均 → progress%）
+    const scores=Object.values(itemScores).filter(Boolean);
+    let progress=isp?.progress||0;
+    let avgScore=0;
+    if(scores.length>0){
+      avgScore=Math.round(scores.reduce((s,v)=>s+(SCORE_MAP[v]||50),0)/scores.length);
+      progress=avgScore;
+      // ispsテーブルの進捗を更新
+      if(isp) store.updIsp(isp.id,{progress,lastMonitoringDate:date,lastMonitoringNote:overallNote.slice(0,100)});
+    }
+
+    // ★ 次期ISP更新が必要か判定
+    const needsNewIsp=avgScore>=80||nextPlan.length>0;
+    // ispRecordのmonitoring docも自動作成
+    store.addIspRecord({
+      id:genId(),userId:u.id,facilityId:u.facilityId,docType:"monitoring",
+      status:"finalized",
+      content:{date,staffName,ispId:selIsp,ispPeriod:isp?.period||"",
+        progress,avgScore,itemScores,itemNotes,nextPlan,parentComment,overallNote,
+        needsNewIsp},
+      createdAt:nowStr(),updatedAt:nowStr(),
+      createdBy:user.displayName,
+    });
+
+    setMonDoneInfo({progress,avgScore,needsNewIsp,userName:u.name});
     setDone(true);
   };
-  const reset=()=>{setDone(false);setMode("list");setItemScores({});setItemNotes({});setNextPlan("");setParentComment("");setOverallNote("");};
+  const reset=()=>{setDone(false);setMode("list");setItemScores({});setItemNotes({});setNextPlan("");setParentComment("");setOverallNote("");setMonDoneInfo(null);};
 
-  if(done) return <div className="succ"><div className="si">🔍</div><div className="st">モニタリング完了</div><div className="sd">{u.name} さんのモニタリングを保存しました</div><div style={{display:"flex",gap:10,marginTop:12}}><button className="bpri" style={{maxWidth:160}} onClick={reset}>続けて入力</button></div></div>;
+  if(done) return <div className="succ">
+    <div className="si">🔍</div>
+    <div className="st">モニタリング完了</div>
+    <div className="sd">{u.name} さんのモニタリングを保存しました</div>
+    {monDoneInfo&&<>
+      <div style={{margin:"10px auto",maxWidth:280,background:"rgba(255,255,255,0.15)",borderRadius:10,padding:"10px 14px",textAlign:"left",fontSize:12}}>
+        <div style={{fontWeight:700,marginBottom:5}}>📊 自動更新された内容</div>
+        <div>ISP達成度: <strong>{monDoneInfo.progress}%</strong>（評価スコア平均）</div>
+        {monDoneInfo.needsNewIsp&&<div style={{marginTop:6,color:"#ffe08a",fontWeight:700}}>
+          💡 達成度{monDoneInfo.avgScore}% — 次期個別支援計画の更新をご検討ください
+        </div>}
+      </div>
+    </>}
+    <div style={{display:"flex",gap:10,marginTop:12}}><button className="bpri" style={{maxWidth:160}} onClick={reset}>続けて入力</button></div>
+  </div>;
 
   if(mode==="view"&&view) return <div style={{paddingBottom:28}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
@@ -4696,6 +5782,22 @@ function IspPlanForm({record, u, user, store, onSave, onCancel}){
   const [saving,setSaving]=useState(false);
   const [note,setNote]=useState("");
 
+  // ★ バグ修正: 保存後に再度編集ボタンを押すと useState の初期値が使われず
+  // フォームが空になる問題を修正。record が変わったとき（record.id が変わったとき）
+  // にフォーム状態を record.content で再初期化する。
+  useEffect(()=>{
+    if(record?.content){
+      setF({
+        userNeeds:"",parentNeeds:"",longGoal:"",longGoalTerm:"1年間",
+        shortGoal:"",shortGoalTerm:"6ヶ月",supportContent:"",specificMethods:"",
+        staffInCharge:user.displayName,cdsmName:"",frequency:"週3〜4回",
+        achievementDate:"",evaluationMethod:"",reviewDate:"",
+        validFrom:"",validTo:"",supportPeriod:"",...record.content,
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[record?.id]);
+
   const handleGenerate=()=>{
     setGenerating(true);
     setTimeout(()=>{
@@ -5050,34 +6152,78 @@ function IspMonitoringForm({record, u, user, store, onSave, onCancel}){
   </div>;
 }
 
-// ─── 会議・記録フォーム ───
+// ─── 会議・記録フォーム（強化版）───
+// 出席者リスト動的管理 + 議題リスト + テンプレート対応
 function IspMeetingForm({record, u, user, store, onSave, onCancel}){
   const init = record?.content || {};
-  const [f,setF]=useState({
-    meetingType:init.meetingType||"個別支援会議",
-    date:init.date||todayISO(),
-    location:init.location||"",
-    attendees:init.attendees||"",
-    agenda:init.agenda||"",
-    discussion:init.discussion||"",
-    decisions:init.decisions||"",
-    nextMeeting:init.nextMeeting||"",
-    parentOpinion:init.parentOpinion||"",
-    notes:init.notes||"",
-  });
-  const upd=(k,v)=>setF(p=>({...p,[k]:v}));
+
+  // 会議種別テンプレート（議題を自動入力）
+  const MEETING_TEMPLATES = {
+    "個別支援会議": {
+      agenda: "①現在の支援状況の確認\n②目標の達成状況と課題の整理\n③支援内容の見直し・変更",
+      defaultAttendees: [{name:u.name||"本人",role:"本人",org:"",signed:false},{name:"",role:"保護者",org:"",signed:false},{name:user.displayName,role:"児発管",org:"施設",signed:true}]
+    },
+    "保護者面談": {
+      agenda: "①家庭での様子の共有\n②施設での取り組みの報告\n③保護者からの要望・質問",
+      defaultAttendees: [{name:"",role:"保護者",org:"",signed:false},{name:user.displayName,role:"担当職員",org:"施設",signed:true}]
+    },
+    "担当者会議": {
+      agenda: "①情報共有\n②支援方針の確認\n③役割分担の確認",
+      defaultAttendees: [{name:user.displayName,role:"担当職員",org:"施設",signed:true}]
+    },
+    "モニタリング会議": {
+      agenda: "①前回計画の振り返り\n②目標達成状況の確認\n③次期計画への反映事項",
+      defaultAttendees: [{name:"",role:"保護者",org:"",signed:false},{name:user.displayName,role:"児発管",org:"施設",signed:true}]
+    },
+    "サービス担当者会議": {
+      agenda: "①各サービスの現状報告\n②総合的な支援方針の確認\n③連絡調整事項",
+      defaultAttendees: [{name:"",role:"相談支援専門員",org:"",signed:false},{name:"",role:"保護者",org:"",signed:false},{name:user.displayName,role:"児発管",org:"施設",signed:true}]
+    },
+    "その他": { agenda:"", defaultAttendees:[{name:user.displayName,role:"職員",org:"施設",signed:true}] }
+  };
+
+  const defaultAttList = init.attendeeList || MEETING_TEMPLATES["個別支援会議"].defaultAttendees;
+  const defaultTopics = init.topics || [{topic:"",discussion:"",decision:""}];
+
+  const [meetingType,setMeetingType]=useState(init.meetingType||"個別支援会議");
+  const [date,setDate]=useState(init.date||todayISO());
+  const [location,setLocation]=useState(init.location||"");
+  const [attendeeList,setAttList]=useState(defaultAttList);
+  const [agenda,setAgenda]=useState(init.agenda||MEETING_TEMPLATES["個別支援会議"].agenda);
+  const [topics,setTopics]=useState(defaultTopics);  // 議題リスト
+  const [parentOpinion,setParentOpinion]=useState(init.parentOpinion||"");
+  const [nextMeeting,setNextMeeting]=useState(init.nextMeeting||"");
+  const [notes,setNotes]=useState(init.notes||"");
   const [saving,setSaving]=useState(false);
+
+  // テンプレート適用
+  const applyTemplate=(type)=>{
+    setMeetingType(type);
+    const tmpl = MEETING_TEMPLATES[type];
+    if(!init.agenda) setAgenda(tmpl.agenda);
+    if(!init.attendeeList) setAttList(tmpl.defaultAttendees.map(a=>({...a})));
+  };
+
+  // 出席者操作
+  const addAtt=()=>setAttList(p=>[...p,{name:"",role:"",org:"",signed:false}]);
+  const removeAtt=(i)=>setAttList(p=>p.filter((_,j)=>j!==i));
+  const updAtt=(i,k,v)=>setAttList(p=>p.map((a,j)=>j===i?{...a,[k]:v}:a));
+
+  // 議題操作
+  const addTopic=()=>setTopics(p=>[...p,{topic:"",discussion:"",decision:""}]);
+  const removeTopic=(i)=>setTopics(p=>p.filter((_,j)=>j!==i));
+  const updTopic=(i,k,v)=>setTopics(p=>p.map((t,j)=>j===i?{...t,[k]:v}:t));
 
   const handleSave=()=>{
     setSaving(true);
+    const content={meetingType,date,location,attendeeList,agenda,topics,parentOpinion,nextMeeting,notes};
     const histEntry={actor:user.displayName,role:user.role,action:record?"更新":"新規作成",at:nowStr(),note:""};
     try{
       if(record){
-        store.updIspRecord(record.id,{content:f,updatedAt:nowStr(),
-          history:[...(record.history||[]),histEntry]});
+        store.updIspRecord(record.id,{content,updatedAt:nowStr(),history:[...(record.history||[]),histEntry]});
       } else {
         store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
-          docType:"meeting",status:"staff_checked",content:f,
+          docType:"meeting",status:"staff_checked",content,
           createdBy:user.displayName,createdAt:nowStr(),updatedAt:nowStr(),history:[histEntry]});
       }
       store.showToast(record?"会議記録を更新しました":"会議記録を保存しました");
@@ -5086,125 +6232,274 @@ function IspMeetingForm({record, u, user, store, onSave, onCancel}){
     onSave();
   };
 
-  const mtypes=["個別支援会議","保護者面談","担当者会議","モニタリング会議","サービス担当者会議","その他"];
+  const mtypes=Object.keys(MEETING_TEMPLATES);
+  const signedCount = attendeeList.filter(a=>a.signed).length;
+
   return <div style={{paddingBottom:28}}>
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
       <button className="bback" onClick={onCancel}>← 戻る</button>
-      <div style={{fontSize:15,fontWeight:900}}>📝 会議・記録</div>
+      <div style={{fontSize:15,fontWeight:900}}>📝 支援会議記録</div>
     </div>
-    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,boxShadow:"var(--sh)"}}>
+
+    {/* 会議基本情報 */}
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,boxShadow:"var(--sh)",marginBottom:12}}>
+      <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",marginBottom:10}}>▍基本情報</div>
       <div className="fg"><label className="fl">会議種別</label>
-        <select className="fi" value={f.meetingType} onChange={e=>upd("meetingType",e.target.value)}>
-          {mtypes.map(t=><option key={t}>{t}</option>)}</select></div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-        <div className="fg" style={{marginBottom:0}}><label className="fl">開催日</label>
-          <input className="fi" type="date" value={f.date} onChange={e=>upd("date",e.target.value)}/></div>
-        <div className="fg" style={{marginBottom:0}}><label className="fl">場所</label>
-          <input className="fi" value={f.location} onChange={e=>upd("location",e.target.value)} placeholder="例: GO HOME 相談室"/></div>
-      </div>
-      {[
-        {k:"attendees", l:"出席者（役職・氏名）",rows:2},
-        {k:"agenda",    l:"議題・協議内容",      rows:2},
-        {k:"discussion",l:"討議内容・経過",       rows:4, req:true},
-        {k:"decisions", l:"決定事項・合意事項",   rows:3},
-        {k:"parentOpinion",l:"保護者意見・要望",  rows:2},
-        {k:"nextMeeting",l:"次回会議予定",        rows:1},
-        {k:"notes",     l:"特記事項",             rows:2},
-      ].map(({k,l,rows,req})=>(
-        <div key={k} className="fg">
-          <label className="fl">{l}{req&&<span style={{color:"var(--ro)"}}> *</span>}</label>
-          {rows===1
-            ?<input className="fi" value={f[k]} onChange={e=>upd(k,e.target.value)} placeholder={l}/>
-            :<textarea className="fta" rows={rows} value={f[k]} onChange={e=>upd(k,e.target.value)} style={{minHeight:rows*26}} placeholder={l+"を記入"}/>}
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
+          {mtypes.map(t=><button key={t} onClick={()=>applyTemplate(t)}
+            style={{padding:"6px 11px",borderRadius:9,fontWeight:700,fontSize:11,cursor:"pointer",border:"1.5px solid",fontFamily:"'Noto Sans JP',sans-serif",
+              background:meetingType===t?"var(--tl)":"var(--bg)",color:meetingType===t?"#fff":"var(--tx3)",borderColor:meetingType===t?"var(--tl)":"var(--bd)"}}>
+            {t}
+          </button>)}
         </div>
-      ))}
-      <div style={{display:"flex",gap:10,marginTop:8}}>
-        <button className="bcancel" onClick={onCancel}>キャンセル</button>
-        <button className="bsave" onClick={handleSave}
-          disabled={saving||!f.discussion} style={{opacity:saving||!f.discussion?0.5:1}}>
-          {saving?"保存中…":"💾 保存する"}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <div className="fg" style={{marginBottom:0}}><label className="fl">開催日 <span style={{color:"var(--ro)"}}>*</span></label>
+          <input className="fi" type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
+        <div className="fg" style={{marginBottom:0}}><label className="fl">場所</label>
+          <input className="fi" value={location} onChange={e=>setLocation(e.target.value)} placeholder="例: GO HOME 相談室"/></div>
+      </div>
+    </div>
+
+    {/* 出席者リスト */}
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,boxShadow:"var(--sh)",marginBottom:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--tl)"}}>▍出席者リスト
+          <span style={{marginLeft:8,fontSize:10,color:"var(--gr)"}}>署名取得: {signedCount}/{attendeeList.length}</span>
+        </div>
+        <button onClick={addAtt}
+          style={{padding:"5px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.1)",border:"1.5px solid var(--tl)",color:"var(--tl)"}}>
+          ＋ 追加
         </button>
       </div>
+      {attendeeList.map((a,i)=>(
+        <div key={i} style={{display:"grid",gridTemplateColumns:"2fr 1.5fr 1.5fr auto auto",gap:6,marginBottom:8,alignItems:"center"}}>
+          <input className="fi" style={{marginBottom:0}} value={a.name} onChange={e=>updAtt(i,"name",e.target.value)} placeholder="氏名"/>
+          <input className="fi" style={{marginBottom:0}} value={a.role} onChange={e=>updAtt(i,"role",e.target.value)} placeholder="役職・続柄"/>
+          <input className="fi" style={{marginBottom:0}} value={a.org} onChange={e=>updAtt(i,"org",e.target.value)} placeholder="所属"/>
+          <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontSize:11,fontWeight:700,color:a.signed?"var(--gr)":"var(--tx3)",whiteSpace:"nowrap"}}>
+            <input type="checkbox" checked={a.signed} onChange={e=>updAtt(i,"signed",e.target.checked)} style={{width:14,height:14}}/>
+            署名
+          </label>
+          <button onClick={()=>removeAtt(i)}
+            style={{padding:"4px 8px",borderRadius:7,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.25)",color:"var(--ro)"}}>
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+
+    {/* 議題リスト */}
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,boxShadow:"var(--sh)",marginBottom:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--tl)"}}>▍議題・討議内容</div>
+        <button onClick={addTopic}
+          style={{padding:"5px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.1)",border:"1.5px solid var(--tl)",color:"var(--tl)"}}>
+          ＋ 議題追加
+        </button>
+      </div>
+      <div className="fg" style={{marginBottom:14}}>
+        <label className="fl">共通議題・会議の目的</label>
+        <textarea className="fta" rows={2} value={agenda} onChange={e=>setAgenda(e.target.value)} placeholder="会議全体の目的・共通議題を記入"/>
+      </div>
+      {topics.map((t,i)=>(
+        <div key={i} style={{background:"var(--bg)",border:"1px solid var(--bd)",borderRadius:10,padding:12,marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--tl)"}}>議題 {i+1}</div>
+            {topics.length>1&&<button onClick={()=>removeTopic(i)}
+              style={{padding:"3px 8px",borderRadius:7,fontSize:10,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.25)",color:"var(--ro)"}}>
+              削除
+            </button>}
+          </div>
+          <div className="fg" style={{marginBottom:8}}><label className="fl">議題タイトル</label>
+            <input className="fi" value={t.topic} onChange={e=>updTopic(i,"topic",e.target.value)} placeholder="例: 来期の支援目標について"/></div>
+          <div className="fg" style={{marginBottom:8}}><label className="fl">討議内容・経過 <span style={{color:"var(--ro)"}}>*</span></label>
+            <textarea className="fta" rows={3} value={t.discussion} onChange={e=>updTopic(i,"discussion",e.target.value)} placeholder="討議の内容・各参加者の発言要旨を記入"/></div>
+          <div className="fg" style={{marginBottom:0}}><label className="fl">決定事項・合意内容</label>
+            <textarea className="fta" rows={2} value={t.decision} onChange={e=>updTopic(i,"decision",e.target.value)} placeholder="この議題での決定・合意事項"/></div>
+        </div>
+      ))}
+    </div>
+
+    {/* その他 */}
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,boxShadow:"var(--sh)",marginBottom:12}}>
+      <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",marginBottom:10}}>▍保護者意見・次回予定</div>
+      <div className="fg"><label className="fl">保護者意見・要望</label>
+        <textarea className="fta" rows={2} value={parentOpinion} onChange={e=>setParentOpinion(e.target.value)} placeholder="保護者からの発言・要望を記入"/></div>
+      <div className="fg"><label className="fl">次回会議予定</label>
+        <input className="fi" type="date" value={nextMeeting} onChange={e=>setNextMeeting(e.target.value)}/></div>
+      <div className="fg"><label className="fl">特記事項・備考</label>
+        <textarea className="fta" rows={2} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="その他特記事項"/></div>
+    </div>
+
+    <div style={{display:"flex",gap:10}}>
+      <button className="bcancel" onClick={onCancel}>キャンセル</button>
+      <button className="bsave" onClick={handleSave}
+        disabled={saving||topics.every(t=>!t.discussion)}
+        style={{opacity:saving||topics.every(t=>!t.discussion)?0.5:1}}>
+        {saving?"保存中…":"💾 保存する"}
+      </button>
     </div>
   </div>;
 }
 
-// ─── 保護者同意書フォーム ───
+// ─── 保護者同意書フォーム（強化版）───
+// 同意タイプ選択・有効期限・同意事項チェックリスト対応
 function IspConsentForm({record, u, user, store, onSave, onCancel}){
   const init = record?.content || {};
   const latestIsp = [...(store.ispRecords||[])].filter(r=>r.userId===u.id&&r.docType==="isp_plan")
     .sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+
+  // 同意タイプ定義
+  const CONSENT_TYPES = [
+    {id:"isp",       label:"個別支援計画への同意",     required:true,  desc:"個別支援計画の内容について説明を受け、上記計画に基づいた支援を実施することに同意します。"},
+    {id:"photo",     label:"写真・動画の撮影・使用",    required:false, desc:"支援活動中の写真・動画の撮影、および施設内での活用（連絡帳・保護者向け記録等）に同意します。"},
+    {id:"info_share",label:"個人情報の共有",            required:false, desc:"支援の質向上のため、関係機関（学校・相談支援事業所等）との必要な情報共有に同意します。"},
+    {id:"transport", label:"送迎サービスの利用",        required:false, desc:"施設による送迎サービスを利用することに同意します。"},
+    {id:"medical",   label:"緊急時の医療対応",          required:false, desc:"緊急時に必要な救急対応（119番通報・医療機関への搬送）について同意します。"},
+    {id:"other",     label:"その他の同意事項",          required:false, desc:""},
+  ];
+
+  // 初期化（既存レコードから or 新規）
+  const initChecked = init.checkedTypes || (latestIsp ? ["isp"] : []);
+  const [checkedTypes, setCheckedTypes] = useState(initChecked);
   const [f,setF]=useState({
-    ispPlanRef:init.ispPlanRef||(latestIsp?.id||""),
-    explanationDate:init.explanationDate||todayISO(),
-    explainedBy:init.explainedBy||user.displayName,
-    parentName:init.parentName||u.parentName||"",
+    ispPlanRef:  init.ispPlanRef||(latestIsp?.id||""),
+    explanationDate: init.explanationDate||todayISO(),
+    explainedBy: init.explainedBy||user.displayName,
+    parentName:  init.parentName||u.parentName||"",
     relationship:init.relationship||"保護者",
-    parentSignedAt:init.parentSignedAt||"",
-    consentContent:init.consentContent||"個別支援計画の内容について説明を受け、内容を確認しました。上記計画に基づいた支援を実施することに同意します。",
-    notes:init.notes||"",
+    parentSignedAt: init.parentSignedAt||"",
+    validUntil:  init.validUntil||"",  // 有効期限
+    consentContent: init.consentContent||"",
+    customDesc:  init.customDesc||"",  // 「その他」用カスタム文
+    notes:       init.notes||"",
   });
   const upd=(k,v)=>setF(p=>({...p,[k]:v}));
+  const toggleType=(id)=>setCheckedTypes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
   const [saving,setSaving]=useState(false);
+
+  // 次の期限を自動計算（説明日から1年後）
+  const autoExpiry=()=>{
+    if(f.explanationDate){
+      const d=new Date(f.explanationDate);
+      d.setFullYear(d.getFullYear()+1);
+      upd("validUntil", d.toISOString().slice(0,10));
+    }
+  };
 
   const handleSave=()=>{
     setSaving(true);
     const signed = !!f.parentSignedAt;
+    const content={...f, checkedTypes};
     const histEntry={actor:user.displayName,role:user.role,action:record?"更新":(signed?"保護者署名取得":"説明済み記録"),at:nowStr(),note:""};
     const newStatus = signed ? "parent_consented" : "parent_explained";
     try{
       if(record){
-        store.updIspRecord(record.id,{content:f,status:newStatus,updatedAt:nowStr(),
+        store.updIspRecord(record.id,{content,status:newStatus,updatedAt:nowStr(),
           history:[...(record.history||[]),histEntry]});
-        // 関連ISP計画も進める
         if(signed&&latestIsp&&latestIsp.status==="parent_explained"){
           store.updIspRecord(latestIsp.id,{status:"parent_consented",
             history:[...(latestIsp.history||[]),{...histEntry,action:"保護者同意取得（同意書より）"}]});
         }
       } else {
         store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
-          docType:"consent",status:newStatus,content:f,
+          docType:"consent",status:newStatus,content,
           createdBy:user.displayName,createdAt:nowStr(),updatedAt:nowStr(),history:[histEntry]});
       }
-      store.showToast(signed?"保護者署名を記録しました":"説明済みとして保存しました");
+      store.showToast(signed?"✍️ 保護者署名を記録しました":"説明済みとして保存しました");
     }catch(e){ store.showToast("保存に失敗しました","error"); }
     setSaving(false);
     onSave();
   };
+
+  // 有効期限の警告
+  const today = todayISO();
+  const expExpired = f.validUntil && f.validUntil < today;
+  const expSoon = f.validUntil && !expExpired &&
+    new Date(f.validUntil)-new Date(today) < 60*86400000;
 
   return <div style={{paddingBottom:28}}>
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
       <button className="bback" onClick={onCancel}>← 戻る</button>
       <div style={{fontSize:15,fontWeight:900}}>✍️ 保護者説明・同意書</div>
     </div>
-    {latestIsp&&<div style={{background:"rgba(44,170,96,0.08)",border:"1px solid rgba(44,170,96,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:11}}>
+
+    {/* 参照ISP計画 */}
+    {latestIsp&&<div style={{background:"rgba(44,170,96,0.08)",border:"1px solid rgba(44,170,96,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:11}}>
       <div style={{fontWeight:700,color:"var(--gr)"}}>参照中の個別支援計画: {latestIsp.content?.validFrom}〜{latestIsp.content?.validTo}</div>
       <div style={{color:"var(--tx3)",marginTop:2}}>ステータス: <IspStatusBadge status={latestIsp.status} small/></div>
     </div>}
-    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,boxShadow:"var(--sh)"}}>
+
+    {/* 同意タイプ選択 */}
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,boxShadow:"var(--sh)",marginBottom:12}}>
+      <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",marginBottom:10}}>▍同意事項の選択</div>
+      {CONSENT_TYPES.map(ct=>(
+        <div key={ct.id} style={{padding:"10px 0",borderBottom:"1px solid var(--bg2)"}}>
+          <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer"}}>
+            <input type="checkbox" checked={checkedTypes.includes(ct.id)}
+              onChange={()=>toggleType(ct.id)}
+              style={{width:16,height:16,marginTop:2,cursor:"pointer"}}/>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,fontSize:12,color:checkedTypes.includes(ct.id)?"var(--tl)":"var(--tx2)"}}>
+                {ct.label}{ct.required&&<span style={{fontSize:10,color:"var(--ro)",marginLeft:6}}>必須</span>}
+              </div>
+              {checkedTypes.includes(ct.id)&&ct.id!=="other"&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:4,lineHeight:1.5}}>{ct.desc}</div>}
+              {checkedTypes.includes(ct.id)&&ct.id==="other"&&
+                <textarea className="fta" rows={2} style={{marginTop:6}} value={f.customDesc}
+                  onChange={e=>upd("customDesc",e.target.value)} placeholder="その他の同意事項を記入してください"/>}
+            </div>
+          </label>
+        </div>
+      ))}
+      {checkedTypes.length===0&&<div style={{fontSize:11,color:"var(--ro)",marginTop:8}}>⚠️ 同意事項を1つ以上選択してください</div>}
+    </div>
+
+    {/* 説明・署名情報 */}
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,boxShadow:"var(--sh)",marginBottom:12}}>
+      <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",marginBottom:10}}>▍説明・署名情報</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-        <div className="fg" style={{marginBottom:0}}><label className="fl">説明日</label>
+        <div className="fg" style={{marginBottom:0}}><label className="fl">説明日 <span style={{color:"var(--ro)"}}>*</span></label>
           <input className="fi" type="date" value={f.explanationDate} onChange={e=>upd("explanationDate",e.target.value)}/></div>
         <div className="fg" style={{marginBottom:0}}><label className="fl">説明者</label>
           <input className="fi" value={f.explainedBy} onChange={e=>upd("explainedBy",e.target.value)}/></div>
-        <div className="fg" style={{marginBottom:0}}><label className="fl">保護者名</label>
+        <div className="fg" style={{marginBottom:0}}><label className="fl">保護者名 <span style={{color:"var(--ro)"}}>*</span></label>
           <input className="fi" value={f.parentName} onChange={e=>upd("parentName",e.target.value)} placeholder="保護者氏名"/></div>
         <div className="fg" style={{marginBottom:0}}><label className="fl">続柄</label>
           <input className="fi" value={f.relationship} onChange={e=>upd("relationship",e.target.value)} placeholder="例: 母"/></div>
       </div>
-      <div className="fg"><label className="fl">同意文書</label>
-        <textarea className="fta" rows={3} value={f.consentContent} onChange={e=>upd("consentContent",e.target.value)}/></div>
-      <div className="fg"><label className="fl">保護者署名日（取得済みの場合）</label>
-        <input className="fi" type="date" value={f.parentSignedAt} onChange={e=>upd("parentSignedAt",e.target.value)}/></div>
-      <div className="fg"><label className="fl">備考・特記事項</label>
-        <textarea className="fta" rows={2} value={f.notes} onChange={e=>upd("notes",e.target.value)} placeholder="保護者からの要望・質問への回答など"/></div>
-      <div style={{display:"flex",gap:10,marginTop:8}}>
-        <button className="bcancel" onClick={onCancel}>キャンセル</button>
-        <button className="bsave" onClick={handleSave} disabled={saving} style={{opacity:saving?0.5:1}}>
-          {saving?"保存中…":(f.parentSignedAt?"✍️ 同意署名取得を記録":"💾 説明済みとして保存")}
+      <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:8,alignItems:"end",marginTop:10}}>
+        <div className="fg" style={{marginBottom:0}}>
+          <label className="fl">有効期限</label>
+          <input className="fi" type="date" value={f.validUntil} onChange={e=>upd("validUntil",e.target.value)}/>
+        </div>
+        <button onClick={autoExpiry}
+          style={{padding:"9px 10px",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.1)",border:"1.5px solid var(--tl)",color:"var(--tl)",marginBottom:4,whiteSpace:"nowrap"}}>
+          1年後を設定
         </button>
+        <div className="fg" style={{marginBottom:0}}>
+          <label className="fl">保護者署名日（署名取得済みの場合）</label>
+          <input className="fi" type="date" value={f.parentSignedAt} onChange={e=>upd("parentSignedAt",e.target.value)}/>
+        </div>
       </div>
+      {expExpired&&<div style={{fontSize:11,color:"var(--ro)",fontWeight:700,marginTop:6}}>⚠️ この同意書は有効期限が切れています。再取得が必要です。</div>}
+      {expSoon&&<div style={{fontSize:11,color:"var(--am)",fontWeight:700,marginTop:6}}>⚠️ 有効期限が60日以内です（{f.validUntil}）。更新を検討してください。</div>}
+      <div className="fg" style={{marginTop:10}}><label className="fl">追加の同意文・特記事項</label>
+        <textarea className="fta" rows={2} value={f.consentContent} onChange={e=>upd("consentContent",e.target.value)} placeholder="その他の同意文や特記事項があれば記入"/></div>
+      <div className="fg"><label className="fl">備考</label>
+        <textarea className="fta" rows={2} value={f.notes} onChange={e=>upd("notes",e.target.value)} placeholder="保護者からの要望・質問への回答など"/></div>
     </div>
+
+    <div style={{display:"flex",gap:10}}>
+      <button className="bcancel" onClick={onCancel}>キャンセル</button>
+      <button className="bsave" onClick={handleSave}
+        disabled={saving||checkedTypes.length===0||!f.parentName||!f.explanationDate}
+        style={{opacity:saving||checkedTypes.length===0||!f.parentName||!f.explanationDate?0.5:1}}>
+        {saving?"保存中…":(f.parentSignedAt?"✍️ 同意署名取得を記録":"💾 説明済みとして保存")}
+      </button>
+    </div>
+  </div>;
+}
   </div>;
 }
 
@@ -5287,13 +6582,17 @@ function IspHistoryPanel({rec}){
 }
 
 // ─── 書類カード（一覧表示用） ───
-function IspDocCard({rec, onOpen, onEdit}){
+function IspDocCard({rec, onOpen, onEdit, onPrint}){
   const finalized = rec.status==="finalized";
   return <div style={{background:"var(--wh)",border:`1.5px solid ${finalized?"rgba(44,170,96,0.4)":"var(--bd)"}`,borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
       <div style={{fontWeight:700,fontSize:13,cursor:"pointer",flex:1}} onClick={()=>onOpen(rec)}>{ISP_DOC_LABELS[rec.docType]||rec.docType}</div>
       <div style={{display:"flex",alignItems:"center",gap:6}}>
         <IspStatusBadge status={rec.status} small/>
+        {onPrint&&<button onClick={e=>{e.stopPropagation();onPrint(rec);}}
+          style={{padding:"3px 8px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--gr)",color:"var(--gr)"}}>
+          🖨
+        </button>}
         <button onClick={e=>{e.stopPropagation();onEdit(rec);}}
           style={{padding:"3px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--tl)",color:"var(--tl)"}}>
           ✏️ 編集
@@ -5325,6 +6624,8 @@ function IspUserDetail({u, user, store, onBack}){
   const myRecs = (store.ispRecords||[]).filter(r=>r.userId===u.id)
     .sort((a,b)=>b.createdAt>a.createdAt?1:-1);
   const tabRecs = myRecs.filter(r=>r.docType===tab);
+  // 施設名（印刷用）
+  const facName = FACILITIES.find(f=>f.id===u.facilityId)?.name || "GO GROUP";
 
   const TABS=[
     {k:"isp_plan",   l:"個別支援計画",  icon:"📄"},
@@ -5358,12 +6659,14 @@ function IspUserDetail({u, user, store, onBack}){
     const rec = editRec;
     const cancel=()=>{setCreating(false);setEditRec(null);};
     const saved=()=>{setCreating(false);setEditRec(null);};
-    if(tab==="assessment")  return <IspAssessmentForm  record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
-    if(tab==="isp_plan")    return <IspPlanForm        record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
-    if(tab==="weekly_plan") return <IspWeeklyPlanForm  record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
-    if(tab==="monitoring")  return <IspMonitoringForm  record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
-    if(tab==="meeting")     return <IspMeetingForm     record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
-    if(tab==="consent")     return <IspConsentForm     record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
+    // ★ バグ修正: key={editRec?.id||"new"} を付けることで、新規作成と編集で
+    // コンポーネントが確実に再マウントされ、useState が正しく再初期化される。
+    if(tab==="assessment")  return <IspAssessmentForm  key={editRec?.id||"new"} record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
+    if(tab==="isp_plan")    return <IspPlanForm        key={editRec?.id||"new"} record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
+    if(tab==="weekly_plan") return <IspWeeklyPlanForm  key={editRec?.id||"new"} record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
+    if(tab==="monitoring")  return <IspMonitoringForm  key={editRec?.id||"new"} record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
+    if(tab==="meeting")     return <IspMeetingForm     key={editRec?.id||"new"} record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
+    if(tab==="consent")     return <IspConsentForm     key={editRec?.id||"new"} record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
   }
 
   // 詳細ビュー（承認フロー付き）
@@ -5376,8 +6679,12 @@ function IspUserDetail({u, user, store, onBack}){
           <button className="bback" onClick={()=>setViewRec(null)}>← 戻る</button>
           <div style={{fontSize:15,fontWeight:900}}>{docLabel}</div>
         </div>
-        <button className="bsave" style={{width:"auto",padding:"7px 16px",marginTop:0,fontSize:12}}
-          onClick={()=>{setTab(viewRec.docType);setEditRec(viewRec);setViewRec(null);}}>✏️ 編集</button>
+        <div style={{display:"flex",gap:8}}>
+          <button className="bexp" style={{width:"auto",padding:"7px 14px",marginTop:0,fontSize:12}}
+            onClick={()=>printIspRecord(viewRec, u, facName)}>🖨 印刷・PDF</button>
+          <button className="bsave" style={{width:"auto",padding:"7px 16px",marginTop:0,fontSize:12}}
+            onClick={()=>{setTab(viewRec.docType);setEditRec(viewRec);setViewRec(null);}}>✏️ 編集</button>
+        </div>
       </div>
 
       {/* 承認フローバー */}
@@ -5439,8 +6746,12 @@ function IspUserDetail({u, user, store, onBack}){
       <button className="bback" onClick={onBack}>← 一覧へ</button>
       <div style={{flex:1}}>
         <div style={{fontSize:15,fontWeight:900}}>{u.name}</div>
-        <div style={{fontSize:11,color:"var(--tx3)"}}>{u.grade} ／ {FACILITIES.find(f=>f.id===u.facilityId)?.name}</div>
+        <div style={{fontSize:11,color:"var(--tx3)"}}>{u.grade} ／ {facName}</div>
       </div>
+      <button className="bexp" style={{width:"auto",padding:"7px 12px",marginTop:0,fontSize:12,flexShrink:0}}
+        onClick={()=>printIspAllRecords(myRecs, u, facName)}>
+        📋 一括印刷
+      </button>
     </div>
 
     {/* アラート */}
@@ -5482,7 +6793,10 @@ function IspUserDetail({u, user, store, onBack}){
         {ISP_DOC_LABELS[tab]||tab}がまだありません
         {tab==="isp_plan"&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:6}}>💡 まずアセスメントを完成させてから、AI原案生成をお試しください</div>}
       </div>
-      :tabRecs.map(rec=><IspDocCard key={rec.id} rec={rec} onOpen={r=>{setViewRec(r);setTab(r.docType);}} onEdit={r=>{setTab(r.docType);setEditRec(r);}}/>)
+      :tabRecs.map(rec=><IspDocCard key={rec.id} rec={rec}
+          onOpen={r=>{setViewRec(r);setTab(r.docType);}}
+          onEdit={r=>{setTab(r.docType);setEditRec(r);}}
+          onPrint={r=>printIspRecord(r, u, facName)}/>)
     }
 
     {/* 新規作成ボタン */}
@@ -5496,6 +6810,7 @@ function IspUserDetail({u, user, store, onBack}){
 function IspScreen({user, store, onBack}){
   const [selUser,setSelUser]=useState(null);
   const [searchQ,setSearchQ]=useState("");
+  const [screenTab,setScreenTab]=useState("users"); // users / meetings / consents
   const fac = user.selectedFacilityId;
   const today = todayISO();
 
@@ -5545,6 +6860,20 @@ function IspScreen({user, store, onBack}){
 
   if(selUser) return <IspUserDetail u={selUser} user={user} store={store} onBack={()=>setSelUser(null)}/>;
 
+  // ─── 会議録管理ビュー ───
+  const allMeetings = (store.ispRecords||[])
+    .filter(r=>r.docType==="meeting"&&(!fac||myUsers.some(u=>u.id===r.userId)))
+    .sort((a,b)=>b.content?.date>a.content?.date?1:-1);
+
+  // ─── 同意書管理ビュー ───
+  const allConsents = (store.ispRecords||[])
+    .filter(r=>r.docType==="consent"&&(!fac||myUsers.some(u=>u.id===r.userId)))
+    .sort((a,b)=>b.content?.explanationDate>a.content?.explanationDate?1:-1);
+  const expiredConsents = allConsents.filter(c=>c.content?.validUntil&&c.content.validUntil<today);
+  const expiringSoonConsents = allConsents.filter(c=>c.content?.validUntil&&c.content.validUntil>=today&&
+    new Date(c.content.validUntil)-new Date(today)<60*86400000);
+  const noConsentUsers = myUsers.filter(u=>!allConsents.some(c=>c.userId===u.id&&c.content?.checkedTypes?.includes("isp")));
+
   return <div style={{paddingBottom:28}}>
     {/* ヘッダー */}
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
@@ -5554,6 +6883,120 @@ function IspScreen({user, store, onBack}){
         <div style={{fontSize:11,color:"var(--tx3)"}}>アセスメント・計画原案・承認フロー・モニタリング</div>
       </div>
     </div>
+
+    {/* スクリーンタブ */}
+    <div style={{display:"flex",gap:6,marginBottom:16}}>
+      {[
+        {id:"users",   icon:"👤", label:"利用者別"},
+        {id:"meetings",icon:"📝", label:`会議録管理${allMeetings.length>0?` (${allMeetings.length})`:""}` },
+        {id:"consents",icon:"✍️", label:`同意書管理${expiredConsents.length>0?` ⚠️${expiredConsents.length}`:""}` },
+      ].map(t=>(
+        <button key={t.id} onClick={()=>setScreenTab(t.id)}
+          style={{padding:"8px 14px",borderRadius:10,fontWeight:700,fontSize:12,cursor:"pointer",border:"1.5px solid",fontFamily:"'Noto Sans JP',sans-serif",
+            background:screenTab===t.id?"var(--tl)":"var(--bg)",
+            color:screenTab===t.id?"#fff":"var(--tx3)",
+            borderColor:screenTab===t.id?"var(--tl)":"var(--bd)"}}>
+          {t.icon} {t.label}
+        </button>
+      ))}
+    </div>
+
+    {/* ─── 会議録管理タブ ─── */}
+    {screenTab==="meetings"&&<div>
+      <div style={{fontSize:13,fontWeight:700,color:"var(--tx2)",marginBottom:12}}>
+        施設内の支援会議記録一覧 — {allMeetings.length}件
+      </div>
+      {allMeetings.length===0
+        ?<div style={{textAlign:"center",color:"var(--tx3)",padding:24,background:"var(--bg)",borderRadius:11}}>
+          会議記録がありません。各利用者の書類から作成してください。
+        </div>
+        :allMeetings.map(rec=>{
+          const u2=myUsers.find(u=>u.id===rec.userId);
+          const c=rec.content||{};
+          const sigCount=(c.attendeeList||[]).filter(a=>a.signed).length;
+          const attTotal=(c.attendeeList||[]).length;
+          return <div key={rec.id} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:13}}>{c.meetingType||"会議記録"}</div>
+                <div style={{fontSize:11,color:"var(--tx3)",marginTop:3}}>
+                  📅 {c.date||""} 　📍 {c.location||"場所未記入"}
+                </div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:11,color:"var(--tl)",fontWeight:700}}>{u2?.name||rec.userId}</div>
+                <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>
+                  署名 {sigCount}/{attTotal}名
+                </div>
+              </div>
+            </div>
+            {(c.topics||[]).filter(t=>t.topic).length>0&&
+              <div style={{fontSize:11,color:"var(--tx3)",marginTop:6}}>
+                議題: {(c.topics||[]).map(t=>t.topic).filter(Boolean).join(" / ")}
+              </div>}
+            {c.nextMeeting&&<div style={{fontSize:11,color:c.nextMeeting<today?"var(--ro)":"var(--gr)",marginTop:4,fontWeight:700}}>
+              次回予定: {c.nextMeeting}{c.nextMeeting<today?" ⚠️ 期日超過":""}
+            </div>}
+            <div style={{fontSize:10,color:"var(--tx3)",marginTop:4}}>
+              作成: {rec.createdBy} / {rec.createdAt?.slice(0,10)}
+            </div>
+          </div>;
+        })
+      }
+    </div>}
+
+    {/* ─── 同意書管理タブ ─── */}
+    {screenTab==="consents"&&<div>
+      {/* サマリーアラート */}
+      {expiredConsents.length>0&&<div className="alert-danger" style={{borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:12,fontWeight:700}}>
+        🔴 同意書の有効期限切れ: {expiredConsents.length}件 — 早急に再取得してください
+      </div>}
+      {expiringSoonConsents.length>0&&<div style={{background:"rgba(240,112,32,0.1)",border:"1px solid rgba(240,112,32,0.3)",borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:12,fontWeight:700,color:"var(--am)"}}>
+        🟡 60日以内に有効期限切れ: {expiringSoonConsents.length}件
+      </div>}
+      {noConsentUsers.length>0&&<div style={{background:"rgba(58,160,216,0.08)",border:"1px solid rgba(58,160,216,0.2)",borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:12}}>
+        🔵 ISP同意書未取得: <span style={{fontWeight:700}}>{noConsentUsers.map(u=>u.name).join("、")}</span>
+      </div>}
+
+      <div style={{fontSize:13,fontWeight:700,color:"var(--tx2)",marginBottom:12}}>
+        同意書一覧 — {allConsents.length}件
+      </div>
+      {allConsents.length===0
+        ?<div style={{textAlign:"center",color:"var(--tx3)",padding:24,background:"var(--bg)",borderRadius:11}}>
+          同意書がありません。各利用者の書類から作成してください。
+        </div>
+        :allConsents.map(rec=>{
+          const u2=myUsers.find(u=>u.id===rec.userId);
+          const c=rec.content||{};
+          const expired=c.validUntil&&c.validUntil<today;
+          const soon=c.validUntil&&!expired&&new Date(c.validUntil)-new Date(today)<60*86400000;
+          const CONSENT_LABELS={isp:"ISP同意",photo:"写真撮影",info_share:"情報共有",transport:"送迎",medical:"緊急対応",other:"その他"};
+          return <div key={rec.id} style={{background:"var(--wh)",border:`1.5px solid ${expired?"rgba(224,56,56,0.4)":soon?"rgba(240,112,32,0.3)":"var(--bd)"}`,borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:13}}>{u2?.name||rec.userId}</div>
+                <div style={{fontSize:11,color:"var(--tx3)",marginTop:3}}>
+                  説明日: {c.explanationDate||"未記入"} 　保護者: {c.parentName||"未記入"}
+                </div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <IspStatusBadge status={rec.status} small/>
+                {c.parentSignedAt&&<div style={{fontSize:10,color:"var(--gr)",marginTop:3,fontWeight:700}}>✅ 署名済 {c.parentSignedAt}</div>}
+              </div>
+            </div>
+            {(c.checkedTypes||[]).length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:8}}>
+              {(c.checkedTypes||[]).map(ct=><span key={ct} style={{fontSize:10,padding:"2px 7px",borderRadius:7,background:"rgba(58,160,216,0.12)",color:"var(--tl)",fontWeight:700}}>{CONSENT_LABELS[ct]||ct}</span>)}
+            </div>}
+            {c.validUntil&&<div style={{fontSize:11,fontWeight:700,marginTop:6,color:expired?"var(--ro)":soon?"var(--am)":"var(--gr)"}}>
+              有効期限: {c.validUntil}{expired?" 🔴 期限切れ":soon?" 🟡 まもなく期限切れ":" ✅"}
+            </div>}
+          </div>;
+        })
+      }
+    </div>}
+
+    {/* ─── 利用者別タブ ─── */}
+    {screenTab==="users"&&<>
 
     {/* サマリーカード */}
     <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
@@ -5629,6 +7072,7 @@ function IspScreen({user, store, onBack}){
         </div>;
       })
     }
+    </>}
   </div>;
 }
 
@@ -6270,40 +7714,34 @@ function BillingSummaryTab({user,store,facilityId,yearMonth,vm,setVm}){
   const master=getBillingMaster(yearMonth);
   const kk=store.kokuho.filter(k=>k.facilityId===facilityId&&k.year===vm.y&&k.month===vm.m);
 
-  // ─── 確定日報 → 請求への自動連携 ───
+  // ─── 全体パイプライン同期（ISP→実績→日報→請求＋加算自動設定）───
   const autoLinkFromReports=()=>{
     setLinking(true);
-    // その月の確定日報を収集
-    const confirmed=(store.dailyReports||[]).filter(r=>
-      r.facilityId===facilityId && r.date.startsWith(yearMonth) &&
-      (r.status==="確認済"||r.status==="確定")
-    );
-    if(confirmed.length===0){ store.showToast(`${vm.y}年${vm.m}月の確定日報がありません`,"warn"); setLinking(false); return; }
-    // 利用者ごとの出席日数・送迎日数を集計
-    const attendMap={};
-    confirmed.forEach(r=>{
-      (r.userList||[]).filter(u=>u.status==="出席"||u.status==="早退").forEach(u=>{
-        if(!attendMap[u.id]) attendMap[u.id]={userId:u.id,userName:u.name,days:0,transportDays:0};
-        attendMap[u.id].days++;
-        if(u.transport==="あり"||u.transport==="送迎") attendMap[u.id].transportDays++;
-      });
-    });
-    let updated=0; let created=0;
-    Object.values(attendMap).forEach(agg=>{
-      const ex=store.kokuho.find(k=>k.userId===agg.userId&&k.facilityId===facilityId&&k.year===vm.y&&k.month===vm.m);
-      if(ex){
-        store.updKokuho(ex.id,{serviceDays:agg.days,transportDays:agg.transportDays});
-        updated++;
-      } else {
-        store.addKokuho({id:genId(),userId:agg.userId,userName:agg.userName,facilityId,
-          year:vm.y,month:vm.m,serviceDays:agg.days,transportDays:agg.transportDays,
-          serviceCode:"6612B",unitPrice:530,timeType:"放課後",addons:[],city,status:"未請求"});
-        created++;
-      }
-    });
-    store.showToast(`${updated}名更新・${created}名新規追加しました（${confirmed.length}日分の日報から集計）`);
+    // fullPipelineSyncを呼び出し（実績+日報両方から集計、送迎・個別加算を自動設定）
+    const synced=store.fullPipelineSync(facilityId, yearMonth, city);
+    if(synced===0){
+      store.showToast(`${vm.y}年${vm.m}月の実績データがありません`,"warn");
+    } else {
+      store.showToast(`✅ ${synced}名分をパイプライン同期しました（送迎加算・個別サポート加算を自動設定）`);
+    }
     setLinking(false);
   };
+
+  // ─── パイプライン状況を計算（ISP→実績→請求の連携状態） ───
+  const myUsers=store.dynUsers.filter(u=>u.active!==false&&u.facilityId===facilityId);
+  const ISP_ACTIVE_ST=["finalized","parent_consented","manager_confirmed"];
+  const pipelineRows=myUsers.map(u=>{
+    const monthRecs=store.recs.filter(r=>r.facilityId===facilityId&&r.type==="service"&&r.userId===u.id&&(r.time||"").slice(0,7)===yearMonth);
+    const activeIsp=(store.ispRecords||[]).filter(r=>r.userId===u.id&&r.docType==="isp_plan"&&ISP_ACTIVE_ST.includes(r.status)).sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+    const billing=kk.find(k=>k.userId===u.id);
+    const hasLinkedRec=monthRecs.some(r=>r.ispId);
+    const lastMon=store.monitorings.filter(m=>m.userId===u.id).sort((a,b)=>b.date>a.date?1:-1)[0];
+    const d180=new Date();d180.setDate(d180.getDate()-180);
+    const monDue=!lastMon||(lastMon.date<d180.toISOString().slice(0,10));
+    return {u,activeIsp,monthRecs,billing,hasLinkedRec,lastMon,monDue,
+      ispOk:!!activeIsp, recOk:monthRecs.length>0, billingOk:!!billing&&billing.serviceDays>0,
+      ispLinked:hasLinkedRec};
+  }).filter(r=>r.recOk||r.ispOk);
   const totalUnits=kk.reduce((s,k)=>s+calcTotalUnits(k),0);
   const totalYen=Math.round(totalUnits*TANKA);
   const isMgr=user.role==="manager"||user.role==="admin";
@@ -6328,20 +7766,83 @@ function BillingSummaryTab({user,store,facilityId,yearMonth,vm,setVm}){
         </select>
       </div>
     </div>
-    {/* ─── 自動連携バナー ─── */}
-    <div style={{background:"rgba(44,170,96,0.08)",border:"1px solid rgba(44,170,96,0.3)",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-      <div style={{flex:1}}>
-        <div style={{fontSize:12,fontWeight:700,color:"var(--gr)",marginBottom:3}}>🔗 自動連携：確定日報 → 請求実績</div>
-        <div style={{fontSize:11,color:"var(--tx3)"}}>
-          {vm.y}年{vm.m}月の確定済み日報から利用者ごとの出席日数を集計し、請求データに自動反映します。<br/>
-          <span style={{color:"var(--am)"}}>※ 既存データは上書きされます。実行後は内容を確認してください。</span>
+    {/* ─── 全体パイプライン同期バナー ─── */}
+    <div style={{background:"linear-gradient(135deg,rgba(26,58,106,0.12),rgba(44,170,96,0.1))",border:"2px solid rgba(44,170,96,0.35)",borderRadius:14,padding:"14px 16px",marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:10}}>
+        <div style={{flex:1}}>
+          <div style={{fontSize:13,fontWeight:700,color:"var(--gr)",marginBottom:3}}>🔗 全体パイプライン同期</div>
+          <div style={{fontSize:11,color:"var(--tx3)"}}>
+            個別支援計画 → 実績 → 日報 → <strong>請求</strong> を一括同期します。<br/>
+            送迎加算・個別サポート加算を自動設定します。既存データは上書きされます。
+          </div>
         </div>
+        <button onClick={autoLinkFromReports} disabled={linking}
+          style={{padding:"12px 20px",borderRadius:10,background:linking?"var(--bg)":"linear-gradient(135deg,#1a6b3a,#2d9e58)",color:linking?"var(--tx3)":"#fff",fontWeight:700,fontSize:13,border:"none",cursor:linking?"not-allowed":"pointer",fontFamily:"'Noto Sans JP',sans-serif",whiteSpace:"nowrap",flexShrink:0,boxShadow:"0 2px 10px rgba(44,170,96,0.3)"}}>
+          {linking?"同期中…":"⚡ 一括パイプライン同期"}
+        </button>
       </div>
-      <button onClick={autoLinkFromReports} disabled={linking}
-        style={{padding:"10px 18px",borderRadius:10,background:linking?"var(--bg)":"var(--gr)",color:linking?"var(--tx3)":"#fff",fontWeight:700,fontSize:12,border:"none",cursor:linking?"not-allowed":"pointer",fontFamily:"'Noto Sans JP',sans-serif",whiteSpace:"nowrap",flexShrink:0}}>
-        {linking?"集計中…":"📅 確定日報から自動集計"}
-      </button>
+      {/* パイプライン状況フロー表示 */}
+      <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",fontSize:11,fontWeight:700}}>
+        {[
+          {icon:"📋",label:"ISP",ok:pipelineRows.filter(r=>r.ispOk).length,total:pipelineRows.length},
+          null,
+          {icon:"📝",label:"実績",ok:pipelineRows.filter(r=>r.recOk).length,total:pipelineRows.length},
+          null,
+          {icon:"🔍",label:"モニタリング",ok:pipelineRows.filter(r=>!r.monDue).length,total:pipelineRows.length},
+          null,
+          {icon:"💴",label:"請求",ok:pipelineRows.filter(r=>r.billingOk).length,total:pipelineRows.length},
+        ].map((s,i)=>s===null
+          ?<span key={i} style={{color:"var(--gr)",fontSize:14}}>→</span>
+          :<span key={i} style={{padding:"3px 10px",borderRadius:8,background:s.ok===s.total&&s.total>0?"rgba(44,170,96,0.2)":"rgba(58,160,216,0.12)",color:s.ok===s.total&&s.total>0?"var(--gr)":"var(--tl)",border:"1px solid",borderColor:s.ok===s.total&&s.total>0?"rgba(44,170,96,0.4)":"rgba(58,160,216,0.3)"}}>
+              {s.icon} {s.label} {s.ok}/{s.total}
+            </span>
+        )}
+      </div>
     </div>
+
+    {/* ─── パイプライン状況テーブル ─── */}
+    {pipelineRows.length>0&&<div style={{marginBottom:16}}>
+      <div className="dash-title" style={{marginBottom:8}}>📊 連携状況（{vm.y}年{vm.m}月）</div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:500}}>
+          <thead><tr style={{background:"var(--bg2)"}}>
+            {["利用者名","ISP","実績日数","ISP紐付","モニタリング","請求"].map(h=>(
+              <th key={h} style={{padding:"6px 9px",textAlign:"left",color:"var(--tx2)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--bd)",whiteSpace:"nowrap"}}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>{pipelineRows.map(({u,activeIsp,monthRecs,billing,hasLinkedRec,lastMon,monDue,ispOk,recOk,billingOk})=>(
+            <tr key={u.id} style={{borderBottom:"1px solid var(--bd)"}}>
+              <td style={{padding:"7px 9px",fontWeight:700}}>{u.name}</td>
+              <td style={{padding:"7px 9px"}}>
+                {ispOk
+                  ?<span style={{fontSize:10,fontWeight:700,color:"var(--gr)",background:"rgba(44,170,96,0.12)",borderRadius:6,padding:"2px 7px"}}>✅ {activeIsp?.status==="finalized"?"確定":"承認中"}</span>
+                  :<span style={{fontSize:10,fontWeight:700,color:"var(--ro)",background:"rgba(224,56,56,0.1)",borderRadius:6,padding:"2px 7px"}}>✗ 未作成</span>}
+              </td>
+              <td style={{padding:"7px 9px",fontFamily:"'DM Mono',monospace",textAlign:"center",fontWeight:700,color:recOk?"var(--tx)":"var(--tx3)"}}>
+                {monthRecs.length}日
+              </td>
+              <td style={{padding:"7px 9px",textAlign:"center"}}>
+                {hasLinkedRec
+                  ?<span style={{fontSize:10,color:"var(--gr)",fontWeight:700}}>🔗 連携済</span>
+                  :<span style={{fontSize:10,color:"var(--tx3)"}}>— 未連携</span>}
+              </td>
+              <td style={{padding:"7px 9px"}}>
+                {lastMon
+                  ?<span style={{fontSize:10,color:monDue?"var(--am)":"var(--gr)",fontWeight:700}}>
+                    {monDue?"⚠ 期日超過":"✅ "}{lastMon.date}
+                  </span>
+                  :<span style={{fontSize:10,color:"var(--ro)",fontWeight:700}}>✗ 未実施</span>}
+              </td>
+              <td style={{padding:"7px 9px"}}>
+                {billingOk
+                  ?<span style={{fontSize:10,color:"var(--gr)",fontWeight:700}}>✅ {billing.serviceDays}日</span>
+                  :<span style={{fontSize:10,color:"var(--tx3)"}}>— 未設定</span>}
+              </td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </div>}
     <div style={{background:"linear-gradient(135deg,#1a6b3a,#2d9e58)",borderRadius:12,padding:"14px 18px",marginBottom:14,color:"#fff"}}>
       <div style={{fontSize:12,opacity:.8,marginBottom:4}}>{vm.y}年{vm.m}月 請求合計</div>
       <div style={{fontSize:28,fontWeight:900,fontFamily:"'DM Mono',monospace"}}>{totalYen.toLocaleString()}円</div>
@@ -6648,14 +8149,17 @@ function DailyReport({user,store,onBack}){
   const save=(status)=>{
     const r={...rep,status,savedAt:nowStr()};
     store.addDailyReport(r);
-    // ─── 確定時：実績レコードを自動生成 ───
+    // ─── 確定時：実績レコードを自動生成 + ISP連携 ───
     if(status==="確認済"){
       const ISP_ACTIVE=["staff_checked","cdsm_approved","manager_confirmed","parent_explained","parent_consented","finalized"];
       let autoCount=0;
+      const monDue=[]; // モニタリング期日アラート対象
+
       (r.userList||[]).filter(u=>u.status==="出席"||u.status==="早退").forEach(u=>{
         // 重複防止：同日・同利用者の自動生成済みレコードがあればスキップ
         const exists=store.recs.some(rec=>rec.type==="service"&&rec.userId===u.id&&rec.date===r.date&&rec.facilityId===r.facilityId&&rec.autoLinked===true);
         if(!exists){
+          // ★ ISPを取得してispIdを紐付け
           const isp=(store.ispRecords||[]).filter(ir=>ir.userId===u.id&&ir.docType==="isp_plan"&&ISP_ACTIVE.includes(ir.status)).sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
           store.addRec({
             id:genId(), type:"service", userId:u.id, userName:u.name,
@@ -6664,14 +8168,32 @@ function DailyReport({user,store,onBack}){
             arrival:u.arrivalTime||"", departure:u.departTime||"",
             temp:u.temp||"", transport:u.transport||"",
             items:(r.activities||[]).filter(a=>a.title&&!a.autoFromIsp).map(a=>a.title).slice(0,5),
-            supportNote:isp?`短期目標：${isp.content?.shortGoal||""}　担当：${isp.content?.staffInCharge||""}`:"",
+            // ★ ISP短期目標 + ispId を保存
+            ispId:isp?.id||"",
+            ispGoal:isp?.content?.shortGoal||"",
+            supportNote:isp?`【ISP連携】短期目標：${isp.content?.shortGoal||""}　担当：${isp.content?.staffInCharge||""}`:"",
             createdBy:r.author, autoLinked:true, dailyReportDate:r.date,
           });
           autoCount++;
         }
+
+        // ★ モニタリング期日チェック（6ヶ月以上未実施）
+        const d180=new Date();d180.setDate(d180.getDate()-180);
+        const lastMon=store.monitorings.filter(m=>m.userId===u.id).sort((a,b)=>b.date>a.date?1:-1)[0];
+        const lastMonRec=(store.ispRecords||[]).filter(ir=>ir.userId===u.id&&ir.docType==="monitoring").sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+        const lastDate=lastMon?.date||(lastMonRec?.createdAt||"").slice(0,10)||"";
+        if(!lastDate||lastDate<d180.toISOString().slice(0,10)) monDue.push(u.name||u.userName||"");
       });
-      if(autoCount>0) store.showToast(`日報を確定しました。${autoCount}名の実績を自動生成しました`);
-      else store.showToast("日報を確定しました");
+
+      // ★ 月次請求データを自動同期（日報確定のたびに実績→請求を更新）
+      const yearMonth=r.date.slice(0,7);
+      store.fullPipelineSync(r.facilityId, yearMonth);
+
+      // トースト通知
+      let msg=`日報を確定しました`;
+      if(autoCount>0) msg+=`。実績${autoCount}名を自動生成`;
+      if(monDue.length>0) msg+=`　⚠ モニタリング期日: ${monDue.slice(0,2).join("、")}${monDue.length>2?`他${monDue.length-2}名`:""}`;
+      store.showToast(msg, monDue.length>0?"warn":"success");
     }
     setRep(r); setMode("list");
   };
@@ -7948,6 +9470,23 @@ function HomeScreen({user,onNav,store}){
   </div>;
 }
 
+// ── アラートセクション ヘルパーコンポーネント ──
+function AlertSection({icon,title,color,count,children}){
+  const [open,setOpen]=useState(true);
+  return <div style={{marginBottom:14,background:"var(--wh)",border:`2px solid ${count>0?color:"var(--bd)"}`,borderRadius:12,overflow:"hidden"}}>
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",cursor:"pointer",background:count>0?`${color}18`:"var(--bg2)",userSelect:"none"}}>
+      <span style={{fontSize:18}}>{icon}</span>
+      <span style={{fontWeight:700,fontSize:13,flex:1,color:count>0?color:"var(--tx2)"}}>{title}</span>
+      {count>0
+        ?<span style={{background:color,color:"#fff",borderRadius:14,padding:"1px 10px",fontSize:12,fontWeight:700}}>{count}件</span>
+        :<span style={{background:"var(--gr)",color:"#fff",borderRadius:14,padding:"1px 10px",fontSize:11,fontWeight:700}}>✅ 問題なし</span>
+      }
+      <span style={{fontSize:11,color:"var(--tx3)",marginLeft:4}}>{open?"▲":"▼"}</span>
+    </div>
+    {open&&<div style={{padding:"10px 14px"}}>{children}</div>}
+  </div>;
+}
+
 // ==================== 監査モード ====================
 function AuditScreen({user,onBack,store}){
   const today=todayISO();
@@ -8368,6 +9907,146 @@ function AuditScreen({user,onBack,store}){
     return {u,ud,fs,asses,latestIsp,latestIspRec,mons,score,jukyushaOk,ispExpired};
   });
 
+  // ── アラート計算（vmで選択中の年月をベースに算出）──
+  const alertYM=vm.y+"-"+String(vm.m).padStart(2,"0");
+  const alertMonthRecs=store.recs.filter(r=>myFac(r)&&(r.time||"").slice(0,7)===alertYM);
+
+  // 1. 未記録アラート（来所日にサービス記録なし）
+  const noSvcAlerts=[];
+  myUsers.forEach(u=>{
+    const arrDates=[...new Set(alertMonthRecs.filter(r=>r.type==="user_in"&&r.userId===u.id).map(r=>r.time?.slice(0,10)))].filter(Boolean);
+    const svcDates=new Set(alertMonthRecs.filter(r=>r.type==="service"&&r.userId===u.id).map(r=>r.time?.slice(0,10)));
+    arrDates.forEach(d=>{if(!svcDates.has(d))noSvcAlerts.push({userId:u.id,userName:u.name,date:d});});
+  });
+
+  // 2. 署名漏れ（ISP承認フロー停滞 / 同意書署名未取得）
+  const signAlerts=[];
+  const ISP_NEED_SIGN_STATES=["staff_checked","cdsm_approved","manager_confirmed","parent_explained"];
+  const ISP_SIGN_LABELS={"staff_checked":"職員確認待ち","cdsm_approved":"児発管承認待ち","manager_confirmed":"保護者説明待ち","parent_explained":"保護者同意待ち"};
+  (store.ispRecords||[]).filter(r=>myFac(r)&&r.docType==="isp_plan"&&ISP_NEED_SIGN_STATES.includes(r.status)).forEach(r=>{
+    const u=myUsers.find(x=>x.id===r.userId);if(!u)return;
+    signAlerts.push({userId:u.id,userName:u.name,doc:"個別支援計画",status:ISP_SIGN_LABELS[r.status]||r.status,date:(r.updatedAt||r.createdAt||"").slice(0,10)});
+  });
+  (store.ispRecords||[]).filter(r=>myFac(r)&&r.docType==="consent"&&!r.content?.parentSignedAt).forEach(r=>{
+    const u=myUsers.find(x=>x.id===r.userId);if(!u)return;
+    signAlerts.push({userId:u.id,userName:u.name,doc:"同意書",status:"保護者署名未取得"+(r.content?.checkedTypes?.includes("isp")?" (ISP同意含む)":""),date:(r.createdAt||"").slice(0,10)});
+  });
+
+  // 3. 支援時間不足（2時間未満 or 退所時刻未入力）
+  const shortAlerts=[];
+  alertMonthRecs.filter(r=>r.type==="service").forEach(r=>{
+    const u=myUsers.find(x=>x.id===r.userId);if(!u)return;
+    if(r.arrival&&r.departure){
+      const toMin=t=>{const[h,m]=t.split(":").map(Number);return h*60+(m||0);};
+      const mins=toMin(r.departure)-toMin(r.arrival);
+      if(mins>0&&mins<120)shortAlerts.push({userId:u.id,userName:u.name,date:r.time?.slice(0,10)||"",arrival:r.arrival,departure:r.departure,mins,type:"short"});
+    }else if(r.arrival&&!r.departure){
+      shortAlerts.push({userId:u.id,userName:u.name,date:r.time?.slice(0,10)||"",arrival:r.arrival,departure:null,mins:null,type:"nodep"});
+    }
+  });
+
+  // 4. 加算漏れ（送迎加算・個別サポート加算の請求設定確認）
+  const addonAlerts=[];
+  const facKokuho=(store.kokuho||[]).filter(k=>k.facilityId===user.selectedFacilityId&&k.yearMonth===alertYM);
+  myUsers.forEach(u=>{
+    const hasTr=alertMonthRecs.some(r=>r.type==="user_in"&&r.userId===u.id&&r.transport==="あり");
+    const billing=facKokuho.find(k=>k.userId===u.id);
+    const billAddons=billing?.addons||[];
+    // 送迎記録があるのに送迎加算が請求に未設定
+    if(hasTr&&!billAddons.some(a=>a.key?.startsWith("tr_"))){
+      addonAlerts.push({userId:u.id,userName:u.name,type:"送迎加算",detail:"送迎記録あり・請求に加算未設定"});
+    }
+    // ISP確定済で請求データがあるのに個別サポート加算が未設定
+    if(billing&&billing.serviceDays>0){
+      const hasIspFinal=(store.ispRecords||[]).some(r=>r.userId===u.id&&r.docType==="isp_plan"&&["finalized","parent_consented"].includes(r.status));
+      if(hasIspFinal&&!billAddons.some(a=>a.key==="indiv"||a.key==="indiv2")){
+        addonAlerts.push({userId:u.id,userName:u.name,type:"個別サポート加算",detail:"ISP確定済・個別サポート加算の確認を推奨"});
+      }
+    }
+  });
+
+  // 5. モニタリング期限（ISP有効期限・モニタリング未実施）
+  const monAlerts=[];
+  const d60=new Date(today);d60.setDate(d60.getDate()+60);const d60ISO=d60.toISOString().slice(0,10);
+  const d180=new Date(today);d180.setDate(d180.getDate()-180);const d180ISO=d180.toISOString().slice(0,10);
+  const seenMonUser=new Set();
+  myUsers.forEach(u=>{
+    // ISP有効期限チェック
+    const ispRecs=(store.ispRecords||[]).filter(r=>r.userId===u.id&&r.docType==="isp_plan"&&["finalized","parent_consented","manager_confirmed"].includes(r.status)).sort((a,b)=>b.createdAt>a.createdAt?1:-1);
+    if(ispRecs.length>0){
+      const lat=ispRecs[0];
+      const validTo=lat.content?.validTo||lat.content?.supportPeriodTo||"";
+      if(validTo&&validTo<=d60ISO){
+        const days=Math.round((new Date(validTo)-new Date(today))/(1000*60*60*24));
+        monAlerts.push({userId:u.id,userName:u.name,type:days<0?"ISP期限切れ":"ISP期限間近",detail:`有効期限: ${validTo}`,days,level:days<0?"danger":"warn"});
+      }
+    }
+    // モニタリング未実施チェック（monitoringsテーブル＋ispRecordsのmonitoring）
+    const lastMon=store.monitorings.filter(m=>m.userId===u.id).sort((a,b)=>b.date>a.date?1:-1)[0];
+    const lastMonRec=(store.ispRecords||[]).filter(r=>r.userId===u.id&&r.docType==="monitoring").sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+    const lastMonDate=lastMon?.date||(lastMonRec?.createdAt||"").slice(0,10)||"";
+    if(!seenMonUser.has(u.id)&&(!lastMonDate||lastMonDate<d180ISO)){
+      seenMonUser.add(u.id);
+      monAlerts.push({userId:u.id,userName:u.name,type:"モニタリング未実施",detail:lastMonDate?`最終: ${lastMonDate}（6ヶ月超経過）`:"記録なし",level:"warn"});
+    }
+  });
+
+  // アラート合計件数
+  const totalAlerts=noSvcAlerts.length+signAlerts.length+shortAlerts.length+addonAlerts.length+monAlerts.length;
+
+  // ── アラートレポートPDF印刷 ──
+  const printAlertReport=()=>{
+    const facName=fac?.name||"";
+    const now=new Date().toLocaleString("ja-JP");
+    const section=(title,rows,cols)=>`
+      <h3 style="font-size:12pt;font-weight:700;border-left:4px solid #1a3a6a;padding-left:8px;margin:16px 0 6px;">${title}</h3>
+      ${rows.length===0?`<p style="color:#1a7a3a;font-size:10pt;">✅ 問題なし</p>`:`
+      <table style="border-collapse:collapse;width:100%;font-size:9pt;margin-bottom:6px;">
+        <thead><tr>${cols.map(c=>`<th style="background:#dce8f8;border:1px solid #ccc;padding:4px 8px;text-align:left;">${c}</th>`).join("")}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`}`;
+    const noSvcRows=noSvcAlerts.map(a=>`<tr style="background:#fdf0ee;"><td style="border:1px solid #ccc;padding:4px 8px;">${a.date}</td><td style="border:1px solid #ccc;padding:4px 8px;font-weight:700;">${a.userName}</td><td style="border:1px solid #ccc;padding:4px 8px;color:#c0392b;font-weight:700;">サービス記録なし</td></tr>`).join("");
+    const signRows=signAlerts.map(a=>`<tr style="background:#fffaec;"><td style="border:1px solid #ccc;padding:4px 8px;font-weight:700;">${a.userName}</td><td style="border:1px solid #ccc;padding:4px 8px;">${a.doc}</td><td style="border:1px solid #ccc;padding:4px 8px;color:#c0392b;">${a.status}</td><td style="border:1px solid #ccc;padding:4px 8px;color:#888;">${a.date}</td></tr>`).join("");
+    const shortRows=shortAlerts.map(a=>`<tr style="background:#fffaec;"><td style="border:1px solid #ccc;padding:4px 8px;">${a.date}</td><td style="border:1px solid #ccc;padding:4px 8px;font-weight:700;">${a.userName}</td><td style="border:1px solid #ccc;padding:4px 8px;">${a.arrival||"—"}〜${a.departure||"未記録"}</td><td style="border:1px solid #ccc;padding:4px 8px;color:#c0392b;">${a.type==="nodep"?"退所未記録":a.mins+"分（2時間未満）"}</td></tr>`).join("");
+    const addonRows=addonAlerts.map(a=>`<tr style="background:#f3eeff;"><td style="border:1px solid #ccc;padding:4px 8px;font-weight:700;">${a.userName}</td><td style="border:1px solid #ccc;padding:4px 8px;color:#6020a0;font-weight:700;">${a.type}</td><td style="border:1px solid #ccc;padding:4px 8px;">${a.detail}</td></tr>`).join("");
+    const monRows=monAlerts.map(a=>`<tr style="background:${a.level==="danger"?"#fdf0ee":"#fffaec"};"><td style="border:1px solid #ccc;padding:4px 8px;font-weight:700;">${a.userName}</td><td style="border:1px solid #ccc;padding:4px 8px;color:${a.level==="danger"?"#c0392b":"#e08020"};font-weight:700;">${a.type}</td><td style="border:1px solid #ccc;padding:4px 8px;">${a.detail}${a.days!=null&&a.days>=0?` (残${a.days}日)`:""}</td></tr>`).join("");
+    const html=`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"/>
+    <title>監査アラートレポート ${alertYM}</title>
+    <style>@page{size:A4 portrait;margin:14mm 12mm;}*{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'MS Gothic',Meiryo,sans-serif;font-size:10pt;color:#111;}
+    .hd{text-align:center;border-bottom:3px solid #1a3a6a;padding-bottom:10px;margin-bottom:14px;}
+    .hd h1{font-size:18pt;font-weight:900;color:#1a3a6a;}
+    .hd .sub{font-size:10pt;color:#555;margin-top:4px;}
+    .summary{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px;}
+    .sc{border:1px solid #ccc;border-radius:4px;padding:6px 4px;text-align:center;}
+    .sc .val{font-size:18pt;font-weight:900;font-family:monospace;}
+    .sc .lbl{font-size:8pt;color:#666;}
+    .sign-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px;}
+    .sign-box{border:1px solid #aaa;padding:8px;min-height:44px;border-radius:3px;}
+    .sign-lbl{font-size:8pt;color:#666;}
+    </style></head><body>
+    <div class="hd"><h1>🔍 監査アラートレポート</h1>
+    <div class="sub">事業所: ${facName}　対象: ${vm.y}年${vm.m}月　出力: ${now}</div></div>
+    <div class="summary">
+      <div class="sc"><div class="val" style="color:${noSvcAlerts.length>0?"#c0392b":"#1a7a3a"}">${noSvcAlerts.length}</div><div class="lbl">未記録</div></div>
+      <div class="sc"><div class="val" style="color:${signAlerts.length>0?"#c0392b":"#1a7a3a"}">${signAlerts.length}</div><div class="lbl">署名漏れ</div></div>
+      <div class="sc"><div class="val" style="color:${shortAlerts.length>0?"#e08020":"#1a7a3a"}">${shortAlerts.length}</div><div class="lbl">時間不足</div></div>
+      <div class="sc"><div class="val" style="color:${addonAlerts.length>0?"#6020a0":"#1a7a3a"}">${addonAlerts.length}</div><div class="lbl">加算漏れ</div></div>
+      <div class="sc"><div class="val" style="color:${monAlerts.length>0?"#1a4a8a":"#1a7a3a"}">${monAlerts.length}</div><div class="lbl">期限</div></div>
+    </div>
+    ${section("📝 未記録アラート（来所日にサービス記録なし）",noSvcRows,["日付","利用者名","状態"])}
+    ${section("✍️ 署名漏れ（ISP承認フロー停滞・同意書署名未取得）",signRows,["利用者名","書類種別","状態","作成日"])}
+    ${section("⏱ 支援時間不足（2時間未満・退所未記録）",shortRows,["日付","利用者名","時刻","内容"])}
+    ${section("💴 加算漏れ（請求加算の確認）",addonRows,["利用者名","加算種別","詳細"])}
+    ${section("📅 モニタリング期限（ISP有効期限・モニタリング未実施）",monRows,["利用者名","種別","詳細"])}
+    <div class="sign-row">
+      <div class="sign-box"><div class="sign-lbl">管理者 確認印</div></div>
+      <div class="sign-box"><div class="sign-lbl">確認日: ${new Date().toLocaleDateString("ja-JP")}</div></div>
+    </div></body></html>`;
+    const w=window.open("","_blank","width=900,height=750");
+    if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),400);}
+  };
+
   return <div className="fl-wrap">
     <div className="fl-hd">
       <button className="bback" onClick={onBack}>← 戻る</button>
@@ -8375,17 +10054,19 @@ function AuditScreen({user,onBack,store}){
     </div>
 
     {/* タブ */}
-    <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:16}}>
+    <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:16,alignItems:"center"}}>
       {[
         {id:"daily",  icon:"📅",label:"日次チェック"},
         {id:"monthly",icon:"📋",label:"月次帳票出力"},
         {id:"docs",   icon:"📂",label:"書類一覧"},
+        {id:"alerts", icon:"🚨",label:"アラート一覧",badge:totalAlerts},
       ].map(t=><button key={t.id} onClick={()=>setTab(t.id)}
-        style={{padding:"8px 16px",borderRadius:9,border:"2px solid",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,transition:"all .15s",
+        style={{position:"relative",padding:"8px 16px",borderRadius:9,border:"2px solid",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,transition:"all .15s",
           borderColor:tab===t.id?"var(--tl)":"var(--bd)",
           background:tab===t.id?"rgba(58,160,216,0.2)":"var(--bg)",
           color:tab===t.id?"var(--tl)":"var(--tx3)"}}>
         {t.icon} {t.label}
+        {t.badge>0&&<span style={{position:"absolute",top:-7,right:-7,background:"var(--ro)",color:"#fff",borderRadius:"50%",width:18,height:18,fontSize:10,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>{t.badge>9?"9+":t.badge}</span>}
       </button>)}
     </div>
 
@@ -8550,6 +10231,126 @@ function AuditScreen({user,onBack,store}){
           })}</tbody>
         </table>
       </div>
+    </>}
+
+    {/* ── アラート一覧タブ ── */}
+    {tab==="alerts"&&<>
+      {/* 年月選択 + サマリーバー */}
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14,background:"var(--wh)",padding:12,borderRadius:12,border:"1px solid var(--bd)"}}>
+        <span style={{fontSize:12,fontWeight:700,color:"var(--tx3)"}}>対象年月：</span>
+        <select className="fsm" value={vm.y} onChange={e=>setVm(v=>({...v,y:+e.target.value}))}>
+          {Array.from({length:5},(_,i)=>2024+i).map(y=><option key={y} value={y}>{y}年</option>)}
+        </select>
+        <select className="fsm" value={vm.m} onChange={e=>setVm(v=>({...v,m:+e.target.value}))}>
+          {Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m}月</option>)}
+        </select>
+        {totalAlerts>0
+          ?<span style={{marginLeft:6,background:"var(--ro)",color:"#fff",borderRadius:20,padding:"3px 12px",fontSize:12,fontWeight:700}}>⚠ {totalAlerts}件のアラート</span>
+          :<span style={{marginLeft:6,color:"var(--gr)",fontWeight:700,fontSize:12}}>✅ 全て問題なし</span>}
+        <button className="bexp" style={{marginLeft:"auto",background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={printAlertReport}>🖨 アラートレポート印刷</button>
+      </div>
+
+      {/* アラートサマリーカード（5種） */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:9,marginBottom:18}}>
+        {[
+          {label:"未記録",count:noSvcAlerts.length,icon:"📝",color:"var(--ro)",desc:"来所→記録なし"},
+          {label:"署名漏れ",count:signAlerts.length,icon:"✍️",color:"var(--am)",desc:"ISP・同意書"},
+          {label:"時間不足",count:shortAlerts.length,icon:"⏱",color:"var(--am)",desc:"2時間未満・退所漏れ"},
+          {label:"加算漏れ",count:addonAlerts.length,icon:"💴",color:"#9048d8",desc:"請求加算確認"},
+          {label:"期限アラート",count:monAlerts.length,icon:"📅",color:"var(--tl)",desc:"ISP期限・モニタリング"},
+        ].map(s=>(
+          <div key={s.label} style={{background:"var(--wh)",border:`2px solid ${s.count>0?s.color:"var(--bd)"}`,borderRadius:12,padding:"12px 8px",textAlign:"center"}}>
+            <div style={{fontSize:22}}>{s.icon}</div>
+            <div style={{fontSize:26,fontWeight:900,color:s.count>0?s.color:"var(--tx3)",fontFamily:"'DM Mono',monospace",marginTop:2}}>{s.count}</div>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginTop:2}}>{s.label}</div>
+            <div style={{fontSize:10,color:"var(--tx3)",marginTop:1}}>{s.desc}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 1. 未記録アラート */}
+      <AlertSection icon="📝" title="未記録アラート" color="var(--ro)" count={noSvcAlerts.length}>
+        {noSvcAlerts.length===0
+          ?<div style={{color:"var(--gr)",fontSize:12,padding:"6px 0"}}>✅ 全来所日にサービス記録があります</div>
+          :<div style={{display:"flex",flexDirection:"column",gap:5}}>
+            <div style={{fontSize:11,color:"var(--tx3)",marginBottom:4}}>来所記録はあるが、サービス（活動）記録が入力されていない日があります。</div>
+            {noSvcAlerts.map((a,i)=><div key={i} style={{display:"flex",gap:10,alignItems:"center",padding:"7px 11px",background:"rgba(224,56,56,0.06)",borderRadius:8,border:"1px solid rgba(224,56,56,0.2)"}}>
+              <span style={{fontSize:11,fontFamily:"'DM Mono',monospace",color:"var(--tx3)",whiteSpace:"nowrap",minWidth:80}}>{a.date}</span>
+              <span style={{fontWeight:700,fontSize:13}}>{a.userName}</span>
+              <span style={{fontSize:11,color:"var(--ro)",fontWeight:700,marginLeft:"auto",whiteSpace:"nowrap"}}>サービス記録なし 🚨</span>
+            </div>)}
+          </div>
+        }
+      </AlertSection>
+
+      {/* 2. 署名漏れ */}
+      <AlertSection icon="✍️" title="署名漏れ" color="var(--am)" count={signAlerts.length}>
+        {signAlerts.length===0
+          ?<div style={{color:"var(--gr)",fontSize:12,padding:"6px 0"}}>✅ 署名・同意書の漏れはありません</div>
+          :<div style={{display:"flex",flexDirection:"column",gap:5}}>
+            <div style={{fontSize:11,color:"var(--tx3)",marginBottom:4}}>ISP承認フローが途中で止まっている、または同意書の保護者署名が未取得です。</div>
+            {signAlerts.map((a,i)=><div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"7px 11px",background:"rgba(240,112,32,0.06)",borderRadius:8,border:"1px solid rgba(240,112,32,0.2)"}}>
+              <span style={{fontWeight:700,fontSize:13,minWidth:80}}>{a.userName}</span>
+              <span style={{fontSize:11,color:"var(--tx3)",background:"var(--bg2)",borderRadius:6,padding:"2px 7px"}}>{a.doc}</span>
+              <span style={{fontSize:11,color:"var(--am)",fontWeight:700,marginLeft:"auto",whiteSpace:"nowrap"}}>{a.status} ✍</span>
+              {a.date&&<span style={{fontSize:10,color:"var(--tx3)",fontFamily:"'DM Mono',monospace"}}>{a.date}</span>}
+            </div>)}
+          </div>
+        }
+      </AlertSection>
+
+      {/* 3. 支援時間不足 */}
+      <AlertSection icon="⏱" title="支援時間不足" color="var(--am)" count={shortAlerts.length}>
+        {shortAlerts.length===0
+          ?<div style={{color:"var(--gr)",fontSize:12,padding:"6px 0"}}>✅ 全記録で2時間以上の支援が確認されています</div>
+          :<div style={{display:"flex",flexDirection:"column",gap:5}}>
+            <div style={{fontSize:11,color:"var(--tx3)",marginBottom:4}}>支援時間が2時間未満、または退所時刻が未入力のサービス記録があります。放課後等デイサービスの算定要件に注意してください。</div>
+            {shortAlerts.map((a,i)=><div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"7px 11px",background:"rgba(240,112,32,0.06)",borderRadius:8,border:"1px solid rgba(240,112,32,0.2)"}}>
+              <span style={{fontSize:11,fontFamily:"'DM Mono',monospace",color:"var(--tx3)",whiteSpace:"nowrap",minWidth:80}}>{a.date}</span>
+              <span style={{fontWeight:700,fontSize:13}}>{a.userName}</span>
+              <span style={{fontSize:11,fontFamily:"'DM Mono',monospace",color:"var(--tx3)"}}>{a.arrival}〜{a.departure||"?"}</span>
+              <span style={{fontSize:11,color:"var(--am)",fontWeight:700,marginLeft:"auto",whiteSpace:"nowrap"}}>
+                {a.type==="nodep"?"退所未記録 ⚠":`${a.mins}分（2時間未満） ⚠`}
+              </span>
+            </div>)}
+          </div>
+        }
+      </AlertSection>
+
+      {/* 4. 加算漏れ */}
+      <AlertSection icon="💴" title="加算漏れ" color="#9048d8" count={addonAlerts.length}>
+        {addonAlerts.length===0
+          ?<div style={{color:"var(--gr)",fontSize:12,padding:"6px 0"}}>✅ 加算漏れは検出されませんでした</div>
+          :<div style={{display:"flex",flexDirection:"column",gap:5}}>
+            <div style={{fontSize:11,color:"var(--tx3)",marginBottom:4}}>請求データに加算が設定されていない可能性があります。国保連請求画面で確認・設定してください。</div>
+            {addonAlerts.map((a,i)=><div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"7px 11px",background:"rgba(144,72,216,0.06)",borderRadius:8,border:"1px solid rgba(144,72,216,0.2)"}}>
+              <span style={{fontWeight:700,fontSize:13,minWidth:80}}>{a.userName}</span>
+              <span style={{fontSize:11,fontWeight:700,color:"#9048d8",background:"rgba(144,72,216,0.1)",borderRadius:6,padding:"2px 8px"}}>{a.type}</span>
+              <span style={{fontSize:11,color:"var(--tx3)",marginLeft:"auto"}}>{a.detail}</span>
+            </div>)}
+          </div>
+        }
+      </AlertSection>
+
+      {/* 5. モニタリング期限 */}
+      <AlertSection icon="📅" title="モニタリング期限" color="var(--tl)" count={monAlerts.length}>
+        {monAlerts.length===0
+          ?<div style={{color:"var(--gr)",fontSize:12,padding:"6px 0"}}>✅ 期限切れ・モニタリング未実施はありません</div>
+          :<div style={{display:"flex",flexDirection:"column",gap:5}}>
+            <div style={{fontSize:11,color:"var(--tx3)",marginBottom:4}}>ISP有効期限が近い、または半年以上モニタリングが実施されていない利用者がいます。</div>
+            {monAlerts.map((a,i)=>{
+              const c=a.level==="danger"?"var(--ro)":a.level==="warn"?"var(--am)":"var(--tl)";
+              const bg=a.level==="danger"?"rgba(224,56,56,0.06)":a.level==="warn"?"rgba(240,112,32,0.06)":"rgba(58,160,216,0.06)";
+              const bc=a.level==="danger"?"rgba(224,56,56,0.2)":a.level==="warn"?"rgba(240,112,32,0.2)":"rgba(58,160,216,0.2)";
+              return <div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"7px 11px",background:bg,borderRadius:8,border:`1px solid ${bc}`}}>
+                <span style={{fontWeight:700,fontSize:13,minWidth:80}}>{a.userName}</span>
+                <span style={{fontSize:11,fontWeight:700,color:c,background:`${c}18`,borderRadius:6,padding:"2px 8px"}}>{a.type}</span>
+                <span style={{fontSize:11,color:"var(--tx3)",marginLeft:"auto"}}>{a.detail}{a.days!=null&&a.days>=0?` (残${a.days}日)`:""}</span>
+              </div>;
+            })}
+          </div>
+        }
+      </AlertSection>
     </>}
   </div>;
 }
