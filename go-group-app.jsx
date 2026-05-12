@@ -1601,6 +1601,8 @@ select.fi option{background:var(--bg2);color:var(--tx);}
   /* スマホでのコンテンツ幅調整 */
   .hg{grid-template-columns:repeat(2,1fr);gap:12px;}
 }
+/* ===== トーストアニメーション ===== */
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,16px);}to{opacity:1;transform:translate(-50%,0);}}
 /* ===== アラートカード ===== */
 .alert-row{display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:10px;margin-bottom:7px;cursor:pointer;transition:transform .12s,opacity .12s;-webkit-tap-highlight-color:transparent;}
 .alert-row:active{transform:scale(0.98);opacity:.85;}
@@ -1973,7 +1975,14 @@ function useStore() {
     sbLoad("isp_drafts").then(d=>{ if(d?.length) setIspDrafts(d.map(x=>x.data||x)); });
     sbLoad("isp_records").then(d=>{ if(d?.length) setIspRecords(d.map(x=>x.data||x)); });
   }, []);
-  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus};
+  // ─── トースト通知 ───
+  const [toastMsg, setToastMsg] = useState("");
+  const [toastType, setToastType] = useState("success");
+  const showToast = (msg, type="success") => {
+    setToastMsg(msg); setToastType(type);
+    setTimeout(()=>setToastMsg(""), 3000);
+  };
+  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType};
 }
 
 
@@ -3821,6 +3830,21 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
 // 承認フロー: AI生成→担当確認→児発管承認→管理者確認→保護者説明→保護者同意→確定
 // 監査対応: 誰が作成・修正・承認したかの完全な履歴を保持する
 
+// ─── トースト通知コンポーネント ───
+function Toast({msg, type}){
+  if(!msg) return null;
+  const bg = type==="error" ? "var(--ro)" : type==="warn" ? "var(--am)" : "var(--gr)";
+  const icon = type==="error" ? "❌" : type==="warn" ? "⚠️" : "✅";
+  return <div style={{
+    position:"fixed",bottom:28,left:"50%",transform:"translateX(-50%)",
+    background:bg,color:"#fff",padding:"12px 24px",borderRadius:14,
+    fontWeight:700,fontSize:13,zIndex:99999,whiteSpace:"nowrap",
+    boxShadow:"0 6px 24px rgba(0,0,0,0.35)",
+    fontFamily:"'Noto Sans JP',sans-serif",
+    animation:"toastIn .25s cubic-bezier(.4,0,.2,1)"
+  }}>{icon} {msg}</div>;
+}
+
 // ─── 承認フロー定義 ───
 const ISP_FLOW_STEPS = [
   {key:"ai_draft",          label:"AI原案",     icon:"🤖", color:"#888"},
@@ -3978,15 +4002,18 @@ function IspAssessmentForm({record, u, user, store, onSave, onCancel}){
   const handleSave=()=>{
     setSaving(true);
     const histEntry={actor:user.displayName,role:user.role,action:record?"更新":"新規作成",at:nowStr(),note:""};
-    if(record){
-      store.updIspRecord(record.id,{content:f,status:"staff_checked",updatedAt:nowStr(),
-        history:[...(record.history||[]),histEntry]});
-    } else {
-      store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
-        docType:"assessment",status:"staff_checked",content:f,
-        createdBy:user.displayName,createdAt:nowStr(),updatedAt:nowStr(),
-        history:[histEntry]});
-    }
+    try{
+      if(record){
+        store.updIspRecord(record.id,{content:f,status:"staff_checked",updatedAt:nowStr(),
+          history:[...(record.history||[]),histEntry]});
+      } else {
+        store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
+          docType:"assessment",status:"staff_checked",content:f,
+          createdBy:user.displayName,createdAt:nowStr(),updatedAt:nowStr(),
+          history:[histEntry]});
+      }
+      store.showToast(record?"アセスメントを更新しました":"アセスメントを保存しました");
+    }catch(e){ store.showToast("保存に失敗しました","error"); }
     setSaving(false);
     onSave();
   };
@@ -4028,8 +4055,9 @@ function IspPlanForm({record, u, user, store, onSave, onCancel}){
   const [f,setF] = useState({
     userNeeds:"",parentNeeds:"",longGoal:"",longGoalTerm:"1年間",
     shortGoal:"",shortGoalTerm:"6ヶ月",supportContent:"",specificMethods:"",
-    staffInCharge:user.displayName,frequency:"週3〜4回",achievementDate:"",
-    evaluationMethod:"",reviewDate:"",validFrom:"",validTo:"",...init,
+    staffInCharge:user.displayName,cdsmName:"",frequency:"週3〜4回",
+    achievementDate:"",evaluationMethod:"",reviewDate:"",
+    validFrom:"",validTo:"",supportPeriod:"",...init,
   });
   const upd=(k,v)=>setF(p=>({...p,[k]:v}));
   const [generating,setGenerating]=useState(false);
@@ -4050,17 +4078,20 @@ function IspPlanForm({record, u, user, store, onSave, onCancel}){
   const handleSave=()=>{
     setSaving(true);
     const histEntry={actor:user.displayName,role:user.role,action:record?"更新":"AI原案作成",at:nowStr(),note};
-    if(record){
-      // 確定済みを編集した場合は再確認が必要なため staff_checked に戻す
-      const newStatus = record.status==="finalized" ? "staff_checked" : record.status;
-      store.updIspRecord(record.id,{content:f,status:newStatus,updatedAt:nowStr(),
-        history:[...(record.history||[]),histEntry]});
-    } else {
-      store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
-        docType:"isp_plan",status:"ai_draft",content:f,
-        createdBy:user.displayName,createdAt:nowStr(),updatedAt:nowStr(),
-        history:[histEntry]});
-    }
+    try{
+      if(record){
+        // 確定済みを編集した場合は再確認が必要なため staff_checked に戻す
+        const newStatus = record.status==="finalized" ? "staff_checked" : record.status;
+        store.updIspRecord(record.id,{content:f,status:newStatus,updatedAt:nowStr(),
+          history:[...(record.history||[]),histEntry]});
+      } else {
+        store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
+          docType:"isp_plan",status:"ai_draft",content:f,
+          createdBy:user.displayName,createdAt:nowStr(),updatedAt:nowStr(),
+          history:[histEntry]});
+      }
+      store.showToast(record?"個別支援計画を更新しました":"個別支援計画の原案を保存しました");
+    }catch(e){ store.showToast("保存に失敗しました","error"); }
     setSaving(false);
     onSave();
   };
@@ -4127,10 +4158,14 @@ function IspPlanForm({record, u, user, store, onSave, onCancel}){
       {/* 実施体制 */}
       <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:10,marginTop:6}}>▍実施体制・評価</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-        <div className="fg" style={{marginBottom:0}}><label className="fl">担当者</label>
-          <input className="fi" value={f.staffInCharge} onChange={e=>upd("staffInCharge",e.target.value)}/></div>
+        <div className="fg" style={{marginBottom:0}}><label className="fl">担当職員</label>
+          <input className="fi" value={f.staffInCharge} onChange={e=>upd("staffInCharge",e.target.value)} placeholder="担当職員名"/></div>
+        <div className="fg" style={{marginBottom:0}}><label className="fl">児発管名</label>
+          <input className="fi" value={f.cdsmName} onChange={e=>upd("cdsmName",e.target.value)} placeholder="児童発達支援管理責任者名"/></div>
         <div className="fg" style={{marginBottom:0}}><label className="fl">支援頻度</label>
           <input className="fi" value={f.frequency} onChange={e=>upd("frequency",e.target.value)} placeholder="例: 週3〜4回"/></div>
+        <div className="fg" style={{marginBottom:0}}><label className="fl">支援期間</label>
+          <input className="fi" value={f.supportPeriod} onChange={e=>upd("supportPeriod",e.target.value)} placeholder="例: 2026年4月〜2027年3月"/></div>
       </div>
       <div className="fg"><label className="fl">達成時期</label>
         <input className="fi" type="date" value={f.achievementDate} onChange={e=>upd("achievementDate",e.target.value)}/></div>
@@ -4168,14 +4203,17 @@ function IspWeeklyPlanForm({record, u, user, store, onSave, onCancel}){
   const handleSave=()=>{
     setSaving(true);
     const histEntry={actor:user.displayName,role:user.role,action:record?"更新":"新規作成",at:nowStr(),note:""};
-    if(record){
-      store.updIspRecord(record.id,{content:{slots,staffNote},status:"staff_checked",updatedAt:nowStr(),
-        history:[...(record.history||[]),histEntry]});
-    } else {
-      store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
-        docType:"weekly_plan",status:"staff_checked",content:{slots,staffNote},
-        createdBy:user.displayName,createdAt:nowStr(),updatedAt:nowStr(),history:[histEntry]});
-    }
+    try{
+      if(record){
+        store.updIspRecord(record.id,{content:{slots,staffNote},status:"staff_checked",updatedAt:nowStr(),
+          history:[...(record.history||[]),histEntry]});
+      } else {
+        store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
+          docType:"weekly_plan",status:"staff_checked",content:{slots,staffNote},
+          createdBy:user.displayName,createdAt:nowStr(),updatedAt:nowStr(),history:[histEntry]});
+      }
+      store.showToast(record?"週間支援計画を更新しました":"週間支援計画を保存しました");
+    }catch(e){ store.showToast("保存に失敗しました","error"); }
     setSaving(false);
     onSave();
   };
@@ -4232,7 +4270,10 @@ function IspMonitoringForm({record, u, user, store, onSave, onCancel}){
   const latestIsp = [...(store.ispRecords||[])].filter(r=>r.userId===u.id&&r.docType==="isp_plan"&&r.status==="finalized")
     .sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
   const [f,setF]=useState({
+    monitoringDate: init.monitoringDate||init.date||todayISO(),
     targetPeriod: init.targetPeriod || (latestIsp ? `${latestIsp.content?.validFrom||""}〜${latestIsp.content?.validTo||""}` : ""),
+    responsibleStaff: init.responsibleStaff||user.displayName,
+    cdsmName: init.cdsmName||"",
     longGoalResult: init.longGoalResult||"",
     shortGoalResult: init.shortGoalResult||"",
     achievedItems: init.achievedItems||"",
@@ -4249,15 +4290,20 @@ function IspMonitoringForm({record, u, user, store, onSave, onCancel}){
 
   const handleSave=()=>{
     setSaving(true);
+    // monitoringDateをdateにも同期して保存
+    const saveContent = {...f, date:f.monitoringDate||f.date};
     const histEntry={actor:user.displayName,role:user.role,action:record?"更新":"新規作成",at:nowStr(),note:""};
-    if(record){
-      store.updIspRecord(record.id,{content:f,status:"staff_checked",updatedAt:nowStr(),
-        history:[...(record.history||[]),histEntry]});
-    } else {
-      store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
-        docType:"monitoring",status:"staff_checked",content:f,
-        createdBy:user.displayName,createdAt:nowStr(),updatedAt:nowStr(),history:[histEntry]});
-    }
+    try{
+      if(record){
+        store.updIspRecord(record.id,{content:saveContent,status:"staff_checked",updatedAt:nowStr(),
+          history:[...(record.history||[]),histEntry]});
+      } else {
+        store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
+          docType:"monitoring",status:"staff_checked",content:saveContent,
+          createdBy:user.displayName,createdAt:nowStr(),updatedAt:nowStr(),history:[histEntry]});
+      }
+      store.showToast(record?"モニタリングを更新しました":"モニタリングを保存しました");
+    }catch(e){ store.showToast("保存に失敗しました","error"); }
     setSaving(false);
     onSave();
   };
@@ -4278,10 +4324,14 @@ function IspMonitoringForm({record, u, user, store, onSave, onCancel}){
     </div>}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,boxShadow:"var(--sh)"}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-        <div className="fg" style={{marginBottom:0}}><label className="fl">実施日</label>
-          <input className="fi" type="date" value={f.date} onChange={e=>upd("date",e.target.value)}/></div>
+        <div className="fg" style={{marginBottom:0}}><label className="fl">モニタリング日 <span style={{color:"var(--ro)"}}>*</span></label>
+          <input className="fi" type="date" value={f.monitoringDate} onChange={e=>upd("monitoringDate",e.target.value)}/></div>
         <div className="fg" style={{marginBottom:0}}><label className="fl">対象期間</label>
           <input className="fi" value={f.targetPeriod} onChange={e=>upd("targetPeriod",e.target.value)} placeholder="例: 2026年4月〜9月"/></div>
+        <div className="fg" style={{marginBottom:0}}><label className="fl">担当職員</label>
+          <input className="fi" value={f.responsibleStaff} onChange={e=>upd("responsibleStaff",e.target.value)} placeholder="担当職員名"/></div>
+        <div className="fg" style={{marginBottom:0}}><label className="fl">児発管名</label>
+          <input className="fi" value={f.cdsmName} onChange={e=>upd("cdsmName",e.target.value)} placeholder="児童発達支援管理責任者名"/></div>
       </div>
 
       {/* 総合評価 */}
@@ -4345,14 +4395,17 @@ function IspMeetingForm({record, u, user, store, onSave, onCancel}){
   const handleSave=()=>{
     setSaving(true);
     const histEntry={actor:user.displayName,role:user.role,action:record?"更新":"新規作成",at:nowStr(),note:""};
-    if(record){
-      store.updIspRecord(record.id,{content:f,updatedAt:nowStr(),
-        history:[...(record.history||[]),histEntry]});
-    } else {
-      store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
-        docType:"meeting",status:"staff_checked",content:f,
-        createdBy:user.displayName,createdAt:nowStr(),updatedAt:nowStr(),history:[histEntry]});
-    }
+    try{
+      if(record){
+        store.updIspRecord(record.id,{content:f,updatedAt:nowStr(),
+          history:[...(record.history||[]),histEntry]});
+      } else {
+        store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
+          docType:"meeting",status:"staff_checked",content:f,
+          createdBy:user.displayName,createdAt:nowStr(),updatedAt:nowStr(),history:[histEntry]});
+      }
+      store.showToast(record?"会議記録を更新しました":"会議記録を保存しました");
+    }catch(e){ store.showToast("保存に失敗しました","error"); }
     setSaving(false);
     onSave();
   };
@@ -4423,19 +4476,22 @@ function IspConsentForm({record, u, user, store, onSave, onCancel}){
     const signed = !!f.parentSignedAt;
     const histEntry={actor:user.displayName,role:user.role,action:record?"更新":(signed?"保護者署名取得":"説明済み記録"),at:nowStr(),note:""};
     const newStatus = signed ? "parent_consented" : "parent_explained";
-    if(record){
-      store.updIspRecord(record.id,{content:f,status:newStatus,updatedAt:nowStr(),
-        history:[...(record.history||[]),histEntry]});
-      // 関連ISP計画も進める
-      if(signed&&latestIsp&&latestIsp.status==="parent_explained"){
-        store.updIspRecord(latestIsp.id,{status:"parent_consented",
-          history:[...(latestIsp.history||[]),{...histEntry,action:"保護者同意取得（同意書より）"}]});
+    try{
+      if(record){
+        store.updIspRecord(record.id,{content:f,status:newStatus,updatedAt:nowStr(),
+          history:[...(record.history||[]),histEntry]});
+        // 関連ISP計画も進める
+        if(signed&&latestIsp&&latestIsp.status==="parent_explained"){
+          store.updIspRecord(latestIsp.id,{status:"parent_consented",
+            history:[...(latestIsp.history||[]),{...histEntry,action:"保護者同意取得（同意書より）"}]});
+        }
+      } else {
+        store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
+          docType:"consent",status:newStatus,content:f,
+          createdBy:user.displayName,createdAt:nowStr(),updatedAt:nowStr(),history:[histEntry]});
       }
-    } else {
-      store.addIspRecord({id:genId(),userId:u.id,facilityId:u.facilityId,
-        docType:"consent",status:newStatus,content:f,
-        createdBy:user.displayName,createdAt:nowStr(),updatedAt:nowStr(),history:[histEntry]});
-    }
+      store.showToast(signed?"保護者署名を記録しました":"説明済みとして保存しました");
+    }catch(e){ store.showToast("保存に失敗しました","error"); }
     setSaving(false);
     onSave();
   };
@@ -4491,6 +4547,7 @@ function IspApprovalPanel({rec, u, user, store}){
     const histEntry={actor:user.displayName,role:user.role,action:next.label,at:nowStr(),note};
     store.updIspRecord(rec.id,{status:next.next,updatedAt:nowStr(),
       history:[...(rec.history||[]),histEntry]});
+    store.showToast(`${next.label}しました`);
     setSaving(false);
     setNote("");
   };
@@ -4502,6 +4559,7 @@ function IspApprovalPanel({rec, u, user, store}){
     const histEntry={actor:user.displayName,role:user.role,action:"差し戻し",at:nowStr(),note:reason};
     store.updIspRecord(rec.id,{status:"ai_draft",updatedAt:nowStr(),
       history:[...(rec.history||[]),histEntry]});
+    store.showToast("差し戻しました","warn");
   };
 
   return <div style={{background:canAct?"rgba(58,160,216,0.07)":"rgba(200,200,200,0.08)",border:`1px solid ${canAct?"rgba(58,160,216,0.25)":"var(--bd)"}`,borderRadius:12,padding:14,marginBottom:14}}>
@@ -7519,6 +7577,8 @@ export default function App(){
           ))}
         </div>
       </div>
+      {/* グローバルトースト */}
+      <Toast msg={store.toastMsg} type={store.toastType}/>
     </div>
   </>;
 }
