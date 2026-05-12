@@ -1684,7 +1684,7 @@ function TimePicker({value, onChange, label=""}){
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             {["08:00","08:30","09:00","13:00","14:00","14:30","15:00","16:00","17:00","17:30","18:00","19:00"].map(t=><button key={t}
               onClick={()=>{const [h,m]=t.split(":").map(Number);setTmpH(h);setTmpM(m);scrollToCenter(hRef,h);const mIdx=minutes.findIndex(x=>x>=m);scrollToCenter(mRef,mIdx>=0?mIdx:0);}}
-              style={{padding:"5px 10px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Mono',monospace",border:"1.5px solid",borderColor:value===t?"var(--tl)":"var(--bd)",background:value===t?"#cce6f5":"var(--bg)",color:value===t?"var(--tl)":"var(--tx2)"}}>
+              style={{padding:"5px 10px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Mono',monospace",border:"1.5px solid",borderColor:value===t?"var(--tl)":"var(--bd)",background:value===t?"rgba(58,160,216,0.2)":"var(--bg)",color:value===t?"var(--tl)":"var(--tx2)"}}>
               {t}
             </button>)}
           </div>
@@ -1881,7 +1881,7 @@ function AttendanceScreen({user,store,onBack}){
           <button key={type} onClick={()=>{setDayType(sel,type);setDayTypeRefresh(p=>p+1);}}
             style={{padding:"6px 16px",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",
               borderColor:currentDayType===type?(type==="休日"?"var(--am)":"var(--tl)"):"var(--bd)",
-              background:currentDayType===type?(type==="休日"?"#fff8ec":"#cce6f5"):"var(--bg)",
+              background:currentDayType===type?(type==="休日"?"#fff8ec":"rgba(58,160,216,0.2)"):"var(--bg)",
               color:currentDayType===type?(type==="休日"?"var(--am)":"var(--tl)"):"var(--tx3)"}}>
             {type==="休日"?"🎌 休日":"🏫 放課後"}
           </button>
@@ -2300,7 +2300,7 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
           <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,display:"block",marginBottom:7}}>送迎</label>
           <div style={{display:"flex",gap:8}}>
             {["あり","なし"].map(v=><button key={v} onClick={()=>upd("hasTransport",v==="あり")}
-              style={{padding:"8px 20px",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:(form.hasTransport&&v==="あり")||(!form.hasTransport&&v==="なし")?"var(--tl)":"var(--bd)",background:(form.hasTransport&&v==="あり")||(!form.hasTransport&&v==="なし")?"#cce6f5":"var(--bg)",color:(form.hasTransport&&v==="あり")||(!form.hasTransport&&v==="なし")?"var(--tl)":"var(--tx3)"}}>
+              style={{padding:"8px 20px",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:(form.hasTransport&&v==="あり")||(!form.hasTransport&&v==="なし")?"var(--tl)":"var(--bd)",background:(form.hasTransport&&v==="あり")||(!form.hasTransport&&v==="なし")?"rgba(58,160,216,0.2)":"var(--bg)",color:(form.hasTransport&&v==="あり")||(!form.hasTransport&&v==="なし")?"var(--tl)":"var(--tx3)"}}>
               送迎{v}
             </button>)}
           </div>
@@ -2327,7 +2327,7 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
               ? <div style={{color:"var(--gr)",fontWeight:700,fontSize:13}}>
                   <div style={{fontSize:28,marginBottom:5}}>✅</div>
                   コピー済み（登録済み）
-                  <button onClick={()=>upd("jukyushaCopy",false)} style={{display:"block",margin:"8px auto 0",padding:"4px 12px",borderRadius:7,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"#fad4d0",border:"1px solid #f0a090",color:"#a02818",fontWeight:700}}>削除</button>
+                  <button onClick={()=>upd("jukyushaCopy",false)} style={{display:"block",margin:"8px auto 0",padding:"4px 12px",borderRadius:7,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(224,56,56,0.15)",border:"1px solid rgba(224,56,56,0.4)",color:"var(--ro)",fontWeight:700}}>削除</button>
                 </div>
               : <div>
                   <div style={{fontSize:28,marginBottom:6,opacity:.4}}>📄</div>
@@ -2337,7 +2337,7 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
             }
           </div>
           {form.jukyushaCopy&&<div style={{marginTop:8,fontSize:11,color:"var(--tx3)",display:"flex",gap:8,flexWrap:"wrap"}}>
-            <span style={{padding:"3px 9px",borderRadius:8,background:"#d0eedd",color:"#155a30",fontWeight:700,fontSize:10}}>✅ コピー登録済</span>
+            <span style={{padding:"3px 9px",borderRadius:8,background:"rgba(44,170,96,0.2)",color:"var(--gr)",fontWeight:700,fontSize:10}}>✅ コピー登録済</span>
             <span style={{fontSize:11,color:"var(--tx3)"}}>登録日: {todayISO()}</span>
           </div>}
         </div>
@@ -2385,11 +2385,11 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
       </FormSection>
 
       {/* 無効化（編集時のみ） */}
-      {isEdit&&<div style={{background:"#fdf5f4",border:"1px solid #f0a090",borderRadius:11,padding:14,marginBottom:12}}>
+      {isEdit&&<div style={{background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.4)",borderRadius:11,padding:14,marginBottom:12}}>
         <div style={{fontSize:11,fontWeight:700,color:"var(--ro)",marginBottom:8}}>⚠ 利用状況の変更</div>
         <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>upd("active",true)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.active!==false?"#98d8b0":"var(--bd)",background:form.active!==false?"#d0eedd":"var(--bg)",color:form.active!==false?"#155a30":"var(--tx3)"}}>在籍中</button>
-          <button onClick={()=>upd("active",false)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.active===false?"#f0a090":"var(--bd)",background:form.active===false?"#fad4d0":"var(--bg)",color:form.active===false?"#a02818":"var(--tx3)"}}>退所・無効</button>
+          <button onClick={()=>upd("active",true)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.active!==false?"rgba(44,170,96,0.4)":"var(--bd)",background:form.active!==false?"rgba(44,170,96,0.2)":"var(--bg)",color:form.active!==false?"var(--gr)":"var(--tx3)"}}>在籍中</button>
+          <button onClick={()=>upd("active",false)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.active===false?"rgba(224,56,56,0.4)":"var(--bd)",background:form.active===false?"rgba(224,56,56,0.15)":"var(--bg)",color:form.active===false?"var(--ro)":"var(--tx3)"}}>退所・無効</button>
         </div>
       </div>}
 
@@ -2433,9 +2433,9 @@ function UserManagement({user,store,onBack}){
         const urgentCount=allAlerts.filter(a=>a.status==="expired"||a.status==="urgent").length;
         const soonCount=allAlerts.filter(a=>a.status==="soon").length;
         return (urgentCount+soonCount)>0&&<div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
-          {urgentCount>0&&<div style={{background:"#fad4d0",border:"1.5px solid #f0a090",borderRadius:10,padding:"10px 16px",display:"flex",alignItems:"center",gap:8}}>
+          {urgentCount>0&&<div style={{background:"rgba(224,56,56,0.15)",border:"1.5px solid rgba(224,56,56,0.4)",borderRadius:10,padding:"10px 16px",display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:20}}>🔴</span>
-            <div><div style={{fontSize:12,fontWeight:900,color:"#a02818"}}>要対応 {urgentCount}件</div><div style={{fontSize:10,color:"#a02818",opacity:.8}}>期限切れ・30日以内</div></div>
+            <div><div style={{fontSize:12,fontWeight:900,color:"var(--ro)"}}>要対応 {urgentCount}件</div><div style={{fontSize:10,color:"var(--ro)",opacity:.8}}>期限切れ・30日以内</div></div>
           </div>}
           {soonCount>0&&<div style={{background:"#fef8e6",border:"1.5px solid #e8d870",borderRadius:10,padding:"10px 16px",display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:20}}>🟡</span>
@@ -2459,12 +2459,12 @@ function UserManagement({user,store,onBack}){
             <div style={{fontWeight:900,fontSize:14,marginBottom:2,color:u.active===false?"var(--tx3)":"var(--tx)"}}>{u.name}{u.active===false&&<span style={{fontSize:10,color:"var(--bda)",marginLeft:5}}>（無効）</span>}</div>
             <div style={{fontSize:11,color:"var(--tx3)",marginBottom:6}}>{age}歳 ／ {u.diagnosis}</div>
             <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:4}}>
-              {ispCount>0&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:8,background:"#cce6f5",color:"#006090",fontWeight:700}}>計画{ispCount}件</span>}
-              {latestIsp&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:8,background:latestIsp.progress>=80?"#d0eedd":"#fce8c8",color:latestIsp.progress>=80?"#186838":"#a06010",fontWeight:700}}>{latestIsp.progress}%</span>}
-              {store.facesheets.find(f=>f.userId===u.id)&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:8,background:"#e8d4f4",color:"#5820a0",fontWeight:700}}>FS有</span>}
+              {ispCount>0&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:8,background:"rgba(58,160,216,0.2)",color:"var(--tl)",fontWeight:700}}>計画{ispCount}件</span>}
+              {latestIsp&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:8,background:latestIsp.progress>=80?"rgba(44,170,96,0.2)":"rgba(224,168,40,0.18)",color:latestIsp.progress>=80?"var(--gr2)":"var(--am)",fontWeight:700}}>{latestIsp.progress}%</span>}
+              {store.facesheets.find(f=>f.userId===u.id)&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:8,background:"rgba(144,72,216,0.18)",color:"var(--pu)",fontWeight:700}}>FS有</span>}
             </div>
             {(()=>{const alerts=getUserAlerts(u,store);const hasUrgent=alerts.some(a=>a.status==="expired"||a.status==="urgent");const hasSoon=alerts.some(a=>a.status==="soon");return (hasUrgent||hasSoon)&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-              {hasUrgent&&<span style={{fontSize:9,padding:"2px 7px",borderRadius:7,background:"#fad4d0",color:"#a02818",fontWeight:700,border:"1px solid #f0a090"}}>🔴 要対応</span>}
+              {hasUrgent&&<span style={{fontSize:9,padding:"2px 7px",borderRadius:7,background:"rgba(224,56,56,0.15)",color:"var(--ro)",fontWeight:700,border:"1px solid rgba(224,56,56,0.4)"}}>🔴 要対応</span>}
               {!hasUrgent&&hasSoon&&<span style={{fontSize:9,padding:"2px 7px",borderRadius:7,background:"#fef8e6",color:"#8a6200",fontWeight:700,border:"1px solid #e8d870"}}>🟡 期限間近</span>}
             </div>;})()} 
           </div>;
@@ -2530,10 +2530,10 @@ function UserManagement({user,store,onBack}){
         {/* タブ */}
         {(()=>{const allAlerts=getUserAlerts(u,store);return <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:4,scrollbarWidth:"none"}}>
           {TABS.map(t=>{const tabAlerts=allAlerts.filter(a=>a.tab===t.k&&a.status!=="ok");const hasUrgent=tabAlerts.some(a=>a.status==="expired"||a.status==="urgent");const hasSoon=tabAlerts.some(a=>a.status==="soon");
-            const tabBorder = hubTab===t.k?"none":hasUrgent?"1.5px solid #f0a090":hasSoon?"1.5px solid #e8d870":"1.5px solid var(--bd)";
+            const tabBorder = hubTab===t.k?"none":hasUrgent?"1.5px solid rgba(224,56,56,0.4)":hasSoon?"1.5px solid #e8d870":"1.5px solid var(--bd)";
             return <button key={t.k} onClick={()=>setHubTab(t.k)} style={{padding:"8px 14px",borderRadius:20,whiteSpace:"nowrap",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,cursor:"pointer",background:hubTab===t.k?"var(--tl)":"var(--wh)",color:hubTab===t.k?"#fff":"var(--tx3)",border:tabBorder,boxShadow:hubTab===t.k?"0 2px 8px rgba(0,128,184,0.3)":"var(--sh)",transition:"all .18s",position:"relative"}}>
               {t.ic} {t.l}
-              {(hasUrgent||hasSoon)&&<span style={{position:"absolute",top:-4,right:-4,width:10,height:10,borderRadius:"50%",background:hasUrgent?"#a02818":"#8a6200",border:"2px solid var(--wh)"}}/>}
+              {(hasUrgent||hasSoon)&&<span style={{position:"absolute",top:-4,right:-4,width:10,height:10,borderRadius:"50%",background:hasUrgent?"var(--ro)":"#8a6200",border:"2px solid var(--wh)"}}/>}
             </button>;
           })}
         </div>;})()}
@@ -2674,8 +2674,8 @@ function AssessmentTab({u,myAssessments,user,store}){
   };
   const reset=()=>{setDone(false);setMode("list");setScores({});setNotes({});setOverall("");setDate(todayISO());};
 
-  const ScoreColor=s=>s>=4?"#186838":s>=3?"#0070a0":s>=2?"#a06010":"#a02818";
-  const ScoreBg=s=>s>=4?"#d0eedd":s>=3?"#cce6f5":s>=2?"#fce8c8":"#fad4d0";
+  const ScoreColor=s=>s>=4?"var(--gr2)":s>=3?"var(--tl)":s>=2?"var(--am)":"var(--ro)";
+  const ScoreBg=s=>s>=4?"rgba(44,170,96,0.2)":s>=3?"rgba(58,160,216,0.2)":s>=2?"rgba(224,168,40,0.18)":"rgba(224,56,56,0.15)";
 
   if(done) return <div className="succ"><div className="si">📊</div><div className="st">アセスメント完了</div><div className="sd">{u.name} さんのアセスメントを保存しました</div><div style={{display:"flex",gap:10,marginTop:12}}><button className="bpri" style={{maxWidth:160}} onClick={reset}>続けて入力</button></div></div>;
 
@@ -2802,14 +2802,14 @@ function IspTab({u,myIsps,user,store}){
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
         <div><div style={{fontSize:15,fontWeight:900}}>{view.period}</div><div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>作成日: {view.createdAt} ／ 担当: {view.staffName}</div></div>
-        <span style={{padding:"4px 10px",borderRadius:10,fontSize:11,fontWeight:700,background:view.status==="実施中"?"#cce6f5":"#d0eedd",color:view.status==="実施中"?"#006090":"#186838"}}>{view.status}</span>
+        <span style={{padding:"4px 10px",borderRadius:10,fontSize:11,fontWeight:700,background:view.status==="実施中"?"rgba(58,160,216,0.2)":"rgba(44,170,96,0.2)",color:view.status==="実施中"?"var(--tl)":"var(--gr2)"}}>{view.status}</span>
       </div>
       <div style={{fontSize:10,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:6}}>長期目標</div>
-      <div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.7,padding:"10px 12px",background:"#eef6fc",borderRadius:8,borderLeft:"3px solid var(--tl)",marginBottom:12}}>{view.longGoal}</div>
+      <div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.7,padding:"10px 12px",background:"rgba(58,160,216,0.1)",borderRadius:8,borderLeft:"3px solid var(--tl)",marginBottom:12}}>{view.longGoal}</div>
       <div style={{fontSize:10,fontWeight:700,color:"var(--gr)",letterSpacing:1,marginBottom:6}}>短期目標</div>
       <div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.7,marginBottom:12}}>{view.shortGoal}</div>
       <div style={{fontSize:10,fontWeight:700,color:"var(--am)",letterSpacing:1,marginBottom:6}}>支援領域</div>
-      <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:12}}>{view.goals?.map(g=><span key={g} style={{padding:"3px 9px",borderRadius:9,fontSize:10,fontWeight:700,background:"#cce6f5",color:"#006090"}}>{g}</span>)}</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:12}}>{view.goals?.map(g=><span key={g} style={{padding:"3px 9px",borderRadius:9,fontSize:10,fontWeight:700,background:"rgba(58,160,216,0.2)",color:"var(--tl)"}}>{g}</span>)}</div>
       <div style={{fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,marginBottom:6}}>支援内容・方法</div>
       <div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.7,marginBottom:12}}>{view.support}</div>
       <div style={{fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,marginBottom:6}}>評価方法・時期</div>
@@ -2818,7 +2818,7 @@ function IspTab({u,myIsps,user,store}){
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:"var(--tx3)"}}>進捗</span><span style={{fontSize:14,fontWeight:700,color:"var(--tl)",fontFamily:"'DM Mono',monospace"}}>{view.progress}%</span></div>
       <div className="progress-bar"><div className="progress-fill" style={{width:view.progress+"%"}}/></div>
       <div style={{display:"flex",gap:6,marginTop:12,flexWrap:"wrap"}}>
-        {[0,10,20,30,40,50,60,70,80,90,100].map(p=><button key={p} onClick={()=>{store.updIsp(view.id,{progress:p});setView({...view,progress:p});}} style={{padding:"4px 9px",borderRadius:10,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:view.progress===p?"var(--tl)":"var(--bd)",background:view.progress===p?"#cce6f5":"var(--bg)",color:view.progress===p?"var(--tl)":"var(--tx3)"}}>{p}%</button>)}
+        {[0,10,20,30,40,50,60,70,80,90,100].map(p=><button key={p} onClick={()=>{store.updIsp(view.id,{progress:p});setView({...view,progress:p});}} style={{padding:"4px 9px",borderRadius:10,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:view.progress===p?"var(--tl)":"var(--bd)",background:view.progress===p?"rgba(58,160,216,0.2)":"var(--bg)",color:view.progress===p?"var(--tl)":"var(--tx3)"}}>{p}%</button>)}
       </div>
       <div style={{display:"flex",gap:8,marginTop:14}}>
         <button className="bexp" onClick={()=>store.updIsp(view.id,{status:"完了"})&&setView({...view,status:"完了"})}>✅ 完了にする</button>
@@ -2837,7 +2837,7 @@ function IspTab({u,myIsps,user,store}){
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:10,fontWeight:700,color:"var(--am)",letterSpacing:1,marginBottom:8}}>支援領域（複数選択可）</div>
       <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-        {SUPPORT_GOALS.map(g=><button key={g} onClick={()=>tog(g)} style={{padding:"6px 11px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:goals.includes(g)?"var(--tl)":"var(--bd)",background:goals.includes(g)?"#cce6f5":"var(--bg)",color:goals.includes(g)?"var(--tl)":"var(--tx2)"}}>{g}</button>)}
+        {SUPPORT_GOALS.map(g=><button key={g} onClick={()=>tog(g)} style={{padding:"6px 11px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:goals.includes(g)?"var(--tl)":"var(--bd)",background:goals.includes(g)?"rgba(58,160,216,0.2)":"var(--bg)",color:goals.includes(g)?"var(--tl)":"var(--tx2)"}}>{g}</button>)}
       </div>
     </div>
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,marginBottom:12,boxShadow:"var(--sh)"}}>
@@ -2866,10 +2866,10 @@ function IspTab({u,myIsps,user,store}){
         <div><div style={{fontWeight:700,fontSize:14}}>{x.period}</div><div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>作成日: {x.createdAt}</div></div>
         <div style={{display:"flex",gap:5,alignItems:"center"}}>
           {(()=>{const end=ispEndDate(x.period);const st=end?expiryStatus(end):null;const es=expiryStyle(st);const d=end?daysUntil(end):null;return st&&st!=="ok"&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:8,fontWeight:700,background:es.bg,color:es.color,border:"1px solid "+es.border}}>{es.icon} {d!==null&&d<0?"期限切れ":d+"日"}</span>;})()}
-          <span style={{padding:"3px 9px",borderRadius:9,fontSize:11,fontWeight:700,background:x.status==="完了"?"#d0eedd":"#cce6f5",color:x.status==="完了"?"#186838":"#006090"}}>{x.status}</span>
+          <span style={{padding:"3px 9px",borderRadius:9,fontSize:11,fontWeight:700,background:x.status==="完了"?"rgba(44,170,96,0.2)":"rgba(58,160,216,0.2)",color:x.status==="完了"?"var(--gr2)":"var(--tl)"}}>{x.status}</span>
         </div>
       </div>
-      {x.goals?.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:7}}>{x.goals.slice(0,3).map(g=><span key={g} style={{fontSize:9,padding:"2px 7px",borderRadius:8,background:"#cce6f5",color:"#006090",fontWeight:700}}>{g}</span>)}{x.goals.length>3&&<span style={{fontSize:9,color:"var(--tx3)"}}>+{x.goals.length-3}</span>}</div>}
+      {x.goals?.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:7}}>{x.goals.slice(0,3).map(g=><span key={g} style={{fontSize:9,padding:"2px 7px",borderRadius:8,background:"rgba(58,160,216,0.2)",color:"var(--tl)",fontWeight:700}}>{g}</span>)}{x.goals.length>3&&<span style={{fontSize:9,color:"var(--tx3)"}}>+{x.goals.length-3}</span>}</div>}
       <div style={{fontSize:12,color:"var(--tx2)",marginBottom:8}}>{x.longGoal?.length>55?x.longGoal.slice(0,55)+"…":x.longGoal}</div>
       <div className="progress-bar"><div className="progress-fill" style={{width:x.progress+"%"}}/></div>
       <div style={{fontSize:10,color:"var(--tx3)",marginTop:3}}>達成度 {x.progress}%</div>
@@ -2890,7 +2890,7 @@ function MonitoringTab({u,myMonitorings,myIsps,user,store}){
 
   const setIS=(k,v)=>setItemScores(p=>({...p,[k]:v}));
   const setIN=(k,v)=>setItemNotes(p=>({...p,[k]:v}));
-  const RESULT_OPTS=[{v:"達成",c:"#186838",bg:"#d0eedd"},{v:"概ね達成",c:"#0070a0",bg:"#cce6f5"},{v:"一部達成",c:"#a06010",bg:"#fce8c8"},{v:"未達成",c:"#a02818",bg:"#fad4d0"},{v:"継続",c:"#5820a0",bg:"#e8d4f4"}];
+  const RESULT_OPTS=[{v:"達成",c:"var(--gr2)",bg:"rgba(44,170,96,0.2)"},{v:"概ね達成",c:"var(--tl)",bg:"rgba(58,160,216,0.2)"},{v:"一部達成",c:"var(--am)",bg:"rgba(224,168,40,0.18)"},{v:"未達成",c:"var(--ro)",bg:"rgba(224,56,56,0.15)"},{v:"継続",c:"var(--pu)",bg:"rgba(144,72,216,0.18)"}];
 
   const save=()=>{
     const isp=myIsps.find(x=>x.id===selIsp);
@@ -2975,7 +2975,7 @@ function MonitoringTab({u,myMonitorings,myIsps,user,store}){
           onMouseLeave={e=>e.currentTarget.style.borderColor="var(--bd)"}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
           <div style={{fontWeight:700,fontSize:14}}>{m.date}</div>
-          {total>0&&<span style={{padding:"3px 10px",borderRadius:10,fontSize:11,fontWeight:700,background:"#d0eedd",color:"#186838"}}>{achieved}/{total} 項目達成</span>}
+          {total>0&&<span style={{padding:"3px 10px",borderRadius:10,fontSize:11,fontWeight:700,background:"rgba(44,170,96,0.2)",color:"var(--gr2)"}}>{achieved}/{total} 項目達成</span>}
         </div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
           <div style={{fontSize:11,color:"var(--tx3)"}}>担当: {m.staffName} {m.ispPeriod&&("／ 計画: "+m.ispPeriod)}</div>
@@ -3041,7 +3041,7 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
         </div>
         <div style={{display:"flex",gap:8}}>
           <button className="bexp" onClick={()=>printIspDraft(u,viewItem,facName)} style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}}>🖨️ 印刷・PDF</button>
-          <button onClick={()=>{store.delIspDraft(viewItem.id);setViewItem(null);setMode("list");}} style={{padding:"7px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid #f0a090",background:"#fdf5f4",color:"#a02818"}}>削除</button>
+          <button onClick={()=>{store.delIspDraft(viewItem.id);setViewItem(null);setMode("list");}} style={{padding:"7px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid rgba(224,56,56,0.4)",background:"rgba(224,56,56,0.08)",color:"var(--ro)"}}>削除</button>
         </div>
       </div>
       {[
@@ -3058,12 +3058,12 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
       {(viewItem.goals||[]).map((g,i)=>(
         <div key={g.id||i} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:9,padding:"10px 13px",marginBottom:8}}>
           <div style={{display:"flex",gap:8,marginBottom:6,flexWrap:"wrap"}}>
-            <span style={{padding:"2px 8px",borderRadius:7,fontSize:10,fontWeight:700,background:"#cce6f5",color:"#006090"}}>{g.priority}</span>
+            <span style={{padding:"2px 8px",borderRadius:7,fontSize:10,fontWeight:700,background:"rgba(58,160,216,0.2)",color:"var(--tl)"}}>{g.priority}</span>
             <span style={{padding:"2px 8px",borderRadius:7,fontSize:10,fontWeight:700,background:"#f0f0f0",color:"#555"}}>No.{i+1}</span>
-            <span style={{padding:"2px 8px",borderRadius:7,fontSize:10,fontWeight:700,background:"#fce8c8",color:"#a06010"}}>{g.period}</span>
+            <span style={{padding:"2px 8px",borderRadius:7,fontSize:10,fontWeight:700,background:"rgba(224,168,40,0.18)",color:"var(--am)"}}>{g.period}</span>
           </div>
           <div style={{fontSize:11,color:"var(--tx2)",marginBottom:4}}><b>達成目標:</b> {g.achievement}</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:4}}>{(g.domains||[]).map(d=><span key={d} style={{padding:"2px 7px",borderRadius:6,fontSize:10,background:"#e8d4f4",color:"#4a1880",fontWeight:700}}>{d}</span>)}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:4}}>{(g.domains||[]).map(d=><span key={d} style={{padding:"2px 7px",borderRadius:6,fontSize:10,background:"rgba(144,72,216,0.18)",color:"var(--pu)",fontWeight:700}}>{d}</span>)}</div>
           {g.reflection&&<div style={{fontSize:11,color:"var(--tx3)"}}>振り返り: {g.reflection}</div>}
         </div>
       ))}
@@ -3121,24 +3121,24 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
       <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:1}}>■ 支援目標</div>
-          <button onClick={addGoalRow} style={{padding:"5px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--tl)",background:"#eef6fc",color:"var(--tl)"}}>＋ 行を追加</button>
+          <button onClick={addGoalRow} style={{padding:"5px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--tl)",background:"rgba(58,160,216,0.1)",color:"var(--tl)"}}>＋ 行を追加</button>
         </div>
         {form.goals.map((g,i)=>(
           <div key={g.id} style={{border:"1px solid var(--bd)",borderRadius:9,padding:12,marginBottom:10,background:"var(--bg)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
               <span style={{fontSize:12,fontWeight:700,color:"var(--tl)"}}>No.{i+1}</span>
-              {form.goals.length>1&&<button onClick={()=>removeGoalRow(g.id)} style={{padding:"3px 9px",borderRadius:7,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1px solid #f0a090",background:"#fdf5f4",color:"#a02818",fontWeight:700}}>削除</button>}
+              {form.goals.length>1&&<button onClick={()=>removeGoalRow(g.id)} style={{padding:"3px 9px",borderRadius:7,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1px solid rgba(224,56,56,0.4)",background:"rgba(224,56,56,0.08)",color:"var(--ro)",fontWeight:700}}>削除</button>}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px",marginBottom:8}}>
               <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>優先順位（種別）</label>
-                <div style={{display:"flex",gap:6}}>{ISP_PRIORITY_TYPES.map(t=><button key={t} onClick={()=>updGoal(g.id,"priority",t)} style={{padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:g.priority===t?"var(--tl)":"var(--bd)",background:g.priority===t?"#cce6f5":"var(--bg)",color:g.priority===t?"var(--tl)":"var(--tx3)"}}>{t}</button>)}</div>
+                <div style={{display:"flex",gap:6}}>{ISP_PRIORITY_TYPES.map(t=><button key={t} onClick={()=>updGoal(g.id,"priority",t)} style={{padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:g.priority===t?"var(--tl)":"var(--bd)",background:g.priority===t?"rgba(58,160,216,0.2)":"var(--bg)",color:g.priority===t?"var(--tl)":"var(--tx3)"}}>{t}</button>)}</div>
               </div>
               <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>達成見込</label><input className="fi" value={g.period} onChange={e=>updGoal(g.id,"period",e.target.value)} placeholder="12ヶ月"/></div>
             </div>
             <div style={{marginBottom:8}}><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>具体的な達成目標</label><textarea className="fta" style={{minHeight:60}} value={g.achievement} onChange={e=>updGoal(g.id,"achievement",e.target.value)}/></div>
             <div style={{marginBottom:8}}>
               <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:6}}>支援内容（5領域との関連　複数選択可）</label>
-              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{ISP_DOMAINS.map(d=><button key={d} onClick={()=>togDomain(g.id,d)} style={{padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:g.domains.includes(d)?"#7030b8":"var(--bd)",background:g.domains.includes(d)?"#e8d4f4":"var(--bg)",color:g.domains.includes(d)?"#4a1880":"var(--tx3)"}}>{d}</button>)}</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{ISP_DOMAINS.map(d=><button key={d} onClick={()=>togDomain(g.id,d)} style={{padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:g.domains.includes(d)?"#7030b8":"var(--bd)",background:g.domains.includes(d)?"rgba(144,72,216,0.18)":"var(--bg)",color:g.domains.includes(d)?"var(--pu)":"var(--tx3)"}}>{d}</button>)}</div>
             </div>
             <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>振り返り欄</label><textarea className="fta" style={{minHeight:50}} value={g.reflection} onChange={e=>updGoal(g.id,"reflection",e.target.value)} placeholder="支援後の振り返り・変化を記入"/></div>
           </div>
@@ -3254,7 +3254,7 @@ function KokuhoScreen({user,store,onBack}){
         <button className="sbtn sn2" style={{fontSize:11}} onClick={()=>setSelFacs([])}>すべて解除</button>
       </div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
-        {FACILITIES.map(f=>{const facSel=selFacs.includes(f.id);return <label key={f.id} onClick={()=>setSelFacs(p=>p.includes(f.id)?p.filter(x=>x!==f.id):[...p,f.id])} style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:13,fontWeight:600,padding:"5px 10px",borderRadius:8,background:facSel?"#cce6f5":"var(--bg)",border:"1.5px solid "+(facSel?"var(--tl)":"var(--bd)"),color:facSel?"var(--tl)":"var(--tx3)",transition:"all .15s"}}>
+        {FACILITIES.map(f=>{const facSel=selFacs.includes(f.id);return <label key={f.id} onClick={()=>setSelFacs(p=>p.includes(f.id)?p.filter(x=>x!==f.id):[...p,f.id])} style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:13,fontWeight:600,padding:"5px 10px",borderRadius:8,background:facSel?"rgba(58,160,216,0.2)":"var(--bg)",border:"1.5px solid "+(facSel?"var(--tl)":"var(--bd)"),color:facSel?"var(--tl)":"var(--tx3)",transition:"all .15s"}}>
           <span>{facSel?"☑":"☐"}</span>{f.name}
         </label>;})}
       </div>
@@ -3300,7 +3300,7 @@ function KokuhoScreen({user,store,onBack}){
               <div>合計単位: <strong style={{color:"var(--tl)"}}>{d.totalUnits.toLocaleString()}</strong></div>
             </div>
             <div style={{marginTop:8,display:"flex",gap:4,flexWrap:"wrap"}}>
-              {["未請求","請求済","入金済"].map(s=>{const cnt=d.kk.filter(k=>k.status===s).length;return cnt>0?<span key={s} style={{fontSize:9,padding:"2px 6px",borderRadius:7,fontWeight:700,background:s==="入金済"?"#d0eedd":s==="請求済"?"#cce6f5":"var(--bg)",color:s==="入金済"?"#155a30":s==="請求済"?"#005a8a":"var(--tx3)"}}>{s} {cnt}</span>:null;})}
+              {["未請求","請求済","入金済"].map(s=>{const cnt=d.kk.filter(k=>k.status===s).length;return cnt>0?<span key={s} style={{fontSize:9,padding:"2px 6px",borderRadius:7,fontWeight:700,background:s==="入金済"?"rgba(44,170,96,0.2)":s==="請求済"?"rgba(58,160,216,0.2)":"var(--bg)",color:s==="入金済"?"var(--gr)":s==="請求済"?"var(--tl)":"var(--tx3)"}}>{s} {cnt}</span>:null;})}
             </div>
           </div>;})}
         </div>
@@ -3322,12 +3322,12 @@ function KokuhoScreen({user,store,onBack}){
             <td style={{padding:"8px 9px",fontFamily:"'DM Mono',monospace",color:"var(--tl)",fontWeight:700}}>{totalU.toLocaleString()}</td>
             <td style={{padding:"8px 9px",fontFamily:"'DM Mono',monospace",fontWeight:700,color:"var(--am)"}}>{calcAmount(k).toLocaleString()}円</td>
             <td style={{padding:"8px 9px"}}><div style={{display:"flex",gap:4}}>
-              {["未請求","請求済","入金済"].map(s=><button key={s} onClick={()=>store.updKokuho(k.id,{status:s})} style={{padding:"2px 7px",borderRadius:8,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:k.status===s?(s==="入金済"?"#98d8b0":s==="請求済"?"#90c8e8":"var(--bd)"):"transparent",background:k.status===s?(s==="入金済"?"#d0eedd":s==="請求済"?"#cce6f5":"var(--bg)"):"transparent",color:k.status===s?(s==="入金済"?"#155a30":s==="請求済"?"#005a8a":"var(--tx3)"):"var(--tx3)"}}>{s}</button>)}
+              {["未請求","請求済","入金済"].map(s=><button key={s} onClick={()=>store.updKokuho(k.id,{status:s})} style={{padding:"2px 7px",borderRadius:8,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:k.status===s?(s==="入金済"?"rgba(44,170,96,0.4)":s==="請求済"?"rgba(58,160,216,0.35)":"var(--bd)"):"transparent",background:k.status===s?(s==="入金済"?"rgba(44,170,96,0.2)":s==="請求済"?"rgba(58,160,216,0.2)":"var(--bg)"):"transparent",color:k.status===s?(s==="入金済"?"var(--gr)":s==="請求済"?"var(--tl)":"var(--tx3)"):"var(--tx3)"}}>{s}</button>)}
             </div></td>
-            {isMgr&&<td style={{padding:"8px 9px"}}><button onClick={()=>setEditId(k.id)} style={{padding:"3px 9px",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"#eef6fc",border:"1.5px solid #90c8e8",color:"#005a8a"}}>加算編集</button></td>}
+            {isMgr&&<td style={{padding:"8px 9px"}}><button onClick={()=>setEditId(k.id)} style={{padding:"3px 9px",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.1)",border:"1.5px solid rgba(58,160,216,0.35)",color:"var(--tl)"}}>加算編集</button></td>}
           </tr>;})}
-          <tr style={{background:"#eef8f2",borderTop:"2px solid #98d8b0"}}>
-            <td style={{padding:"8px 9px",fontWeight:900,color:"#155a30"}}>合計</td>
+          <tr style={{background:"#eef8f2",borderTop:"2px solid rgba(44,170,96,0.4)"}}>
+            <td style={{padding:"8px 9px",fontWeight:900,color:"var(--gr)"}}>合計</td>
             <td style={{padding:"8px 9px",fontWeight:700}}>{d.totalSvcDays}日</td>
             <td/><td/>
             <td style={{padding:"8px 9px",fontWeight:700,color:"var(--tl)",fontFamily:"'DM Mono',monospace"}}>{d.totalUnits.toLocaleString()}</td>
@@ -3381,9 +3381,9 @@ function KokuhoScreen({user,store,onBack}){
             </div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div style={{display:"flex",gap:4}}>
-                {["未請求","請求済","入金済"].map(s=><button key={s} onClick={()=>store.updKokuho(k.id,{status:s})} style={{padding:"3px 9px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:k.status===s?(s==="入金済"?"#98d8b0":s==="請求済"?"#90c8e8":"var(--bd)"):"transparent",background:k.status===s?(s==="入金済"?"#d0eedd":s==="請求済"?"#cce6f5":"var(--bg)"):"transparent",color:k.status===s?(s==="入金済"?"#155a30":s==="請求済"?"#005a8a":"var(--tx3)"):"var(--tx3)"}}>{s}</button>)}
+                {["未請求","請求済","入金済"].map(s=><button key={s} onClick={()=>store.updKokuho(k.id,{status:s})} style={{padding:"3px 9px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:k.status===s?(s==="入金済"?"rgba(44,170,96,0.4)":s==="請求済"?"rgba(58,160,216,0.35)":"var(--bd)"):"transparent",background:k.status===s?(s==="入金済"?"rgba(44,170,96,0.2)":s==="請求済"?"rgba(58,160,216,0.2)":"var(--bg)"):"transparent",color:k.status===s?(s==="入金済"?"var(--gr)":s==="請求済"?"var(--tl)":"var(--tx3)"):"var(--tx3)"}}>{s}</button>)}
               </div>
-              {isMgr&&<button onClick={()=>setEditId(k.id)} style={{padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"#eef6fc",border:"1.5px solid #90c8e8",color:"#005a8a"}}>✏️ 加算を編集</button>}
+              {isMgr&&<button onClick={()=>setEditId(k.id)} style={{padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.1)",border:"1.5px solid rgba(58,160,216,0.35)",color:"var(--tl)"}}>✏️ 加算を編集</button>}
             </div>
           </div>;
         })}
@@ -3409,14 +3409,14 @@ function KokuhoScreen({user,store,onBack}){
                 {isWe?<span style={{fontSize:11,color:"var(--tx3)"}}>休日</span>
                 :c.att===0&&c.abs===0?<span style={{fontSize:11,color:"var(--tx3)"}}>-</span>
                 :<div style={{display:"flex",flexDirection:"column",gap:2,alignItems:"center"}}>
-                  {c.att>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:"#cce6f5",color:"#005a8a",fontWeight:700}}>出席 {c.att}</span>}
-                  {c.abs>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:"#fad4d0",color:"#a02818",fontWeight:700}}>欠席 {c.abs}</span>}
+                  {c.att>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:"rgba(58,160,216,0.2)",color:"var(--tl)",fontWeight:700}}>出席 {c.att}</span>}
+                  {c.abs>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:"rgba(224,56,56,0.15)",color:"var(--ro)",fontWeight:700}}>欠席 {c.abs}</span>}
                 </div>}
               </td>;})}
             </tr>;
           })}
-          <tr style={{background:"#eef8f2",borderTop:"2px solid #98d8b0"}}>
-            <td style={{padding:"9px 6px",textAlign:"center",fontWeight:900,fontSize:11,color:"#155a30",position:"sticky",left:0,background:"#eef8f2",borderRight:"1px solid var(--bd)",zIndex:1}}>合計</td>
+          <tr style={{background:"#eef8f2",borderTop:"2px solid rgba(44,170,96,0.4)"}}>
+            <td style={{padding:"9px 6px",textAlign:"center",fontWeight:900,fontSize:11,color:"var(--gr)",position:"sticky",left:0,background:"#eef8f2",borderRight:"1px solid var(--bd)",zIndex:1}}>合計</td>
             {visibleFacs.map(f=>{const d=facData(f.id);return <td key={f.id} style={{padding:"9px 10px",textAlign:"center"}}>
               <div style={{fontSize:13,fontWeight:900,fontFamily:"'DM Mono',monospace",color:"var(--am)"}}>{d.totalYen.toLocaleString()}円</div>
               <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{d.totalSvcDays}日</div>
@@ -3542,7 +3542,7 @@ function KokuhoEditModal({k, store, TANKA, onClose}){
                   return (
                     <button key={s.code}
                       onClick={function(){ upd("serviceCode", s.code); upd("unitPrice", s.unit); }}
-                      style={{padding:"7px 10px",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:isActive?"var(--tl)":"var(--bd)",background:isActive?"#cce6f5":"var(--bg)",color:isActive?"var(--tl)":"var(--tx2)",lineHeight:1.4,textAlign:"left"}}>
+                      style={{padding:"7px 10px",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:isActive?"var(--tl)":"var(--bd)",background:isActive?"rgba(58,160,216,0.2)":"var(--bg)",color:isActive?"var(--tl)":"var(--tx2)",lineHeight:1.4,textAlign:"left"}}>
                       <div>{s.label}</div>
                       <div style={{fontSize:10,opacity:.75,marginTop:2}}>{s.unit}単位/日</div>
                     </button>
@@ -3566,7 +3566,7 @@ function KokuhoEditModal({k, store, TANKA, onClose}){
                 </div>
               </div>
             </div>
-            <div style={{background:"#eef6fc",borderRadius:8,padding:"8px 12px",fontSize:12,color:"var(--tx2)"}}>
+            <div style={{background:"rgba(58,160,216,0.1)",borderRadius:8,padding:"8px 12px",fontSize:12,color:"var(--tx2)"}}>
               放課後{form.serviceDays}日×{form.unitPrice} + 休日{form.holidayDays || 0}日×{holidayUnit} = <strong style={{color:"var(--tl)"}}>{baseUnits.toLocaleString()}単位</strong>（{Math.round(baseUnits * localTanka).toLocaleString()}円）
             </div>
           </div>
@@ -3582,7 +3582,7 @@ function KokuhoEditModal({k, store, TANKA, onClose}){
                     const adDays = (active && active.days) ? active.days : form.serviceDays;
                     const units = m.rate ? Math.round(baseUnits * m.rate) : m.perDay ? adDays * m.unit : ((active && active.count) || 1) * m.unit;
                     const borderCol = active ? "var(--tl)" : "var(--bd)";
-                    const bgCol = active ? "#eef6fc" : "var(--bg)";
+                    const bgCol = active ? "rgba(58,160,216,0.1)" : "var(--bg)";
                     const checkBgCol = active ? "var(--tl)" : "var(--wh)";
                     return (
                       <div key={m.key} style={{background:bgCol,border:"1.5px solid "+borderCol,borderRadius:10,padding:"10px 12px",transition:"all .15s"}}>
@@ -3618,8 +3618,8 @@ function KokuhoEditModal({k, store, TANKA, onClose}){
             );
           })}
 
-          <div style={{background:"#eef8f2",border:"1.5px solid #98d8b0",borderRadius:10,padding:"12px 14px",marginBottom:16}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#155a30",letterSpacing:2,marginBottom:8}}>請求内訳プレビュー</div>
+          <div style={{background:"#eef8f2",border:"1.5px solid rgba(44,170,96,0.4)",borderRadius:10,padding:"12px 14px",marginBottom:16}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--gr)",letterSpacing:2,marginBottom:8}}>請求内訳プレビュー</div>
             <div style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid rgba(152,216,176,0.3)"}}>
               <span style={{fontSize:12}}>🏫 放課後 {form.serviceDays}日 × {form.unitPrice}単位</span>
               <span style={{fontSize:12,fontWeight:700,fontFamily:"'DM Mono',monospace"}}>{((form.serviceDays||0)*(form.unitPrice||0)).toLocaleString()}単位</span>
@@ -3642,8 +3642,8 @@ function KokuhoEditModal({k, store, TANKA, onClose}){
               );
             })}
             <div style={{display:"flex",justifyContent:"space-between",padding:"7px 0 0",marginTop:3}}>
-              <span style={{fontSize:14,fontWeight:900,color:"#155a30"}}>合計</span>
-              <span style={{fontSize:14,fontWeight:900,fontFamily:"'DM Mono',monospace",color:"#155a30"}}>{totalU.toLocaleString()}単位 = <span style={{color:"var(--am)"}}>{totalYen.toLocaleString()}円</span></span>
+              <span style={{fontSize:14,fontWeight:900,color:"var(--gr)"}}>合計</span>
+              <span style={{fontSize:14,fontWeight:900,fontFamily:"'DM Mono',monospace",color:"var(--gr)"}}>{totalU.toLocaleString()}単位 = <span style={{color:"var(--am)"}}>{totalYen.toLocaleString()}円</span></span>
             </div>
           </div>
 
@@ -3879,7 +3879,7 @@ function DailyReport({user,store,onBack}){
         <span>📅 {viewRep.date}</span><span>🌤️ {viewRep.weather}</span>
         {viewRep.temperature&&<span>🌡️ {viewRep.temperature}</span>}
         <span>✍️ {viewRep.author}</span>
-        <span style={{padding:"2px 9px",borderRadius:10,fontSize:11,fontWeight:700,background:viewRep.status==="確認済"?"#d0eedd":"#fce8c8",color:viewRep.status==="確認済"?"#155a30":"#a06010"}}>{viewRep.status}</span>
+        <span style={{padding:"2px 9px",borderRadius:10,fontSize:11,fontWeight:700,background:viewRep.status==="確認済"?"rgba(44,170,96,0.2)":"rgba(224,168,40,0.18)",color:viewRep.status==="確認済"?"var(--gr)":"var(--am)"}}>{viewRep.status}</span>
       </div>
     </div>
     {/* 出勤職員 */}
@@ -3894,7 +3894,7 @@ function DailyReport({user,store,onBack}){
           <td style={{padding:"7px 8px",textAlign:"center",fontFamily:"'DM Mono',monospace"}}>{s.clockIn||"—"}</td>
           <td style={{padding:"7px 8px",textAlign:"center",fontFamily:"'DM Mono',monospace"}}>{s.clockOut||"—"}</td>
           <td style={{padding:"7px 8px",textAlign:"center",color:parseFloat(s.temp)>=37.5?"var(--ro)":"var(--gr)",fontWeight:700}}>{s.temp?""+s.temp+"℃":"—"}</td>
-          <td style={{padding:"7px 8px",textAlign:"center"}}><span style={{fontSize:10,padding:"2px 7px",borderRadius:8,background:s.role==="manager"?"#cce6f5":"var(--bg)",color:s.role==="manager"?"#005a8a":"var(--tx3)",fontWeight:700}}>{s.role==="manager"?"管理者":"一般"}</span></td>
+          <td style={{padding:"7px 8px",textAlign:"center"}}><span style={{fontSize:10,padding:"2px 7px",borderRadius:8,background:s.role==="manager"?"rgba(58,160,216,0.2)":"var(--bg)",color:s.role==="manager"?"var(--tl)":"var(--tx3)",fontWeight:700}}>{s.role==="manager"?"管理者":"一般"}</span></td>
         </tr>)}</tbody>
       </table></div>
     </div>
@@ -3903,7 +3903,7 @@ function DailyReport({user,store,onBack}){
       <div style={{fontSize:10,fontWeight:700,color:"var(--gr)",letterSpacing:2,marginBottom:10}}>利用者来所一覧</div>
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
         <thead><tr style={{background:"#eef8f2"}}>
-          {["氏名","来所","退所","体温","送迎","状態"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:h==="氏名"?"left":"center",fontSize:10,fontWeight:700,color:"var(--tx2)",borderBottom:"2px solid #98d8b0"}}>{h}</th>)}
+          {["氏名","来所","退所","体温","送迎","状態"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:h==="氏名"?"left":"center",fontSize:10,fontWeight:700,color:"var(--tx2)",borderBottom:"2px solid rgba(44,170,96,0.4)"}}>{h}</th>)}
         </tr></thead>
         <tbody>{(viewRep.userList||[]).map((u,i)=><tr key={i} style={{borderBottom:"1px solid var(--bg2)"}}>
           <td style={{padding:"7px 8px",fontWeight:700}}>{u.name}</td>
@@ -3911,7 +3911,7 @@ function DailyReport({user,store,onBack}){
           <td style={{padding:"7px 8px",textAlign:"center",fontFamily:"'DM Mono',monospace"}}>{u.departTime||"—"}</td>
           <td style={{padding:"7px 8px",textAlign:"center",color:parseFloat(u.temp)>=37.5?"var(--ro)":"var(--gr)",fontWeight:700}}>{u.temp?""+u.temp+"℃":"—"}</td>
           <td style={{padding:"7px 8px",textAlign:"center"}}>{u.transport||"—"}</td>
-          <td style={{padding:"7px 8px",textAlign:"center"}}><span style={{fontSize:10,padding:"2px 7px",borderRadius:8,fontWeight:700,background:u.status==="出席"?"#d0eedd":u.status==="欠席"?"#fad4d0":"#cce6f5",color:u.status==="出席"?"#155a30":u.status==="欠席"?"#a02818":"#005a8a"}}>{u.status}</span></td>
+          <td style={{padding:"7px 8px",textAlign:"center"}}><span style={{fontSize:10,padding:"2px 7px",borderRadius:8,fontWeight:700,background:u.status==="出席"?"rgba(44,170,96,0.2)":u.status==="欠席"?"rgba(224,56,56,0.15)":"rgba(58,160,216,0.2)",color:u.status==="出席"?"var(--gr)":u.status==="欠席"?"var(--ro)":"var(--tl)"}}>{u.status}</span></td>
         </tr>)}</tbody>
       </table></div>
     </div>
@@ -3928,14 +3928,14 @@ function DailyReport({user,store,onBack}){
     {(viewRep.photos||[]).filter(Boolean).length>0&&<div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:10,fontWeight:700,color:"var(--pu)",letterSpacing:2,marginBottom:10}}>活動写真 ({(viewRep.photos||[]).filter(p=>p?.activity).length}枚)</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-        {Array.from({length:6},(_,i)=>{const p=(viewRep.photos||[])[i];return <div key={i} style={{aspectRatio:"4/3",borderRadius:9,border:"1px solid var(--bd)",background:p?.activity?"#daeef8":"var(--bg)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,padding:8}}>
+        {Array.from({length:6},(_,i)=>{const p=(viewRep.photos||[])[i];return <div key={i} style={{aspectRatio:"4/3",borderRadius:9,border:"1px solid var(--bd)",background:p?.activity?"rgba(58,160,216,0.12)":"var(--bg)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,padding:8}}>
           {p?.activity?<><div style={{fontSize:26}}>📸</div><div style={{fontSize:11,fontWeight:700,color:"var(--tl)",textAlign:"center"}}>{p.activity}</div><div style={{fontSize:10,color:"var(--tx3)"}}>{p.userName}</div>{p.comment&&<div style={{fontSize:10,color:"var(--tx3)",textAlign:"center"}}>{p.comment}</div>}</>
           :<><div style={{fontSize:22,opacity:.3}}>📷</div><div style={{fontSize:10,color:"var(--bda)"}}>写真{i+1}</div></>}
         </div>;})}
       </div>
     </div>}
-    {viewRep.incidentDetail&&<div style={{background:"#fdf5f4",border:"1px solid #f0a090",borderRadius:11,padding:14,marginBottom:10}}><div style={{fontSize:10,fontWeight:700,color:"var(--ro)",letterSpacing:2,marginBottom:7}}>⚠ 特記事項・ヒヤリハット</div><div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.7}}>{viewRep.incidentDetail}</div></div>}
-    {viewRep.parentNote&&<div style={{background:"#fff8f0",border:"1px solid #e8b870",borderRadius:11,padding:14,marginBottom:10}}><div style={{fontSize:10,fontWeight:700,color:"var(--am)",letterSpacing:2,marginBottom:7}}>保護者連絡・引継ぎ</div><div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.7}}>{viewRep.parentNote}</div></div>}
+    {viewRep.incidentDetail&&<div style={{background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.4)",borderRadius:11,padding:14,marginBottom:10}}><div style={{fontSize:10,fontWeight:700,color:"var(--ro)",letterSpacing:2,marginBottom:7}}>⚠ 特記事項・ヒヤリハット</div><div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.7}}>{viewRep.incidentDetail}</div></div>}
+    {viewRep.parentNote&&<div style={{background:"#fff8f0",border:"1px solid rgba(224,168,40,0.4)",borderRadius:11,padding:14,marginBottom:10}}><div style={{fontSize:10,fontWeight:700,color:"var(--am)",letterSpacing:2,marginBottom:7}}>保護者連絡・引継ぎ</div><div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.7}}>{viewRep.parentNote}</div></div>}
     {viewRep.tomorrowNote&&<div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}><div style={{fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:2,marginBottom:7}}>明日への引継ぎ</div><div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.7}}>{viewRep.tomorrowNote}</div></div>}
   </div>;
 
@@ -3951,7 +3951,7 @@ function DailyReport({user,store,onBack}){
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
         <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>天気</label>
-          <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{WEATHER_OPTS.map(w=><button key={w} onClick={()=>updRep("weather",w)} style={{padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:rep.weather===w?"var(--tl)":"var(--bd)",background:rep.weather===w?"#cce6f5":"var(--bg)",color:rep.weather===w?"var(--tl)":"var(--tx3)"}}>{w}</button>)}</div>
+          <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{WEATHER_OPTS.map(w=><button key={w} onClick={()=>updRep("weather",w)} style={{padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:rep.weather===w?"var(--tl)":"var(--bd)",background:rep.weather===w?"rgba(58,160,216,0.2)":"var(--bg)",color:rep.weather===w?"var(--tl)":"var(--tx3)"}}>{w}</button>)}</div>
         </div>
         <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>外気温</label><input className="fi" placeholder="例: 22℃" value={rep.temperature} onChange={e=>updRep("temperature",e.target.value)}/></div>
       </div>
@@ -3999,7 +3999,7 @@ function DailyReport({user,store,onBack}){
         <input className="fi" value={a.title} placeholder="活動名" onChange={e=>updActivity(i,"title",e.target.value)} style={{fontSize:12,padding:"6px 8px"}}/>
         <input className="fi" value={a.detail} placeholder="内容・詳細" onChange={e=>updActivity(i,"detail",e.target.value)} style={{fontSize:12,padding:"6px 8px"}}/>
         <input className="fi" value={a.staff} placeholder="担当者" onChange={e=>updActivity(i,"staff",e.target.value)} style={{fontSize:12,padding:"6px 6px"}}/>
-        <button onClick={()=>removeActivity(i)} style={{padding:"5px",borderRadius:6,background:"#fad4d0",border:"1px solid #f0a090",color:"#a02818",cursor:"pointer",fontSize:12,lineHeight:1}}>×</button>
+        <button onClick={()=>removeActivity(i)} style={{padding:"5px",borderRadius:6,background:"rgba(224,56,56,0.15)",border:"1px solid rgba(224,56,56,0.4)",color:"var(--ro)",cursor:"pointer",fontSize:12,lineHeight:1}}>×</button>
       </div>)}
       <div style={{display:"grid",gridTemplateColumns:"auto 1fr 1.5fr 70px 32px",gap:5,marginTop:4}}>
         {["時刻","活動名","内容・詳細","担当者",""].map((h,i)=><div key={i} style={{fontSize:10,color:"var(--tx3)",textAlign:"center"}}>{h}</div>)}
@@ -4009,8 +4009,8 @@ function DailyReport({user,store,onBack}){
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:10,fontWeight:700,color:"var(--pu)",letterSpacing:2,marginBottom:10}}>活動写真（最大6枚）<span style={{fontSize:10,color:"var(--tx3)",fontWeight:400}}> ※写真記録から自動取込・手動入力も可</span></div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-        {Array.from({length:6},(_,i)=>{const p=(rep.photos||[])[i]||{};return <div key={i} style={{border:"1.5px dashed var(--bd)",borderRadius:9,padding:10,background:p.activity?"#eef6fc":"var(--bg)"}}>
-          <div style={{aspectRatio:"4/3",background:p.activity?"#daeef8":"var(--bg2)",borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:p.activity?28:22,marginBottom:7,opacity:p.activity?1:.5}}>
+        {Array.from({length:6},(_,i)=>{const p=(rep.photos||[])[i]||{};return <div key={i} style={{border:"1.5px dashed var(--bd)",borderRadius:9,padding:10,background:p.activity?"rgba(58,160,216,0.1)":"var(--bg)"}}>
+          <div style={{aspectRatio:"4/3",background:p.activity?"rgba(58,160,216,0.12)":"var(--bg2)",borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:p.activity?28:22,marginBottom:7,opacity:p.activity?1:.5}}>
             {p.activity?"📸":"📷"}
           </div>
           <input className="fi" value={p.activity||""} placeholder="活動名" onChange={e=>updPhoto(i,"activity",e.target.value)} style={{fontSize:11,padding:"5px 8px",marginBottom:5}}/>
@@ -4057,7 +4057,7 @@ function DailyReport({user,store,onBack}){
       onMouseLeave={e=>e.currentTarget.style.borderColor="var(--bd)"}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
         <div style={{fontWeight:900,fontSize:15}}>{r.date} <span style={{fontSize:12,fontWeight:400}}>({r.weather})</span></div>
-        <span style={{fontSize:11,padding:"2px 9px",borderRadius:10,fontWeight:700,background:r.status==="確認済"?"#d0eedd":"#fce8c8",color:r.status==="確認済"?"#155a30":"#a06010"}}>{r.status}</span>
+        <span style={{fontSize:11,padding:"2px 9px",borderRadius:10,fontWeight:700,background:r.status==="確認済"?"rgba(44,170,96,0.2)":"rgba(224,168,40,0.18)",color:r.status==="確認済"?"var(--gr)":"var(--am)"}}>{r.status}</span>
       </div>
       <div style={{display:"flex",gap:14,fontSize:12,color:"var(--tx3)"}}>
         <span>👥 職員 <strong style={{color:"var(--tl)"}}>{(r.staffList||[]).length}名</strong></span>
@@ -4092,10 +4092,10 @@ function expiryStatus(dateStr) {
 // ステータス → スタイル
 function expiryStyle(status) {
   return {
-    expired: {bg:"#fad4d0", color:"#a02818", border:"#f0a090", label:"期限切れ",    icon:"🔴"},
-    urgent:  {bg:"#fce8c8", color:"#a06010", border:"#e8b870", label:"30日以内",    icon:"🟠"},
+    expired: {bg:"rgba(224,56,56,0.15)", color:"var(--ro)", border:"rgba(224,56,56,0.4)", label:"期限切れ",    icon:"🔴"},
+    urgent:  {bg:"rgba(224,168,40,0.18)", color:"var(--am)", border:"rgba(224,168,40,0.4)", label:"30日以内",    icon:"🟠"},
     soon:    {bg:"#fef8e6", color:"#8a6200", border:"#e8d870", label:"90日以内",    icon:"🟡"},
-    ok:      {bg:"#d0eedd", color:"#155a30", border:"#98d8b0", label:"有効",         icon:"🟢"},
+    ok:      {bg:"rgba(44,170,96,0.2)", color:"var(--gr)", border:"rgba(44,170,96,0.4)", label:"有効",         icon:"🟢"},
     null:    {bg:"var(--bg)",color:"var(--tx3)",border:"var(--bd)",label:"期限なし", icon:"⚪"},
   }[status||"null"] || {bg:"var(--bg)",color:"var(--tx3)",border:"var(--bd)",label:"—",icon:"⚪"};
 }
@@ -4161,21 +4161,21 @@ function AlertBanner({alerts, onTabClick}) {
   const urgent = alerts.filter(a=>a.status==="expired"||a.status==="urgent");
   const soon   = alerts.filter(a=>a.status==="soon");
   return <div style={{marginBottom:14}}>
-    {urgent.length>0&&<div style={{background:"#fdf5f4",border:"1.5px solid #f0a090",borderRadius:11,padding:"12px 14px",marginBottom:8}}>
-      <div style={{fontSize:12,fontWeight:900,color:"#a02818",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+    {urgent.length>0&&<div style={{background:"rgba(224,56,56,0.08)",border:"1.5px solid rgba(224,56,56,0.4)",borderRadius:11,padding:"12px 14px",marginBottom:8}}>
+      <div style={{fontSize:12,fontWeight:900,color:"var(--ro)",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
         🔴 要対応 ({urgent.length}件)
       </div>
       {urgent.map((a,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:i<urgent.length-1?"1px solid rgba(240,160,144,0.3)":"none"}}>
         <div>
-          <span style={{fontSize:12,fontWeight:700,color:"#a02818"}}>{a.type}</span>
+          <span style={{fontSize:12,fontWeight:700,color:"var(--ro)"}}>{a.type}</span>
           {a.msg
-            ? <span style={{fontSize:11,color:"#a02818",marginLeft:6}}>（{a.msg}）</span>
-            : <span style={{fontSize:11,color:"#a02818",marginLeft:6}}>
+            ? <span style={{fontSize:11,color:"var(--ro)",marginLeft:6}}>（{a.msg}）</span>
+            : <span style={{fontSize:11,color:"var(--ro)",marginLeft:6}}>
                 {a.status==="expired"?"期限切れ: ":"30日以内: "}{a.date||""}
               </span>
           }
         </div>
-        {onTabClick&&<button onClick={()=>onTabClick(a.tab)} style={{padding:"3px 10px",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"#a02818",border:"none",color:"#fff"}}>確認 →</button>}
+        {onTabClick&&<button onClick={()=>onTabClick(a.tab)} style={{padding:"3px 10px",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--ro)",border:"none",color:"#fff"}}>確認 →</button>}
       </div>)}
     </div>}
     {soon.length>0&&<div style={{background:"#fef8e6",border:"1.5px solid #e8d870",borderRadius:11,padding:"12px 14px"}}>
@@ -4231,7 +4231,7 @@ function nextGrantDate(hireDate) {
 // ==================== 有給申請承認カード ====================
 function ApprovalCard({r, store}){
   const [comment,setComment]=useState("");
-  const SS={"申請中":["#fce8c8","#a06010"],"承認":["#d0eedd","#155a30"],"却下":["#fad4d0","#a02818"]};
+  const SS={"申請中":["rgba(224,168,40,0.18)","var(--am)"],"承認":["rgba(44,170,96,0.2)","var(--gr)"],"却下":["rgba(224,56,56,0.15)","var(--ro)"]};
   const ss=SS[r.status]||["var(--bg)","var(--tx3)"];
   return <div style={{background:"var(--wh)",border:"2px solid var(--am)",borderRadius:12,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
@@ -4244,8 +4244,8 @@ function ApprovalCard({r, store}){
     </div>
     <textarea className="fta" style={{minHeight:48,marginBottom:8}} placeholder="コメント（任意）" value={comment} onChange={e=>setComment(e.target.value)}/>
     <div style={{display:"flex",gap:8}}>
-      <button onClick={()=>store.updPaidLeaveReq(r.id,{status:"承認",comment,approvedAt:todayISO()})} style={{flex:1,padding:"10px",borderRadius:9,background:"#d0eedd",border:"1.5px solid #98d8b0",color:"#155a30",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>✅ 承認</button>
-      <button onClick={()=>store.updPaidLeaveReq(r.id,{status:"却下",comment,approvedAt:todayISO()})} style={{flex:1,padding:"10px",borderRadius:9,background:"#fad4d0",border:"1.5px solid #f0a090",color:"#a02818",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>❌ 却下</button>
+      <button onClick={()=>store.updPaidLeaveReq(r.id,{status:"承認",comment,approvedAt:todayISO()})} style={{flex:1,padding:"10px",borderRadius:9,background:"rgba(44,170,96,0.2)",border:"1.5px solid rgba(44,170,96,0.4)",color:"var(--gr)",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>✅ 承認</button>
+      <button onClick={()=>store.updPaidLeaveReq(r.id,{status:"却下",comment,approvedAt:todayISO()})} style={{flex:1,padding:"10px",borderRadius:9,background:"rgba(224,56,56,0.15)",border:"1.5px solid rgba(224,56,56,0.4)",color:"var(--ro)",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>❌ 却下</button>
     </div>
   </div>;
 }
@@ -4264,7 +4264,7 @@ function PaidLeaveScreen({user, store, onBack}){
   const myReqs=store.paidLeaveReqs.filter(r=>r.staffId===user.staffId);
   const mgrStaff=store.dynStaff.filter(s=>(filterFac==="all"||s.facilityId===filterFac)&&s.active!==false);
   const pendingReqs=store.paidLeaveReqs.filter(r=>r.status==="申請中"&&(filterFac==="all"||r.facilityId===filterFac));
-  const SS={"申請中":["#fce8c8","#a06010"],"承認":["#d0eedd","#155a30"],"却下":["#fad4d0","#a02818"]};
+  const SS={"申請中":["rgba(224,168,40,0.18)","var(--am)"],"承認":["rgba(44,170,96,0.2)","var(--gr)"],"却下":["rgba(224,56,56,0.15)","var(--ro)"]};
   const submit=()=>{
     if(!form.reason.trim()) return;
     store.addPaidLeaveReq({id:genId(),staffId:user.staffId,staffName:user.displayName,facilityId:user.selectedFacilityId,...form,status:"申請中",appliedAt:todayISO()});
@@ -4321,13 +4321,13 @@ function PaidLeaveScreen({user, store, onBack}){
 
     {/* 有給申請 */}
     {tab==="apply"&&<div style={{paddingBottom:28}}>
-      {myRemaining<=0&&<div style={{background:"#fdf5f4",border:"1px solid #f0a090",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,color:"var(--ro)",fontWeight:700}}>⚠ 有給残日数がありません（残: {myRemaining}日）</div>}
+      {myRemaining<=0&&<div style={{background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.4)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,color:"var(--ro)",fontWeight:700}}>⚠ 有給残日数がありません（残: {myRemaining}日）</div>}
       <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,marginBottom:12,boxShadow:"var(--sh)"}}>
         <div style={{fontSize:10,fontWeight:700,color:"var(--tl)",letterSpacing:2,marginBottom:12}}>有給休暇申請</div>
         <div style={{marginBottom:12}}>
           <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:6}}>取得種別</label>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {["全日","半日（午前）","半日（午後）","時間休"].map(t=><button key={t} onClick={()=>upd("type",t)} style={{padding:"7px 12px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.type===t?"var(--tl)":"var(--bd)",background:form.type===t?"#cce6f5":"var(--bg)",color:form.type===t?"var(--tl)":"var(--tx3)"}}>
+            {["全日","半日（午前）","半日（午後）","時間休"].map(t=><button key={t} onClick={()=>upd("type",t)} style={{padding:"7px 12px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.type===t?"var(--tl)":"var(--bd)",background:form.type===t?"rgba(58,160,216,0.2)":"var(--bg)",color:form.type===t?"var(--tl)":"var(--tx3)"}}>
               {t}
             </button>)}
           </div>
@@ -4339,7 +4339,7 @@ function PaidLeaveScreen({user, store, onBack}){
         <div style={{marginBottom:12}}>
           <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:6}}>取得日数</label>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {[0.5,1,2,3,4,5].map(d=><button key={d} onClick={()=>upd("days",d)} style={{padding:"7px 11px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Mono',monospace",border:"1.5px solid",borderColor:form.days===d?"var(--tl)":"var(--bd)",background:form.days===d?"#cce6f5":"var(--bg)",color:form.days===d?"var(--tl)":"var(--tx3)"}}>
+            {[0.5,1,2,3,4,5].map(d=><button key={d} onClick={()=>upd("days",d)} style={{padding:"7px 11px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Mono',monospace",border:"1.5px solid",borderColor:form.days===d?"var(--tl)":"var(--bd)",background:form.days===d?"rgba(58,160,216,0.2)":"var(--bg)",color:form.days===d?"var(--tl)":"var(--tx3)"}}>
               {d}日
             </button>)}
           </div>
@@ -4348,7 +4348,7 @@ function PaidLeaveScreen({user, store, onBack}){
           <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:5}}>取得理由 <span style={{color:"var(--ro)"}}>*</span></label>
           <textarea className="fta" style={{minHeight:72}} placeholder="例）私用のため / 子の学校行事 / 通院" value={form.reason} onChange={e=>upd("reason",e.target.value)}/>
         </div>
-        <div style={{background:"#eef6fc",borderRadius:9,padding:"9px 12px",marginBottom:12,fontSize:12}}>
+        <div style={{background:"rgba(58,160,216,0.1)",borderRadius:9,padding:"9px 12px",marginBottom:12,fontSize:12}}>
           申請後の残日数: <strong style={{color:myRemaining-form.days<0?"var(--ro)":"var(--gr)",fontSize:15}}>{myRemaining-form.days}日</strong>
         </div>
         <button className="bsave" disabled={!form.reason.trim()||myRemaining<form.days} onClick={submit}>申請する</button>
@@ -4388,7 +4388,7 @@ function PaidLeaveScreen({user, store, onBack}){
               <td style={{padding:"9px 10px",textAlign:"center",fontFamily:"'DM Mono',monospace",fontSize:11}}>{s.hireDate||"—"}</td>
               <td style={{padding:"9px 10px",textAlign:"center",fontWeight:700,color:"var(--tl)"}}>{g}日</td>
               <td style={{padding:"9px 10px",textAlign:"center",color:"var(--am)",fontWeight:700}}>{u}日</td>
-              <td style={{padding:"9px 10px",textAlign:"center"}}><span style={{padding:"3px 9px",borderRadius:8,fontWeight:900,background:rem<=3?"#fad4d0":rem<=7?"#fce8c8":"#d0eedd",color:rem<=3?"#a02818":rem<=7?"#a06010":"#155a30"}}>{rem}日</span></td>
+              <td style={{padding:"9px 10px",textAlign:"center"}}><span style={{padding:"3px 9px",borderRadius:8,fontWeight:900,background:rem<=3?"rgba(224,56,56,0.15)":rem<=7?"rgba(224,168,40,0.18)":"rgba(44,170,96,0.2)",color:rem<=3?"var(--ro)":rem<=7?"var(--am)":"var(--gr)"}}>{rem}日</span></td>
               <td style={{padding:"9px 10px",textAlign:"center",fontSize:11,color:"var(--tx3)"}}>{nextGrantDate(s.hireDate)}</td>
             </tr>;
           })}</tbody>
@@ -4459,9 +4459,9 @@ function StaffDetail({s, store, isMgr, onBack, onEdit}){
   };
 
   const expStyle = status => ({
-    expired: {bg:"#fad4d0",color:"#a02818",label:"期限切れ"},
-    soon:    {bg:"#fce8c8",color:"#a06010",label:"期限間近"},
-    ok:      {bg:"#d0eedd",color:"#155a30",label:"有効"},
+    expired: {bg:"rgba(224,56,56,0.15)",color:"var(--ro)",label:"期限切れ"},
+    soon:    {bg:"rgba(224,168,40,0.18)",color:"var(--am)",label:"期限間近"},
+    ok:      {bg:"rgba(44,170,96,0.2)",color:"var(--gr)",label:"有効"},
     null:    {bg:"var(--bg)",color:"var(--tx3)",label:"期限なし"},
   }[status||"null"]);
 
@@ -4497,9 +4497,9 @@ function StaffDetail({s, store, isMgr, onBack, onEdit}){
         <div style={{marginTop:8}}>
           <div style={{fontSize:10,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:8}}>証書コピー</div>
           {viewDoc.hasCopy
-            ? <div style={{border:"1.5px solid #98d8b0",borderRadius:10,padding:"20px",background:"#eef8f2",textAlign:"center"}}>
+            ? <div style={{border:"1.5px solid rgba(44,170,96,0.4)",borderRadius:10,padding:"20px",background:"#eef8f2",textAlign:"center"}}>
                 <div style={{fontSize:40,marginBottom:8}}>📄</div>
-                <div style={{fontWeight:700,color:"#155a30",fontSize:13,marginBottom:4}}>コピー登録済み</div>
+                <div style={{fontWeight:700,color:"var(--gr)",fontSize:13,marginBottom:4}}>コピー登録済み</div>
                 <div style={{fontSize:11,color:"var(--tx3)"}}>登録日: {viewDoc.registeredAt}</div>
               </div>
             : <div style={{border:"2px dashed var(--bd)",borderRadius:10,padding:"20px",background:"var(--bg)",textAlign:"center",color:"var(--tx3)",fontSize:13}}>
@@ -4512,7 +4512,7 @@ function StaffDetail({s, store, isMgr, onBack, onEdit}){
           <div style={{fontSize:13,color:"var(--tx2)",background:"var(--bg)",borderRadius:8,padding:"9px 11px"}}>{viewDoc.note}</div>
         </div>}
         {isMgr&&<div style={{marginTop:14,display:"flex",gap:8}}>
-          <button onClick={()=>{store.delQualDoc(viewDoc.id);setViewDoc(null);}} style={{padding:"8px 18px",borderRadius:9,background:"#fad4d0",border:"1.5px solid #f0a090",color:"#a02818",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🗑️ 削除</button>
+          <button onClick={()=>{store.delQualDoc(viewDoc.id);setViewDoc(null);}} style={{padding:"8px 18px",borderRadius:9,background:"rgba(224,56,56,0.15)",border:"1.5px solid rgba(224,56,56,0.4)",color:"var(--ro)",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🗑️ 削除</button>
         </div>}
       </div>
     </div>
@@ -4528,7 +4528,7 @@ function StaffDetail({s, store, isMgr, onBack, onEdit}){
       <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:18,marginBottom:12,boxShadow:"var(--sh)"}}>
         <div style={{fontSize:10,fontWeight:700,color:"var(--tl)",letterSpacing:2,marginBottom:12}}>資格・証書の種類</div>
         <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:16}}>
-          {QUAL_CATEGORIES.map(c=><button key={c} onClick={()=>upd("category",c)} style={{padding:"7px 12px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.category===c?"var(--tl)":"var(--bd)",background:form.category===c?"#cce6f5":"var(--bg)",color:form.category===c?"var(--tl)":"var(--tx2)"}}>
+          {QUAL_CATEGORIES.map(c=><button key={c} onClick={()=>upd("category",c)} style={{padding:"7px 12px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.category===c?"var(--tl)":"var(--bd)",background:form.category===c?"rgba(58,160,216,0.2)":"var(--bg)",color:form.category===c?"var(--tl)":"var(--tx2)"}}>
             {c}
           </button>)}
         </div>
@@ -4564,9 +4564,9 @@ function StaffDetail({s, store, isMgr, onBack, onEdit}){
             {form.hasCopy
               ? <div>
                   <div style={{fontSize:36,marginBottom:6}}>✅</div>
-                  <div style={{fontWeight:700,color:"#155a30",fontSize:13,marginBottom:4}}>コピー登録済み</div>
+                  <div style={{fontWeight:700,color:"var(--gr)",fontSize:13,marginBottom:4}}>コピー登録済み</div>
                   <div style={{fontSize:11,color:"var(--tx3)",marginBottom:10}}>実際の証書コピーが登録されました</div>
-                  <button onClick={()=>upd("hasCopy",false)} style={{padding:"6px 14px",borderRadius:8,background:"#fad4d0",border:"1px solid #f0a090",color:"#a02818",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                  <button onClick={()=>upd("hasCopy",false)} style={{padding:"6px 14px",borderRadius:8,background:"rgba(224,56,56,0.15)",border:"1px solid rgba(224,56,56,0.4)",color:"var(--ro)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
                     削除して撮り直す
                   </button>
                 </div>
@@ -4608,7 +4608,7 @@ function StaffDetail({s, store, isMgr, onBack, onEdit}){
             store.delStaff(s.id);
             onBack();
           }
-        }} style={{padding:"6px 12px",borderRadius:8,background:"#fad4d0",border:"1.5px solid #f0a090",color:"#a02818",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",marginLeft:6}}>🗑️ 削除</button>}
+        }} style={{padding:"6px 12px",borderRadius:8,background:"rgba(224,56,56,0.15)",border:"1.5px solid rgba(224,56,56,0.4)",color:"var(--ro)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",marginLeft:6}}>🗑️ 削除</button>}
       </div>
 
       {/* プロフィール */}
@@ -4646,10 +4646,10 @@ function StaffDetail({s, store, isMgr, onBack, onEdit}){
 
       {/* 有効期限アラート */}
       {myDocs.filter(d=>isExpiring(d)==="expired"||isExpiring(d)==="soon").length>0&&(
-        <div style={{background:"#fdf5f4",border:"1px solid #f0a090",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
+        <div style={{background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.4)",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
           <div style={{fontSize:12,fontWeight:700,color:"var(--ro)",marginBottom:4}}>⚠ 要確認の資格証書</div>
-          {myDocs.filter(d=>isExpiring(d)==="expired").map(d=><div key={d.id} style={{fontSize:12,color:"#a02818"}}>・{d.name||d.category}（期限切れ: {d.expiryDate}）</div>)}
-          {myDocs.filter(d=>isExpiring(d)==="soon").map(d=><div key={d.id} style={{fontSize:12,color:"#a06010"}}>・{d.name||d.category}（期限間近: {d.expiryDate}）</div>)}
+          {myDocs.filter(d=>isExpiring(d)==="expired").map(d=><div key={d.id} style={{fontSize:12,color:"var(--ro)"}}>・{d.name||d.category}（期限切れ: {d.expiryDate}）</div>)}
+          {myDocs.filter(d=>isExpiring(d)==="soon").map(d=><div key={d.id} style={{fontSize:12,color:"var(--am)"}}>・{d.name||d.category}（期限間近: {d.expiryDate}）</div>)}
         </div>
       )}
 
@@ -4662,13 +4662,13 @@ function StaffDetail({s, store, isMgr, onBack, onEdit}){
             {myDocs.map(d=>{
               const st=isExpiring(d);
               const es=expStyle(st);
-              const cardBorderColor = st==="expired"?"#f0a090":st==="soon"?"#e8b870":"var(--bd)";
+              const cardBorderColor = st==="expired"?"rgba(224,56,56,0.4)":st==="soon"?"rgba(224,168,40,0.4)":"var(--bd)";
               return <div key={d.id} style={{background:"var(--wh)",border:"1.5px solid "+cardBorderColor,borderRadius:11,padding:13,cursor:"pointer",boxShadow:"var(--sh)",transition:"all .15s"}}
                 onClick={()=>setViewDoc(d)}
                 onMouseEnter={e=>e.currentTarget.style.borderColor="var(--tl)"}
-                onMouseLeave={e=>e.currentTarget.style.borderColor=st==="expired"?"#f0a090":st==="soon"?"#e8b870":"var(--bd)"}>
+                onMouseLeave={e=>e.currentTarget.style.borderColor=st==="expired"?"rgba(224,56,56,0.4)":st==="soon"?"rgba(224,168,40,0.4)":"var(--bd)"}>
                 {/* アイコン */}
-                <div style={{width:"100%",aspectRatio:"4/3",background:d.hasCopy?"#daeef8":"var(--bg2)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,marginBottom:9}}>
+                <div style={{width:"100%",aspectRatio:"4/3",background:d.hasCopy?"rgba(58,160,216,0.12)":"var(--bg2)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,marginBottom:9}}>
                   {d.hasCopy?"📄":"🔖"}
                 </div>
                 <div style={{fontSize:11,fontWeight:900,marginBottom:3,lineHeight:1.4}}>{d.name||d.category}</div>
@@ -4730,7 +4730,7 @@ function StaffManagement({user, store, onBack}){
     return <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:14,boxShadow:"var(--sh)",transition:"all .15s",opacity:s.active===false?.6:1}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:9}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:42,height:42,borderRadius:"50%",background:s.role==="manager"?"linear-gradient(135deg,var(--tl),#0070a0)":"linear-gradient(135deg,var(--gr),var(--tl))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",fontWeight:700,flexShrink:0}}>
+          <div style={{width:42,height:42,borderRadius:"50%",background:s.role==="manager"?"linear-gradient(135deg,var(--tl),var(--tl))":"linear-gradient(135deg,var(--gr),var(--tl))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",fontWeight:700,flexShrink:0}}>
             {s.name.charAt(0)}
           </div>
           <div>
@@ -4739,10 +4739,10 @@ function StaffManagement({user, store, onBack}){
           </div>
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <span style={{fontSize:10,padding:"3px 9px",borderRadius:10,fontWeight:700,background:s.role==="manager"?"#cce6f5":s.role==="admin"?"#e8d4f4":"#d0eedd",color:s.role==="manager"?"#005a8a":s.role==="admin"?"#4a1880":"#155a30"}}>
+          <span style={{fontSize:10,padding:"3px 9px",borderRadius:10,fontWeight:700,background:s.role==="manager"?"rgba(58,160,216,0.2)":s.role==="admin"?"rgba(144,72,216,0.18)":"rgba(44,170,96,0.2)",color:s.role==="manager"?"var(--tl)":s.role==="admin"?"var(--pu)":"var(--gr)"}}>
             {s.role==="manager"?"施設管理者":s.role==="admin"?"本部管理者":"一般職員"}
           </span>
-          <button onClick={()=>{setSelStaff(s);setScreen("detail");}} style={{padding:"4px 9px",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"#eef6fc",border:"1.5px solid #90c8e8",color:"#005a8a"}}>詳細</button>
+          <button onClick={()=>{setSelStaff(s);setScreen("detail");}} style={{padding:"4px 9px",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.1)",border:"1.5px solid rgba(58,160,216,0.35)",color:"var(--tl)"}}>詳細</button>
           {isMgr&&<button onClick={()=>{setSelStaff(s);setScreen("edit");}} style={{padding:"4px 9px",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx3)"}}>編集</button>}
         </div>
       </div>
@@ -4750,8 +4750,8 @@ function StaffManagement({user, store, onBack}){
         {s.employmentType&&<span style={{padding:"2px 7px",borderRadius:7,background:"var(--bg)",border:"1px solid var(--bd)"}}>{s.employmentType}</span>}
         {s.hireDate&&<span>入職: {s.hireDate}</span>}
         {(s.qualifications&&s.qualifications.length>0)
-        ? s.qualifications.map(q=><span key={q} style={{padding:"2px 7px",borderRadius:7,background:"#eef6fc",border:"1px solid #90c8e8",color:"#005a8a",marginRight:4,marginBottom:4,display:"inline-block"}}>{q}</span>)
-        : s.qualification&&<span style={{padding:"2px 7px",borderRadius:7,background:"#eef6fc",border:"1px solid #90c8e8",color:"#005a8a"}}>{s.qualification}</span>}
+        ? s.qualifications.map(q=><span key={q} style={{padding:"2px 7px",borderRadius:7,background:"rgba(58,160,216,0.1)",border:"1px solid rgba(58,160,216,0.35)",color:"var(--tl)",marginRight:4,marginBottom:4,display:"inline-block"}}>{q}</span>)
+        : s.qualification&&<span style={{padding:"2px 7px",borderRadius:7,background:"rgba(58,160,216,0.1)",border:"1px solid rgba(58,160,216,0.35)",color:"var(--tl)"}}>{s.qualification}</span>}
         {s.tel&&<span>📞 {s.tel}</span>}
       </div>
       <div style={{marginTop:7,padding:"6px 10px",background:"var(--bg)",borderRadius:7,display:"flex",gap:12,fontSize:11}}>
@@ -4768,7 +4768,7 @@ function StaffManagement({user, store, onBack}){
     <div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">👥 スタッフ管理</div></div>
     {isMgr&&<div style={{marginBottom:14}}><button className="bsave" style={{maxWidth:200}} onClick={()=>setScreen("register")}>＋ 新規スタッフ登録</button></div>}
     <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
-      <div style={{background:"#cce6f5",borderRadius:9,padding:"9px 14px",fontSize:13,fontWeight:700,color:"#005a8a"}}>在籍 {active.length}名</div>
+      <div style={{background:"rgba(58,160,216,0.2)",borderRadius:9,padding:"9px 14px",fontSize:13,fontWeight:700,color:"var(--tl)"}}>在籍 {active.length}名</div>
       {inactive.length>0&&<div style={{background:"var(--bg)",borderRadius:9,padding:"9px 14px",fontSize:13,fontWeight:700,color:"var(--tx3)"}}>退職 {inactive.length}名</div>}
     </div>
     <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:2,marginBottom:8}}>在籍スタッフ</div>
@@ -4826,7 +4826,7 @@ function RegisterStaff({init, isEdit, user, store, onBack, onSave}){
             return <button key={c} type="button" onClick={()=>{
               const cur = form.qualifications||[];
               upd("qualifications", selected ? cur.filter(x=>x!==c) : [...cur, c]);
-            }} style={{padding:"6px 12px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:selected?"var(--tl)":"var(--bd)",background:selected?"#cce6f5":"var(--bg)",color:selected?"var(--tl)":"var(--tx2)"}}>
+            }} style={{padding:"6px 12px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:selected?"var(--tl)":"var(--bd)",background:selected?"rgba(58,160,216,0.2)":"var(--bg)",color:selected?"var(--tl)":"var(--tx2)"}}>
               {selected?"✓ ":""}{c}
             </button>;
           })}
@@ -4863,11 +4863,11 @@ function RegisterStaff({init, isEdit, user, store, onBack, onSave}){
       <textarea className="fta" style={{minHeight:72}} placeholder="特記事項・備考など" value={form.note||""} onChange={e=>upd("note",e.target.value)}/>
     </FormSection>
 
-    {isEdit&&<div style={{background:"#fdf5f4",border:"1px solid #f0a090",borderRadius:11,padding:14,marginBottom:12}}>
+    {isEdit&&<div style={{background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.4)",borderRadius:11,padding:14,marginBottom:12}}>
       <div style={{fontSize:11,fontWeight:700,color:"var(--ro)",marginBottom:8}}>⚠ 在籍状況の変更</div>
       <div style={{display:"flex",gap:8}}>
-        <button onClick={()=>upd("active",true)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.active!==false?"#98d8b0":"var(--bd)",background:form.active!==false?"#d0eedd":"var(--bg)",color:form.active!==false?"#155a30":"var(--tx3)"}}>在籍中</button>
-        <button onClick={()=>upd("active",false)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.active===false?"#f0a090":"var(--bd)",background:form.active===false?"#fad4d0":"var(--bg)",color:form.active===false?"#a02818":"var(--tx3)"}}>退職・無効</button>
+        <button onClick={()=>upd("active",true)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.active!==false?"rgba(44,170,96,0.4)":"var(--bd)",background:form.active!==false?"rgba(44,170,96,0.2)":"var(--bg)",color:form.active!==false?"var(--gr)":"var(--tx3)"}}>在籍中</button>
+        <button onClick={()=>upd("active",false)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.active===false?"rgba(224,56,56,0.4)":"var(--bd)",background:form.active===false?"rgba(224,56,56,0.15)":"var(--bg)",color:form.active===false?"var(--ro)":"var(--tx3)"}}>退職・無効</button>
       </div>
     </div>}
 
@@ -4946,12 +4946,12 @@ function HomeScreen({user,onNav,store}){
 
 // ==================== 生徒予定表 ====================
 const SCHEDULE_STATUS = {
-  "来所予定": { label:"来所予定", color:"#005a8a", bg:"#cce6f5", short:"予" },
-  "来所":     { label:"来所（入室）", color:"#155a30", bg:"#d0eedd", short:"来" },
-  "欠席":     { label:"欠席", color:"#a02818", bg:"#fad4d0", short:"欠" },
+  "来所予定": { label:"来所予定", color:"var(--tl)", bg:"rgba(58,160,216,0.2)", short:"予" },
+  "来所":     { label:"来所（入室）", color:"var(--gr)", bg:"rgba(44,170,96,0.2)", short:"来" },
+  "欠席":     { label:"欠席", color:"var(--ro)", bg:"rgba(224,56,56,0.15)", short:"欠" },
   "体調不良": { label:"体調不良", color:"#8a6200", bg:"#fef8e6", short:"体" },
   "キャンセル":{ label:"キャンセル", color:"#555", bg:"#e8e8e8", short:"キャ" },
-  "休所":     { label:"休所", color:"#7030b8", bg:"#e8d4f4", short:"休" },
+  "休所":     { label:"休所", color:"#7030b8", bg:"rgba(144,72,216,0.18)", short:"休" },
 };
 
 function ScheduleScreen({ user, store, onBack }) {
@@ -5043,7 +5043,7 @@ function ScheduleScreen({ user, store, onBack }) {
 
   const printSchedule = () => {
     const facName = selFac === "all" ? "全店舗" : FACILITIES.find(f => f.id === selFac)?.name || "";
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>body{font-family:'Noto Sans JP',sans-serif;font-size:8pt;margin:10mm;}h2{font-size:13pt;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #ccc;padding:3px 4px;text-align:center;white-space:nowrap;font-size:7.5pt;}th{background:#e8f0ff;font-weight:700;}.we{background:#f5f5f5;color:#bbb;}.come{background:#d0eedd;color:#155a30;font-weight:700;}.plan{background:#cce6f5;color:#005a8a;}.absent{background:#fad4d0;color:#a02818;}.name{text-align:left;font-weight:700;}</style></head><body><h2>生徒予定表 ${facName} ${vm.y}年${vm.m}月</h2><table><thead><tr><th class="name">利用者名</th>${dayList.map(d=>`<th class="${isWe(d)?"we":""}">${d}<br/>${dowLabel[getDow(d)]}</th>`).join("")}<th>予定</th><th>来所</th><th>欠席</th></tr></thead><tbody>${users.map(u=>{const cnt=countByUser(u.id);return `<tr><td class="name">${u.name}</td>${dayList.map(d=>{if(isWe(d))return`<td class="we"></td>`;const st=getStatus(u.id,d);const cls=st==="来所"?"come":st==="来所予定"?"plan":st==="欠席"?"absent":"";const short={"来所":"来","来所予定":"予","欠席":"欠","体調不良":"体","キャンセル":"キャ","休所":"休"}[st]||"";return`<td class="${cls}">${short}</td>`;}).join("")}<td style="background:#eef8f2;font-weight:700">${cnt.come}</td><td style="background:#eef8f2;color:#155a30;font-weight:700">${cnt.actual}</td><td style="background:#fdf5f4;color:#a02818;font-weight:700">${cnt.absent}</td></tr>`;}).join("")}</tbody></table><div style="margin-top:8px;font-size:7pt;color:#888">出力: ${new Date().toLocaleString("ja-JP")}</div></body></html>`;
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>body{font-family:'Noto Sans JP',sans-serif;font-size:8pt;margin:10mm;}h2{font-size:13pt;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #ccc;padding:3px 4px;text-align:center;white-space:nowrap;font-size:7.5pt;}th{background:#e8f0ff;font-weight:700;}.we{background:#f5f5f5;color:#bbb;}.come{background:rgba(44,170,96,0.2);color:var(--gr);font-weight:700;}.plan{background:rgba(58,160,216,0.2);color:var(--tl);}.absent{background:rgba(224,56,56,0.15);color:var(--ro);}.name{text-align:left;font-weight:700;}</style></head><body><h2>生徒予定表 ${facName} ${vm.y}年${vm.m}月</h2><table><thead><tr><th class="name">利用者名</th>${dayList.map(d=>`<th class="${isWe(d)?"we":""}">${d}<br/>${dowLabel[getDow(d)]}</th>`).join("")}<th>予定</th><th>来所</th><th>欠席</th></tr></thead><tbody>${users.map(u=>{const cnt=countByUser(u.id);return `<tr><td class="name">${u.name}</td>${dayList.map(d=>{if(isWe(d))return`<td class="we"></td>`;const st=getStatus(u.id,d);const cls=st==="来所"?"come":st==="来所予定"?"plan":st==="欠席"?"absent":"";const short={"来所":"来","来所予定":"予","欠席":"欠","体調不良":"体","キャンセル":"キャ","休所":"休"}[st]||"";return`<td class="${cls}">${short}</td>`;}).join("")}<td style="background:#eef8f2;font-weight:700">${cnt.come}</td><td style="background:#eef8f2;color:var(--gr);font-weight:700">${cnt.actual}</td><td style="background:rgba(224,56,56,0.08);color:var(--ro);font-weight:700">${cnt.absent}</td></tr>`;}).join("")}</tbody></table><div style="margin-top:8px;font-size:7pt;color:#888">出力: ${new Date().toLocaleString("ja-JP")}</div></body></html>`;
     const win = window.open("","_blank"); win.document.write(html); win.document.close(); setTimeout(()=>win.print(),400);
   };
 
@@ -5065,7 +5065,7 @@ function ScheduleScreen({ user, store, onBack }) {
             const isToday=ds===todayISO(); const isSel=ds===selDate;
             return <div key={d} className={`cday ${isToday?"td":""} ${isSel?"sel":""} ${we?"we":""}`} onClick={()=>!we&&setSelDate(ds)}>
               <span style={{fontSize:10}}>{d}</span>
-              {!we&&c.come>0&&<div style={{fontSize:9,fontWeight:700,color:"#155a30",lineHeight:1}}>{c.come}人</div>}
+              {!we&&c.come>0&&<div style={{fontSize:9,fontWeight:700,color:"var(--gr)",lineHeight:1}}>{c.come}人</div>}
               {!we&&(c.come>0||c.absent>0)&&<div className="dots">{c.come>0&&<div className="dot dg"/>}{c.absent>0&&<div className="dot dr"/>}</div>}
             </div>;
           })}
@@ -5078,8 +5078,8 @@ function ScheduleScreen({ user, store, onBack }) {
         </div>
         {(()=>{const d=parseInt(selDate.split("-")[2]);const c=countByDay(d);const total=users.length;return(
           <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
-            <div style={{background:"#d0eedd",borderRadius:10,padding:"8px 14px",display:"flex",gap:6,alignItems:"center"}}><span style={{fontSize:20,fontWeight:900,color:"#155a30"}}>{c.come}</span><span style={{fontSize:11,color:"#155a30"}}>来所予定</span></div>
-            <div style={{background:"#fad4d0",borderRadius:10,padding:"8px 14px",display:"flex",gap:6,alignItems:"center"}}><span style={{fontSize:20,fontWeight:900,color:"#a02818"}}>{c.absent}</span><span style={{fontSize:11,color:"#a02818"}}>欠席</span></div>
+            <div style={{background:"rgba(44,170,96,0.2)",borderRadius:10,padding:"8px 14px",display:"flex",gap:6,alignItems:"center"}}><span style={{fontSize:20,fontWeight:900,color:"var(--gr)"}}>{c.come}</span><span style={{fontSize:11,color:"var(--gr)"}}>来所予定</span></div>
+            <div style={{background:"rgba(224,56,56,0.15)",borderRadius:10,padding:"8px 14px",display:"flex",gap:6,alignItems:"center"}}><span style={{fontSize:20,fontWeight:900,color:"var(--ro)"}}>{c.absent}</span><span style={{fontSize:11,color:"var(--ro)"}}>欠席</span></div>
             <div style={{background:"var(--bg)",borderRadius:10,padding:"8px 14px",display:"flex",gap:6,alignItems:"center"}}><span style={{fontSize:20,fontWeight:900,color:"var(--tx3)"}}>{total-c.come-c.absent}</span><span style={{fontSize:11,color:"var(--tx3)"}}>未定</span></div>
           </div>
         );})()}
@@ -5092,12 +5092,12 @@ function ScheduleScreen({ user, store, onBack }) {
               {selFac==="all"&&<div style={{fontSize:10,color:"var(--tx3)",marginBottom:4}}>{FACILITIES.find(f=>f.id===u.facilityId)?.name}</div>}
               <div style={{padding:"4px 10px",borderRadius:9,fontSize:11,fontWeight:700,background:stObj?stObj.bg:"var(--bg)",color:stObj?stObj.color:"var(--tx3)",marginBottom:8,display:"inline-block"}}>{stObj?stObj.label:"未定"}</div>
               <div style={{display:"flex",gap:5,marginBottom:8}}>
-                <span style={{fontSize:10,padding:"2px 7px",borderRadius:7,fontWeight:700,background:u.transportTo?"#cce6f5":"var(--bg)",color:u.transportTo?"#005a8a":"var(--tx3)",border:"1px solid "+(u.transportTo?"#88c4e8":"var(--bd)")}}>迎</span>
-                <span style={{fontSize:10,padding:"2px 7px",borderRadius:7,fontWeight:700,background:u.transportFrom?"#d0eedd":"var(--bg)",color:u.transportFrom?"#155a30":"var(--tx3)",border:"1px solid "+(u.transportFrom?"#98d8b0":"var(--bd)")}}>送</span>
+                <span style={{fontSize:10,padding:"2px 7px",borderRadius:7,fontWeight:700,background:u.transportTo?"rgba(58,160,216,0.2)":"var(--bg)",color:u.transportTo?"var(--tl)":"var(--tx3)",border:"1px solid "+(u.transportTo?"rgba(58,160,216,0.4)":"var(--bd)")}}>迎</span>
+                <span style={{fontSize:10,padding:"2px 7px",borderRadius:7,fontWeight:700,background:u.transportFrom?"rgba(44,170,96,0.2)":"var(--bg)",color:u.transportFrom?"var(--gr)":"var(--tx3)",border:"1px solid "+(u.transportFrom?"rgba(44,170,96,0.4)":"var(--bd)")}}>送</span>
               </div>
               {isMgr&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
-                <button onClick={()=>setSchedule(u.id,d,"来所",u.transportTo,u.transportFrom)} style={{padding:"7px 4px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:u.status==="来所"?"#155a30":"var(--bd)",background:u.status==="来所"?"#d0eedd":"var(--wh)",color:u.status==="来所"?"#155a30":"var(--tx2)"}}>✅ 入室</button>
-                <button onClick={()=>setSchedule(u.id,d,"欠席",false,false)} style={{padding:"7px 4px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:u.status==="欠席"?"#a02818":"var(--bd)",background:u.status==="欠席"?"#fad4d0":"var(--wh)",color:u.status==="欠席"?"#a02818":"var(--tx2)"}}>❌ 欠席</button>
+                <button onClick={()=>setSchedule(u.id,d,"来所",u.transportTo,u.transportFrom)} style={{padding:"7px 4px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:u.status==="来所"?"var(--gr)":"var(--bd)",background:u.status==="来所"?"rgba(44,170,96,0.2)":"var(--wh)",color:u.status==="来所"?"var(--gr)":"var(--tx2)"}}>✅ 入室</button>
+                <button onClick={()=>setSchedule(u.id,d,"欠席",false,false)} style={{padding:"7px 4px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:u.status==="欠席"?"var(--ro)":"var(--bd)",background:u.status==="欠席"?"rgba(224,56,56,0.15)":"var(--wh)",color:u.status==="欠席"?"var(--ro)":"var(--tx2)"}}>❌ 欠席</button>
                 <button onClick={()=>setEditCell({uid:u.id,day:d,name:u.name,status:u.status,transportTo:u.transportTo,transportFrom:u.transportFrom})} style={{padding:"6px 4px",borderRadius:8,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",gridColumn:"span 2"}}>✏️ 詳細設定</button>
               </div>}
             </div>;
@@ -5169,10 +5169,10 @@ function ScheduleScreen({ user, store, onBack }) {
         <thead>
           <tr>
             <th style={{border:"1px solid var(--bd)",padding:"6px 10px",background:"var(--bg2)",textAlign:"left",minWidth:90,position:"sticky",left:0,zIndex:2}}>利用者名</th>
-            {dayList.map(d=><th key={d} style={{border:"1px solid var(--bd)",padding:"4px 2px",background:isWe(d)?"#f5f5f5":getDateStr(d)===todayISO()?"#cce6f5":"var(--bg2)",color:isWe(d)?"#aaa":getDow(d)===0?"var(--ro)":getDow(d)===6?"#005a8a":"var(--tx2)",minWidth:34,textAlign:"center",fontSize:9}}>{d}<br/>{dowLabel[getDow(d)]}</th>)}
+            {dayList.map(d=><th key={d} style={{border:"1px solid var(--bd)",padding:"4px 2px",background:isWe(d)?"#f5f5f5":getDateStr(d)===todayISO()?"rgba(58,160,216,0.2)":"var(--bg2)",color:isWe(d)?"#aaa":getDow(d)===0?"var(--ro)":getDow(d)===6?"var(--tl)":"var(--tx2)",minWidth:34,textAlign:"center",fontSize:9}}>{d}<br/>{dowLabel[getDow(d)]}</th>)}
             <th style={{border:"1px solid var(--bd)",padding:"4px 5px",background:"var(--bg2)",minWidth:36,fontSize:9}}>予定</th>
-            <th style={{border:"1px solid var(--bd)",padding:"4px 5px",background:"#d0eedd",minWidth:36,fontSize:9}}>来所</th>
-            <th style={{border:"1px solid var(--bd)",padding:"4px 5px",background:"#fad4d0",minWidth:36,fontSize:9}}>欠席</th>
+            <th style={{border:"1px solid var(--bd)",padding:"4px 5px",background:"rgba(44,170,96,0.2)",minWidth:36,fontSize:9}}>来所</th>
+            <th style={{border:"1px solid var(--bd)",padding:"4px 5px",background:"rgba(224,56,56,0.15)",minWidth:36,fontSize:9}}>欠席</th>
           </tr>
         </thead>
         <tbody>
@@ -5193,8 +5193,8 @@ function ScheduleScreen({ user, store, onBack }) {
                 </td>;
               })}
               <td style={{border:"1px solid var(--bd)",padding:"4px 5px",textAlign:"center",fontWeight:700,color:"var(--tl)",background:"var(--bg)"}}>{cnt.come}</td>
-              <td style={{border:"1px solid var(--bd)",padding:"4px 5px",textAlign:"center",fontWeight:700,color:"#155a30",background:"#eef8f2"}}>{cnt.actual}</td>
-              <td style={{border:"1px solid var(--bd)",padding:"4px 5px",textAlign:"center",fontWeight:700,color:"#a02818",background:"#fdf5f4"}}>{cnt.absent}</td>
+              <td style={{border:"1px solid var(--bd)",padding:"4px 5px",textAlign:"center",fontWeight:700,color:"var(--gr)",background:"#eef8f2"}}>{cnt.actual}</td>
+              <td style={{border:"1px solid var(--bd)",padding:"4px 5px",textAlign:"center",fontWeight:700,color:"var(--ro)",background:"rgba(224,56,56,0.08)"}}>{cnt.absent}</td>
             </tr>;
           })}
           <tr style={{background:"#f0f5ff",borderTop:"2px solid var(--bd)"}}>
@@ -5203,8 +5203,8 @@ function ScheduleScreen({ user, store, onBack }) {
               if(isWe(d)) return <td key={d} style={{border:"1px solid var(--bd)",background:"#f5f5f5"}}></td>;
               const c=countByDay(d);
               return <td key={d} style={{border:"1px solid var(--bd)",padding:"3px 1px",textAlign:"center"}}>
-                <div style={{fontSize:9,fontWeight:700,color:"#155a30"}}>{c.come}</div>
-                {c.absent>0&&<div style={{fontSize:8,color:"#a02818"}}>欠{c.absent}</div>}
+                <div style={{fontSize:9,fontWeight:700,color:"var(--gr)"}}>{c.come}</div>
+                {c.absent>0&&<div style={{fontSize:8,color:"var(--ro)"}}>欠{c.absent}</div>}
               </td>;
             })}
             <td colSpan={3} style={{border:"1px solid var(--bd)"}}></td>
@@ -5233,8 +5233,8 @@ function ScheduleScreen({ user, store, onBack }) {
           </div>
           <div style={{fontSize:10,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:8}}>送迎設定</div>
           <div style={{display:"flex",gap:10,marginBottom:16}}>
-            <button onClick={()=>setTmpTo(!tmpTo)} style={{flex:1,padding:"10px",borderRadius:10,background:tmpTo?"#cce6f5":"var(--bg)",color:tmpTo?"#005a8a":"var(--tx3)",border:"2px solid "+(tmpTo?"#005a8a":"var(--bd)"),fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🚌 迎（来所時）</button>
-            <button onClick={()=>setTmpFrom(!tmpFrom)} style={{flex:1,padding:"10px",borderRadius:10,background:tmpFrom?"#d0eedd":"var(--bg)",color:tmpFrom?"#155a30":"var(--tx3)",border:"2px solid "+(tmpFrom?"#155a30":"var(--bd)"),fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🚌 送（帰り）</button>
+            <button onClick={()=>setTmpTo(!tmpTo)} style={{flex:1,padding:"10px",borderRadius:10,background:tmpTo?"rgba(58,160,216,0.2)":"var(--bg)",color:tmpTo?"var(--tl)":"var(--tx3)",border:"2px solid "+(tmpTo?"var(--tl)":"var(--bd)"),fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🚌 迎（来所時）</button>
+            <button onClick={()=>setTmpFrom(!tmpFrom)} style={{flex:1,padding:"10px",borderRadius:10,background:tmpFrom?"rgba(44,170,96,0.2)":"var(--bg)",color:tmpFrom?"var(--gr)":"var(--tx3)",border:"2px solid "+(tmpFrom?"var(--gr)":"var(--bd)"),fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🚌 送（帰り）</button>
           </div>
           <button onClick={()=>setSchedule(editCell.uid,editCell.day,tmpStatus,tmpTo,tmpFrom)} style={{width:"100%",padding:"13px",borderRadius:12,background:"var(--tl)",border:"none",color:"#fff",fontWeight:900,fontSize:14,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>保存する</button>
         </div>
