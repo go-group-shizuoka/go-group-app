@@ -412,6 +412,35 @@ const SUPPORT_GOALS = [
 
 // ==================== HELPERS ====================
 const genId = () => Math.random().toString(36).substr(2,9);
+
+// ── 施設コードマップ ──
+// f1=GO HOME / f2=GO ROOM / f3=GO TOWN 1ST / f4=GO TOWN 2ND
+const FACILITY_CODES = { f1:"GH", f2:"GR", f3:"T1", f4:"T2" };
+
+// ── 利用者ID生成: U-{施設コード}-{連番4桁} 例: U-GH-0001 ──
+const genUserId = (facilityId, existingUsers=[]) => {
+  const code = FACILITY_CODES[facilityId] || "XX";
+  // 同じ施設コードで始まるIDの最大連番を取得
+  const prefix = `U-${code}-`;
+  const maxSeq = existingUsers
+    .filter(u => u.id && u.id.startsWith(prefix))
+    .map(u => parseInt(u.id.replace(prefix, ""), 10))
+    .filter(n => !isNaN(n))
+    .reduce((max, n) => Math.max(max, n), 0);
+  return `${prefix}${String(maxSeq + 1).padStart(4, "0")}`;
+};
+
+// ── 職員ID生成: S-{施設コード}-{連番4桁} 例: S-GH-0001 ──
+const genStaffId = (facilityId, existingStaff=[]) => {
+  const code = FACILITY_CODES[facilityId] || "XX";
+  const prefix = `S-${code}-`;
+  const maxSeq = existingStaff
+    .filter(s => s.id && s.id.startsWith(prefix))
+    .map(s => parseInt(s.id.replace(prefix, ""), 10))
+    .filter(n => !isNaN(n))
+    .reduce((max, n) => Math.max(max, n), 0);
+  return `${prefix}${String(maxSeq + 1).padStart(4, "0")}`;
+};
 const nowStr = () => new Date().toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"});
 const nowHM = () => { const d=new Date(); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); };
 const buildDT = t => { const d=new Date(); const [h,m]=t.split(":"); d.setHours(+h,+m,0); return d.toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"}); };
@@ -1874,7 +1903,10 @@ function useStore() {
   }));
   const setShift = (sid,date,type) => {setShifts(p=>({...p,[sid]:{...(p[sid]||{}),[date]:type}}));sbSave("shifts",{id:sid+"_"+date,staff_id:sid,date:date,shift_type:type});};
   const getShift = (sid,date) => shifts[sid]?.[date]||"none";
-  const setAtt = (uid,date,status) => { setAtt2(p=>({...p,[uid]:{...(p[uid]||{}),[date]:status}})); sbSave("att_data",{id:uid+"_"+date,data:{userId:uid,date,status}}); };
+  const setAtt = (uid,date,status) => {
+    setAtt2(p=>({...p,[uid]:{...(p[uid]||{}),[date]:status}}));
+    sbSave("att_data", {id:uid+"_"+date, user_id:uid, att_date:date, status, data:{userId:uid,date,status}});
+  };
   const getAtt = (uid,date) => att[uid]?.[date]||"未定";
   const addMsg = m => {
     setMsgs(p=>[...p,m]);
@@ -1899,18 +1931,65 @@ function useStore() {
     return updated;
   }));
   const updTr = data => { setTrData(data); data.forEach(t=>sbSave("transport_data",{id:t.id,facility_id:t.facilityId||null,data:t})); };
-  const addIsp = isp => { setIsps(p=>[...p,isp]); sbSave("isps",{id:isp.id,facility_id:isp.facilityId||null,data:isp}); };
-  const updIsp = (id,ch) => setIsps(p=>p.map(x=>{ if(x.id!==id) return x; const u={...x,...ch}; sbSave("isps",{id,facility_id:u.facilityId||null,data:u}); return u; }));
-  const updKokuho = (id,ch) => setKokuho(p=>p.map(x=>{ if(x.id!==id) return x; const u={...x,...ch}; sbSave("kokuho_data",{id,facility_id:u.facilityId||null,data:u}); return u; }));
+  const addIsp = isp => {
+    setIsps(p=>[...p,isp]);
+    sbSave("isps", {id:isp.id, facility_id:isp.facilityId||null, user_id:isp.userId||null, data:isp});
+  };
+  const updIsp = (id,ch) => setIsps(p=>p.map(x=>{
+    if(x.id!==id) return x;
+    const u={...x,...ch};
+    sbSave("isps", {id, facility_id:u.facilityId||null, user_id:u.userId||null, data:u});
+    return u;
+  }));
+  const updKokuho = (id,ch) => setKokuho(p=>p.map(x=>{
+    if(x.id!==id) return x;
+    const u={...x,...ch};
+    sbSave("kokuho_data", {
+      id,
+      facility_id:    u.facilityId || null,
+      user_id:        u.userId     || null,
+      year:           u.year       || null,
+      month:          u.month      || null,
+      service_days:   u.serviceDays   || 0,
+      transport_days: u.transportDays || 0,
+      billing_status: u.billingStatus || "未請求",
+      updated_at:     new Date().toISOString(),
+      data:           u
+    });
+    return u;
+  }));
   // 新規請求レコード追加（確定日報から自動生成時に使用）
-  const addKokuho = k => { setKokuho(p=>[...p,k]); sbSave("kokuho_data",{id:k.id,facility_id:k.facilityId||null,data:k}); };
+  const addKokuho = k => {
+    setKokuho(p=>[...p,k]);
+    sbSave("kokuho_data", {
+      id:             k.id,
+      facility_id:    k.facilityId || null,
+      user_id:        k.userId || null,            // ★明示カラム
+      year:           k.year   || null,            // ★明示カラム
+      month:          k.month  || null,            // ★明示カラム
+      service_days:   k.serviceDays   || 0,        // ★明示カラム
+      transport_days: k.transportDays || 0,        // ★明示カラム
+      billing_status: k.billingStatus || "未請求", // ★明示カラム
+      updated_at:     new Date().toISOString(),
+      data:           k
+    });
+  };
 
   const [dynUsers, setDynUsers] = useState(INITIAL_USERS);
   const [dynStaff, setDynStaff] = useState(INITIAL_STAFF);
   const [dailyReports, setDailyReports] = useState([]);
-  const saveFS = fs => { setFacesheets(p=>[...p.filter(x=>x.userId!==fs.userId),fs]); sbSave("facesheets",{id:fs.userId,facility_id:fs.facilityId||null,data:fs}); };
-  const addAssessment = a => { setAssessments(p=>[...p,a]); sbSave("assessments",{id:a.id,facility_id:a.facilityId||null,data:a}); };
-  const addMonitoring = m => { setMonitorings(p=>[...p,m]); sbSave("monitorings",{id:m.id,facility_id:m.facilityId||null,data:m}); };
+  const saveFS = fs => {
+    setFacesheets(p=>[...p.filter(x=>x.userId!==fs.userId),fs]);
+    sbSave("facesheets", {id:fs.userId, facility_id:fs.facilityId||null, user_id:fs.userId||null, updated_at:new Date().toISOString(), data:fs});
+  };
+  const addAssessment = a => {
+    setAssessments(p=>[...p,a]);
+    sbSave("assessments", {id:a.id, facility_id:a.facilityId||null, user_id:a.userId||null, assessor:a.assessor||null, assess_date:a.date||null, data:a});
+  };
+  const addMonitoring = m => {
+    setMonitorings(p=>[...p,m]);
+    sbSave("monitorings", {id:m.id, facility_id:m.facilityId||null, user_id:m.userId||null, staff_id:m.staffId||null, monitoring_date:m.date||null, data:m});
+  };
 
   const addDailyReport = r => {
     setDailyReports(p=>[...p.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId)),r]);
@@ -1918,36 +1997,97 @@ function useStore() {
   };
   const addUser = u => {
     setDynUsers(p=>[...p,u]);
-    sbSave("users_data", {id: u.id, facility_id: u.facilityId, data: u});
+    // 明示カラム + JSONB data で保存（国保請求・監査・ISP連携に対応）
+    sbSave("users_data", {
+      id:              u.id,
+      facility_id:     u.facilityId,
+      name:            u.name || null,
+      name_kana:       u.nameKana || null,
+      jukyusha_no:     u.jukyushaNo || null,
+      jukyusha_expiry: u.jukyushaExpiry || null,
+      jukyusha_city:   u.jukyushaCity || null,
+      service_type:    u.serviceType || "放デイ",
+      active:          u.active !== false,
+      enroll_date:     u.enrollDate || null,
+      updated_at:      new Date().toISOString(),
+      data:            u
+    });
   };
   const updUser2 = (id,ch) => {
     setDynUsers(p=>p.map(u=>{
       if(u.id!==id) return u;
       const updated = {...u,...ch};
-      sbSave("users_data", {id, facility_id: updated.facilityId, data: updated});
+      sbSave("users_data", {
+        id,
+        facility_id:     updated.facilityId,
+        name:            updated.name || null,
+        name_kana:       updated.nameKana || null,
+        jukyusha_no:     updated.jukyushaNo || null,
+        jukyusha_expiry: updated.jukyushaExpiry || null,
+        jukyusha_city:   updated.jukyushaCity || null,
+        service_type:    updated.serviceType || "放デイ",
+        active:          updated.active !== false,
+        enroll_date:     updated.enrollDate || null,
+        updated_at:      new Date().toISOString(),
+        data:            updated
+      });
       return updated;
     }));
   };
   const addStaff = s => {
     setDynStaff(p=>[...p,s]);
-    sbSave("staff_data", {id: s.id, facility_id: s.facilityId, data: s});
+    // 明示カラム + JSONB data で保存（シフト・資格・監査連携に対応）
+    sbSave("staff_data", {
+      id:              s.id,
+      facility_id:     s.facilityId,
+      name:            s.name || null,
+      name_kana:       s.nameKana || null,
+      role:            s.role || "staff",
+      employment_type: s.employmentType || "正社員",
+      active:          s.active !== false,
+      hire_date:       s.hireDate || null,
+      updated_at:      new Date().toISOString(),
+      data:            s
+    });
   };
   const updStaff2 = (id,ch) => {
     setDynStaff(p=>p.map(s=>{
       if(s.id!==id) return s;
       const updated = {...s,...ch};
-      sbSave("staff_data", {id, facility_id: updated.facilityId, data: updated});
+      sbSave("staff_data", {
+        id,
+        facility_id:     updated.facilityId,
+        name:            updated.name || null,
+        name_kana:       updated.nameKana || null,
+        role:            updated.role || "staff",
+        employment_type: updated.employmentType || "正社員",
+        active:          updated.active !== false,
+        hire_date:       updated.hireDate || null,
+        updated_at:      new Date().toISOString(),
+        data:            updated
+      });
       return updated;
     }));
   };
   const [qualDocs, setQualDocs] = useState([]);
-  const addQualDoc = d => { setQualDocs(p=>[...p,d]); sbSave("qual_docs",{id:d.id,facility_id:d.facilityId||null,data:d}); };
-  const updQualDoc = (id,ch) => setQualDocs(p=>p.map(d=>{ if(d.id!==id) return d; const u={...d,...ch}; sbSave("qual_docs",{id,facility_id:u.facilityId||null,data:u}); return u; }));
+  const addQualDoc = d => {
+    setQualDocs(p=>[...p,d]);
+    sbSave("qual_docs", {id:d.id, facility_id:d.facilityId||null, staff_id:d.staffId||null, data:d});
+  };
+  const updQualDoc = (id,ch) => setQualDocs(p=>p.map(d=>{
+    if(d.id!==id) return d;
+    const u={...d,...ch};
+    sbSave("qual_docs", {id, facility_id:u.facilityId||null, staff_id:u.staffId||null, data:u});
+    return u;
+  }));
   const delQualDoc = id => { setQualDocs(p=>p.filter(d=>d.id!==id)); sbDelete("qual_docs",id); };
   const delStaff = id => { setDynStaff(p=>p.filter(s=>s.id!==id)); sbDelete("staff_data",id); };
   const delUser = id => { setDynUsers(p=>p.filter(u=>u.id!==id)); sbDelete("users_data",id); };
   const [paidLeaveReqs, setPaidLeaveReqs] = useState([]);
-  const addPaidLeaveReq = r => { setPaidLeaveReqs(p=>[...p,r]); sbSave("paid_leave_reqs",{id:r.id,facility_id:r.facilityId||null,data:r}); };const [scheduleData, setScheduleData] = useState({});
+  const addPaidLeaveReq = r => {
+    setPaidLeaveReqs(p=>[...p,r]);
+    sbSave("paid_leave_reqs", {id:r.id, facility_id:r.facilityId||null, staff_id:r.staffId||null, leave_date:r.leaveDate||r.date||null, status:r.status||"申請中", data:r});
+  };const [scheduleData, setScheduleData] = useState({});
   const saveScheduleRow = async (row) => {
     try {
       await fetch(SUPABASE_URL + "/rest/v1/schedules", {
@@ -1964,18 +2104,65 @@ function useStore() {
     } catch(e) {}
   };
   
-  const updPaidLeaveReq = (id,ch) => setPaidLeaveReqs(p=>p.map(r=>{ if(r.id!==id) return r; const u={...r,...ch}; sbSave("paid_leave_reqs",{id,facility_id:u.facilityId||null,data:u}); return u; }));
+  const updPaidLeaveReq = (id,ch) => setPaidLeaveReqs(p=>p.map(r=>{
+    if(r.id!==id) return r;
+    const u={...r,...ch};
+    sbSave("paid_leave_reqs", {id, facility_id:u.facilityId||null, staff_id:u.staffId||null, leave_date:u.leaveDate||u.date||null, status:u.status||"申請中", data:u});
+    return u;
+  }));
   const [ispDrafts, setIspDrafts] = useState([]);
-  const addIspDraft = d => { setIspDrafts(p=>[...p,d]); sbSave("isp_drafts",{id:d.id,facility_id:d.facilityId||null,data:d}); };
-  const updIspDraft = (id,ch) => setIspDrafts(p=>p.map(d=>{ if(d.id!==id) return d; const u={...d,...ch}; sbSave("isp_drafts",{id,facility_id:u.facilityId||null,data:u}); return u; }));
+  const addIspDraft = d => {
+    setIspDrafts(p=>[...p,d]);
+    sbSave("isp_drafts", {id:d.id, facility_id:d.facilityId||null, user_id:d.userId||null, updated_at:new Date().toISOString(), data:d});
+  };
+  const updIspDraft = (id,ch) => setIspDrafts(p=>p.map(d=>{
+    if(d.id!==id) return d;
+    const u={...d,...ch};
+    sbSave("isp_drafts", {id, facility_id:u.facilityId||null, user_id:u.userId||null, updated_at:new Date().toISOString(), data:u});
+    return u;
+  }));
   const delIspDraft = id => { setIspDrafts(p=>p.filter(d=>d.id!==id)); sbDelete("isp_drafts",id); };
   // ─── 個別支援計画 統合管理レコード ───
   const [ispRecords, setIspRecords] = useState([]);
-  const addIspRecord = r => { setIspRecords(p=>[...p,r]); sbSave("isp_records",{id:r.id,facility_id:r.facilityId||null,data:r}); };
-  const updIspRecord = (id,ch) => setIspRecords(p=>p.map(x=>{ if(x.id!==id) return x; const u={...x,...ch}; sbSave("isp_records",{id,facility_id:u.facilityId||null,data:u}); return u; }));
+  const addIspRecord = r => {
+    setIspRecords(p=>[...p,r]);
+    sbSave("isp_records", {
+      id:          r.id,
+      facility_id: r.facilityId || null,
+      user_id:     r.userId     || null,   // ★明示カラム（国保・監査で検索可能に）
+      doc_type:    r.docType    || null,   // ★明示カラム
+      status:      r.status     || "ai_draft", // ★明示カラム
+      updated_at:  new Date().toISOString(),
+      data:        r
+    });
+  };
+  const updIspRecord = (id,ch) => setIspRecords(p=>p.map(x=>{
+    if(x.id!==id) return x;
+    const u={...x,...ch};
+    sbSave("isp_records", {
+      id,
+      facility_id: u.facilityId || null,
+      user_id:     u.userId     || null,
+      doc_type:    u.docType    || null,
+      status:      u.status     || null,
+      updated_at:  new Date().toISOString(),
+      data:        u
+    });
+    return u;
+  }));
   // ─── 日々のモニタリング蓄積ノート（ISP連携サービス記録から自動生成） ───
   const [monitoringNotes, setMonitoringNotes] = useState([]);
-  const addMonitoringNote = n => { setMonitoringNotes(p=>[...p,n]); sbSave("monitoring_notes",{id:n.id,facility_id:n.facilityId||null,data:n}); };
+  const addMonitoringNote = n => {
+    setMonitoringNotes(p=>[...p,n]);
+    sbSave("monitoring_notes", {
+      id:          n.id,
+      facility_id: n.facilityId || null,
+      user_id:     n.userId     || null,   // ★明示カラム（モニタリング作成時に集計可能）
+      isp_id:      n.ispId      || null,   // ★明示カラム
+      note_date:   n.date       || null,   // ★明示カラム
+      data:        n
+    });
+  };
   // 起動時にSupabaseからデータ読み込み
   useEffect(() => {
     loadFromSupabase(setRecs, setMsgs, setDailyReports, setDynUsers, setDynStaff);
@@ -3293,7 +3480,11 @@ function UserManagement({user,store,onBack}){
       onBack={()=>setScreen("list")}
       onSave={(u)=>{
         if(isEdit){ store.updUser2(u.id,u); }
-        else { store.addUser({...u,id:genId()}); }
+        else {
+          // 意味のあるID: U-GH-0001 形式で採番
+          const newId = genUserId(u.facilityId||user.selectedFacilityId, store.dynUsers);
+          store.addUser({...u, id: newId});
+        }
         setScreen("list");
       }}
     />;
@@ -6808,7 +6999,11 @@ function StaffManagement({user, store, onBack}){
       onBack={()=>setScreen("list")}
       onSave={s=>{
         if(isEdit){ store.updStaff2(s.id,s); }
-        else { store.addStaff({...s,id:genId()}); }
+        else {
+          // 意味のあるID: S-GH-0001 形式で採番
+          const newId = genStaffId(s.facilityId||user.selectedFacilityId, store.dynStaff);
+          store.addStaff({...s, id: newId});
+        }
         setScreen("list");
       }}
     />;
