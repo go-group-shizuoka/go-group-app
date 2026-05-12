@@ -205,27 +205,45 @@ const isTodayRec = (r) => {
   const short = y+"/"+Number(mo)+"/"+Number(dy);
   return r.time.includes(padded)||r.time.includes(short)||r.time.startsWith(d);
 };
-// 今日のアラートを生成する共通ヘルパー
+// 今日のアラートを生成する共通ヘルパー（danger=赤/warn=橙/info=青）
 const buildTodayAlerts = (user, store) => {
-  const today = todayISO();
   const myFac = r => user.role==="admin" || (r.facilityId||r.facility_id)===user.selectedFacilityId;
   const todayRecs = store.recs.filter(r => isTodayRec(r) && myFac(r));
-  const arrivedIds = [...new Set(todayRecs.filter(r=>r.type==="user_in").map(r=>r.userId))];
-  const serviceIds = [...new Set(todayRecs.filter(r=>r.type==="service").map(r=>r.userId))];
+  const arrivedIds  = [...new Set(todayRecs.filter(r=>r.type==="user_in").map(r=>r.userId))];
+  const departedIds = [...new Set(todayRecs.filter(r=>r.type==="user_out").map(r=>r.userId))];
+  const serviceIds  = [...new Set(todayRecs.filter(r=>r.type==="service").map(r=>r.userId))];
+  // サービス記録未入力（来所済み）
   const noService = arrivedIds.filter(id=>!serviceIds.includes(id));
-  const noTemp = todayRecs.filter(r=>(r.type==="user_in"||r.type==="staff_in")&&!r.temp);
+  // 体温未入力（来所記録で体温なし）
+  const noTempIds = [...new Set(todayRecs.filter(r=>r.type==="user_in"&&(!r.temp||r.temp==="")).map(r=>r.userId))];
+  // 送迎未完了（送迎あり・来所済み・退所記録なし）
+  const transportIncomplete = arrivedIds.filter(id=>{
+    const rec = todayRecs.filter(r=>r.type==="user_in"&&r.userId===id).slice(-1)[0];
+    return rec?.transport==="あり" && !departedIds.includes(id);
+  });
   const unread = store.msgs.filter(m=>myFac(m)&&!m.read);
   const now = new Date();
-  const ispExp = (store.isps||[]).filter(isp=>{
+  // ISP期限切れ（赤）と期限間近30日（橙）を区別
+  const allIsps = store.isps||[];
+  const ispExpired = allIsps.filter(isp=>{
     if(!isp.endDate) return false;
-    const days = Math.ceil((new Date(isp.endDate)-now)/(1000*60*60*24));
-    return days<=30 && days>=-30;
+    return Math.ceil((new Date(isp.endDate)-now)/(1000*60*60*24)) < 0;
+  });
+  const ispSoon = allIsps.filter(isp=>{
+    if(!isp.endDate) return false;
+    const d = Math.ceil((new Date(isp.endDate)-now)/(1000*60*60*24));
+    return d>=0 && d<=30;
   });
   const alerts = [];
-  if(noService.length>0) alerts.push({level:"warn",icon:"📋",text:`サービス記録 未入力 ${noService.length}名`,screen:"service"});
-  if(noTemp.length>0) alerts.push({level:"warn",icon:"🌡️",text:`体温 未入力 ${noTemp.length}件`,screen:"daily"});
+  // danger（赤）— 今すぐ対応
+  if(ispExpired.length>0) alerts.push({level:"danger",icon:"🚨",text:`ISP 期限切れ ${ispExpired.length}件`,screen:"users",ids:ispExpired.map(i=>i.userName||i.userId)});
+  // warn（橙）— 本日中に対応
+  if(noService.length>0) alerts.push({level:"warn",icon:"📋",text:`サービス記録 未入力 ${noService.length}名`,screen:"service",ids:noService});
+  if(noTempIds.length>0) alerts.push({level:"warn",icon:"🌡️",text:`体温 未入力 ${noTempIds.length}名`,screen:"user_arrive",ids:noTempIds});
+  if(ispSoon.length>0)   alerts.push({level:"warn",icon:"📄",text:`ISP 期限間近 ${ispSoon.length}件（30日以内）`,screen:"users"});
+  // info（青）— 確認事項
+  if(transportIncomplete.length>0) alerts.push({level:"info",icon:"🚌",text:`送迎 未完了 ${transportIncomplete.length}名`,screen:"transport",ids:transportIncomplete});
   if(unread.length>0) alerts.push({level:"info",icon:"💬",text:`保護者連絡 未読 ${unread.length}件`,screen:"messages"});
-  if(ispExp.length>0) alerts.push({level:"warn",icon:"📄",text:`個別支援計画 期限間近 ${ispExp.length}件`,screen:"users"});
   return alerts;
 };
 const daysInMonth = (y,m) => new Date(y,m,0).getDate();
@@ -1409,6 +1427,36 @@ select.fi option{background:var(--bg2);color:var(--tx);}
 .user-tag-unrecorded{background:rgba(240,112,32,0.15);color:var(--ac);border:1px solid rgba(240,112,32,0.4);}
 /* セクション区切り */
 .dash-divider{border:none;border-top:1px solid var(--bd);margin:16px 0;}
+/* ===== 優先度カラー統一（全画面共通） ===== */
+/* danger=赤 / warn=オレンジ / info=青 / success=緑 */
+.alert-danger{background:rgba(224,56,56,0.13);border:1px solid rgba(224,56,56,0.45);}
+.alert-warn{background:rgba(240,112,32,0.13);border:1px solid rgba(240,112,32,0.4);}
+.alert-info{background:rgba(58,160,216,0.11);border:1px solid rgba(58,160,216,0.35);}
+.alert-success{background:rgba(44,170,96,0.13);border:1px solid rgba(44,170,96,0.4);}
+.lv-danger{color:var(--ro)!important;}
+.lv-warn{color:var(--ac)!important;}
+.lv-info{color:var(--tl)!important;}
+.lv-success{color:var(--gr)!important;}
+/* 残件カード level */
+.todo-card.danger{border-color:rgba(224,56,56,0.4);background:rgba(224,56,56,0.06);}
+.todo-card.warn{border-color:rgba(240,112,32,0.35);background:rgba(240,112,32,0.05);}
+.todo-card.info{border-color:rgba(58,160,216,0.3);background:rgba(58,160,216,0.05);}
+.todo-card-count.danger{background:rgba(224,56,56,0.2);color:var(--ro);}
+.todo-card-count.warn{background:rgba(240,112,32,0.2);color:var(--ac);}
+.todo-card-count.info{background:rgba(58,160,216,0.2);color:var(--tl);}
+.todo-name-chip.danger{background:rgba(224,56,56,0.12);color:var(--ro);border-color:rgba(224,56,56,0.3);}
+.todo-name-chip.info{background:rgba(58,160,216,0.12);color:var(--tl);border-color:rgba(58,160,216,0.3);}
+/* ===== クイック体温ボタン ===== */
+.temp-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:6px;}
+.temp-btn{padding:11px 4px;border-radius:10px;border:2px solid var(--bd);background:var(--bg);color:var(--tx2);font-size:15px;font-weight:700;cursor:pointer;font-family:'DM Mono',monospace;text-align:center;transition:all .12s;-webkit-tap-highlight-color:transparent;min-height:48px;}
+.temp-btn:active{transform:scale(0.92);}
+.temp-btn.t-on{border-color:var(--tl);background:rgba(58,160,216,0.22);color:var(--tl);}
+.temp-btn.t-warn{border-color:var(--am);background:rgba(224,168,40,0.2);color:var(--am);}
+.temp-btn.t-on.t-warn{border-color:var(--am);background:rgba(224,168,40,0.35);color:var(--am);}
+.temp-btn.t-danger{border-color:var(--ro);background:rgba(224,56,56,0.2);color:var(--ro);}
+.temp-btn.t-on.t-danger{border-color:var(--ro);background:rgba(224,56,56,0.35);color:var(--ro);}
+.temp-manual{width:100%;padding:9px 10px;background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;color:var(--tx);font-family:'DM Mono',monospace;font-size:16px;text-align:center;outline:none;margin-top:4px;}
+.temp-manual:focus{border-color:var(--tl);}
 /* ===== ワンタップ記録 ユーザーカード ===== */
 .tap-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-bottom:24px;}
 .tap-card{padding:16px 10px;border-radius:14px;border:2px solid var(--bd);background:var(--wh);text-align:center;cursor:pointer;transition:transform .1s,border-color .1s;box-shadow:var(--sh);-webkit-tap-highlight-color:transparent;user-select:none;}
@@ -1889,28 +1937,25 @@ function StaffClockIn({user,onBack,store}){
           <button className="bsheet-close" onClick={closeSheet}>×</button>
         </div>
 
-        {/* 時刻 + 体温 */}
-        <div className="bsheet-row" style={{marginBottom:14}}>
-          <div>
-            <div className="bsheet-label">出勤時刻</div>
-            <TimePicker value={time} onChange={setTime} label="時刻"/>
-          </div>
-          <div>
-            <div className="bsheet-label">体温 <span style={{color:"var(--ro)"}}>*</span></div>
-            <div style={{display:"flex",alignItems:"center",gap:5}}>
-              <input className="ti" type="number" placeholder="36.5" step="0.1" min="35" max="42" value={temp} onChange={e=>setTemp(e.target.value)} style={{flex:1}}/>
-              <span style={{fontSize:12,color:"var(--tx3)"}}>℃</span>
-            </div>
-          </div>
-        </div>
-
-        {/* 備考 */}
+        {/* 出勤時刻 */}
         <div className="bsheet-field">
-          <div className="bsheet-label">備考（任意）</div>
-          <textarea className="fta" placeholder="特記事項があれば..." value={note} onChange={e=>setNote(e.target.value)} style={{minHeight:52}}/>
+          <div className="bsheet-label">出勤時刻</div>
+          <TimePicker value={time} onChange={setTime} label="時刻"/>
         </div>
 
-        <button className="bsave" disabled={!temp} style={{marginTop:4}} onClick={save}>
+        {/* クイック体温ボタン（キーボード不要） */}
+        <div className="bsheet-field">
+          <div className="bsheet-label">体温 <span style={{color:"var(--ro)"}}>*</span>　<span style={{fontSize:10,fontWeight:400,color:"var(--tx3)"}}>タップで即入力</span></div>
+          <div className="temp-grid">
+            {[["36.0",""],["36.5",""],["37.0","t-warn"],["37.5","t-danger"]].map(([v,cls])=>(
+              <button key={v} className={`temp-btn ${cls} ${temp===v?"t-on":""}`} onClick={()=>setTemp(v)}>{v}</button>
+            ))}
+          </div>
+          <input className="temp-manual" type="number" placeholder="その他（手入力）" step="0.1" min="35" max="42" value={temp} onChange={e=>setTemp(e.target.value)}/>
+          {temp&&parseFloat(temp)>=37.5&&<div style={{fontSize:11,color:"var(--ro)",fontWeight:700,marginTop:4}}>⚠ 発熱注意（37.5℃以上）</div>}
+        </div>
+
+        <button className="bsave" disabled={!temp} style={{marginTop:8,background:parseFloat(temp)>=37.5?"rgba(224,56,56,0.7)":undefined}} onClick={save}>
           ✓ {sheet.name} の出勤を記録する
         </button>
       </div>
@@ -2044,48 +2089,45 @@ function UserArrive({user,onBack,store}){
           <button className="bsheet-close" onClick={closeSheet}>×</button>
         </div>
 
-        {/* 時刻 + 体温（2列） */}
+        {/* 来所時刻 */}
+        <div className="bsheet-field">
+          <div className="bsheet-label">来所時刻</div>
+          <TimePicker value={time} onChange={setTime} label="時刻"/>
+        </div>
+
+        {/* クイック体温ボタン（キーボード不要） */}
+        <div className="bsheet-field">
+          <div className="bsheet-label">体温　<span style={{fontSize:10,fontWeight:400,color:"var(--tx3)"}}>タップで即入力</span></div>
+          <div className="temp-grid">
+            {[["36.0",""],["36.5",""],["37.0","t-warn"],["37.5","t-danger"]].map(([v,cls])=>(
+              <button key={v} className={`temp-btn ${cls} ${temp===v?"t-on":""}`} onClick={()=>setTemp(v)}>{v}</button>
+            ))}
+          </div>
+          <input className="temp-manual" type="number" placeholder="その他（手入力）" step="0.1" min="35" max="42" value={temp} onChange={e=>setTemp(e.target.value)}/>
+          {temp&&parseFloat(temp)>=37.5&&<div style={{fontSize:11,color:"var(--ro)",fontWeight:700,marginTop:4}}>⚠ 発熱注意（37.5℃以上）— 保護者連絡を検討してください</div>}
+        </div>
+
+        {/* 日区分 + 送迎（2列） */}
         <div className="bsheet-row" style={{marginBottom:14}}>
           <div>
-            <div className="bsheet-label">来所時刻</div>
-            <TimePicker value={time} onChange={setTime} label="時刻"/>
+            <div className="bsheet-label">日区分</div>
+            <div className="bsheet-toggle" style={{flexDirection:"column",gap:6}}>
+              {["放課後","休日"].map(v=><button key={v} className={dayType===v?"on":""} onClick={()=>setDayType(v)} style={{padding:"8px"}}>
+                {v==="休日"?"🎌 休日":"🏫 放課後"}
+              </button>)}
+            </div>
           </div>
           <div>
-            <div className="bsheet-label">体温</div>
-            <div style={{display:"flex",alignItems:"center",gap:5}}>
-              <input className="ti" type="number" placeholder="36.5" step="0.1" min="35" max="42" value={temp} onChange={e=>setTemp(e.target.value)} style={{flex:1}}/>
-              <span style={{fontSize:12,color:"var(--tx3)"}}>℃</span>
+            <div className="bsheet-label">送迎</div>
+            <div className="bsheet-toggle" style={{flexDirection:"column",gap:6}}>
+              {["あり","なし"].map(v=><button key={v} className={tr===v?"on-ac":""} onClick={()=>setTr(v)} style={{padding:"8px"}}>
+                🚌 送迎{v}
+              </button>)}
             </div>
           </div>
         </div>
 
-        {/* 日区分 */}
-        <div className="bsheet-field">
-          <div className="bsheet-label">日区分</div>
-          <div className="bsheet-toggle">
-            {["放課後","休日"].map(v=><button key={v} className={dayType===v?"on":""} onClick={()=>setDayType(v)}>
-              {v==="休日"?"🎌 休日":"🏫 放課後"}
-            </button>)}
-          </div>
-        </div>
-
-        {/* 送迎 */}
-        <div className="bsheet-field">
-          <div className="bsheet-label">送迎</div>
-          <div className="bsheet-toggle">
-            {["あり","なし"].map(v=><button key={v} className={tr===v?"on-ac":""} onClick={()=>setTr(v)}>
-              🚌 送迎{v}
-            </button>)}
-          </div>
-        </div>
-
-        {/* 備考 */}
-        <div className="bsheet-field">
-          <div className="bsheet-label">備考（任意）</div>
-          <textarea className="fta" placeholder="特記事項があれば..." value={note} onChange={e=>setNote(e.target.value)} style={{minHeight:52}}/>
-        </div>
-
-        <button className="bsave" style={{marginTop:4}} onClick={save}>
+        <button className="bsave" style={{marginTop:4,background:temp&&parseFloat(temp)>=37.5?"rgba(224,56,56,0.7)":undefined}} onClick={save}>
           ✓ {sheet.name} の来所を記録する
         </button>
       </div>
@@ -5247,27 +5289,57 @@ function HomeScreen({user,onNav,store}){
 
   // ===== アラート生成 =====
   const alerts = buildTodayAlerts(user,store);
-  // 送迎予定アラートを追加
+  // 送迎予定アラートを先頭に追加（来所前）
   if(transportUsers.length>0){
-    alerts.unshift({level:"info",icon:"🚌",text:`送迎予定 ${transportUsers.length}名`,screen:"transport"});
+    alerts.unshift({level:"info",icon:"🚗",text:`送迎予定 ${transportUsers.length}名（来所前）`,screen:"transport"});
   }
 
-  // ===== 今日の残件（名前付き） =====
+  // ===== 今日の残件（名前付き・優先度カラー） =====
+  const getId2Name=id=>myUsers.find(u=>u.id===id)?.name||id;
   const todoItems=[];
-  // サービス記録未入力の利用者
+  // danger: 体温 37.5以上の利用者（要注意）
+  const highTempIds=[...new Set(todayRecs.filter(r=>r.type==="user_in"&&parseFloat(r.temp)>=37.5).map(r=>r.userId))];
+  if(highTempIds.length>0){
+    todoItems.push({level:"danger",icon:"🌡️",title:"高体温 要確認",names:highTempIds.map(getId2Name).filter(Boolean),screen:"user_arrive"});
+  }
+  // warn: サービス記録未入力
   if(unrecordedIds.length>0){
-    todoItems.push({icon:"📋",title:"サービス記録 未入力",names:unrecordedIds.map(id=>myUsers.find(u=>u.id===id)?.name||id).filter(Boolean),screen:"service"});
+    todoItems.push({level:"warn",icon:"📋",title:"サービス記録 未入力",names:unrecordedIds.map(getId2Name).filter(Boolean),screen:"service"});
   }
-  // 体温未入力（来所済み）
-  const noTempUserIds=[...new Set(todayRecs.filter(r=>r.type==="user_in"&&!r.temp).map(r=>r.userId))];
+  // warn: 体温未入力（来所済み）
+  const noTempUserIds=[...new Set(todayRecs.filter(r=>r.type==="user_in"&&(!r.temp||r.temp==="")).map(r=>r.userId))];
   if(noTempUserIds.length>0){
-    todoItems.push({icon:"🌡️",title:"体温 未入力",names:noTempUserIds.map(id=>myUsers.find(u=>u.id===id)?.name||id).filter(Boolean),screen:"user_arrive"});
+    todoItems.push({level:"warn",icon:"🌡️",title:"体温 未入力",names:noTempUserIds.map(getId2Name).filter(Boolean),screen:"user_arrive"});
   }
-  // 写真記録なし（在所中だが写真記録がない）
+  // warn: 写真記録なし（在所中）
   const photoIds=[...new Set(todayRecs.filter(r=>r.type==="photo").map(r=>r.userId))];
   const noPhotoIds=inFacility.filter(id=>!photoIds.includes(id));
   if(noPhotoIds.length>0){
-    todoItems.push({icon:"📸",title:"写真記録 未撮影",names:noPhotoIds.map(id=>myUsers.find(u=>u.id===id)?.name||id).filter(Boolean),screen:"photo"});
+    todoItems.push({level:"warn",icon:"📸",title:"写真記録 未撮影",names:noPhotoIds.map(getId2Name).filter(Boolean),screen:"photo"});
+  }
+  // info: 送迎未完了（来所済み・退所記録なし・送迎あり）
+  const transportDoneIds=[...new Set(todayRecs.filter(r=>r.type==="user_out").map(r=>r.userId))];
+  const transportWaitIds=inFacility.filter(id=>{
+    const rec=todayRecs.filter(r=>r.type==="user_in"&&r.userId===id).slice(-1)[0];
+    return rec?.transport==="あり";
+  }).filter(id=>!transportDoneIds.includes(id));
+  if(transportWaitIds.length>0){
+    todoItems.push({level:"info",icon:"🚌",title:"送迎 未完了",names:transportWaitIds.map(getId2Name).filter(Boolean),screen:"transport"});
+  }
+  // info: 未読連絡
+  const unreadCount2=store.msgs.filter(m=>(user.role==="admin"||m.facilityId===user.selectedFacilityId)&&!m.read).length;
+  if(unreadCount2>0){
+    todoItems.push({level:"info",icon:"💬",title:`保護者連絡 未読`,names:[`${unreadCount2}件の未読メッセージ`],screen:"messages"});
+  }
+  // info: ISP期限間近（30日以内）
+  const now2=new Date();
+  const ispSoonNames=(store.isps||[]).filter(isp=>{
+    if(!isp.endDate) return false;
+    const d=Math.ceil((new Date(isp.endDate)-now2)/(1000*60*60*24));
+    return d>=0&&d<=30;
+  }).map(isp=>isp.userName||(myUsers.find(u=>u.id===isp.userId)?.name)||"不明");
+  if(ispSoonNames.length>0){
+    todoItems.push({level:"info",icon:"📄",title:"ISP 期限間近（30日以内）",names:ispSoonNames,screen:"users"});
   }
 
   // ===== クイックアクション =====
@@ -5298,24 +5370,24 @@ function HomeScreen({user,onNav,store}){
       {alerts.map((a,i)=>(
         <div key={i} className={`alert-row alert-${a.level}`} onClick={()=>onNav(a.screen)}>
           <span className="alert-icon">{a.icon}</span>
-          <span className="alert-text" style={{color:a.level==="warn"?"var(--ac)":a.level==="danger"?"var(--ro)":"var(--tl)"}}>{a.text}</span>
-          <span className="alert-arrow">›</span>
+          <span className="alert-text lv-${a.level}" style={{color:a.level==="danger"?"var(--ro)":a.level==="warn"?"var(--ac)":a.level==="success"?"var(--gr)":"var(--tl)"}}>{a.text}</span>
+          <span className="alert-arrow" style={{color:a.level==="danger"?"var(--ro)":a.level==="warn"?"var(--ac)":"var(--tl)"}}>›</span>
         </div>
       ))}
     </div>}
 
-    {/* ===== 今日の残件 ===== */}
+    {/* ===== 今日の残件（優先度カラー付き） ===== */}
     {todoItems.length>0&&<div className="dash-section">
-      <div className="dash-title">✅ 今日の残件</div>
+      <div className="dash-title">📌 今日の残件</div>
       {todoItems.map((item,i)=>(
-        <div key={i} className="todo-card" onClick={()=>onNav(item.screen)} style={{cursor:"pointer"}}>
+        <div key={i} className={`todo-card ${item.level||"warn"}`} onClick={()=>onNav(item.screen)} style={{cursor:"pointer"}}>
           <div className="todo-card-hd">
             <span className="todo-card-icon">{item.icon}</span>
-            <span className="todo-card-title">{item.title}</span>
-            <span className="todo-card-count">{item.names.length}件</span>
+            <span className="todo-card-title" style={{color:item.level==="danger"?"var(--ro)":item.level==="info"?"var(--tl)":"var(--ac)"}}>{item.title}</span>
+            <span className={`todo-card-count ${item.level||"warn"}`}>{item.names.length}</span>
           </div>
           <div className="todo-names">
-            {item.names.map(n=><span key={n} className="todo-name-chip">{n}</span>)}
+            {item.names.map(n=><span key={n} className={`todo-name-chip ${item.level||"warn"}`}>{n}</span>)}
           </div>
         </div>
       ))}
@@ -5384,58 +5456,112 @@ function AuditScreen({user,onBack,store}){
   const today=todayISO();
   const [dateFrom,setDateFrom]=useState(today);
   const [dateTo,setDateTo]=useState(today);
+  const [expandUser,setExpandUser]=useState(null); // 詳細展開
 
   const myFac=r=>(user.role==="admin")||(r.facilityId||r.facility_id)===user.selectedFacilityId;
   const myUsers=store.dynUsers.filter(u=>u.active!==false&&(user.role==="admin"||u.facilityId===user.selectedFacilityId));
   const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
 
-  // 指定期間内の記録を集計
-  const rangeRecs=store.recs.filter(r=>{
-    if(!myFac(r)) return false;
-    const d=r.time?.slice(0,10)||"";
-    return d>=dateFrom&&d<=dateTo;
-  });
+  // 期間フィルタ
+  const inRange=r=>{const d=r.time?.slice(0,10)||"";return d>=dateFrom&&d<=dateTo;};
+  const rangeRecs=store.recs.filter(r=>myFac(r)&&inRange(r));
 
-  // 利用者ごとの完備チェック
+  // 利用者ごとの集計
   const arrivedUserIds=[...new Set(rangeRecs.filter(r=>r.type==="user_in").map(r=>r.userId))];
   const serviceUserIds=[...new Set(rangeRecs.filter(r=>r.type==="service").map(r=>r.userId))];
-  const photoUserIds=[...new Set(rangeRecs.filter(r=>r.type==="photo").map(r=>r.userId))];
-  // 体温あり
-  const tempOkIds=[...new Set(rangeRecs.filter(r=>r.type==="user_in"&&r.temp&&r.temp!=="").map(r=>r.userId))];
+  const photoUserIds  =[...new Set(rangeRecs.filter(r=>r.type==="photo").map(r=>r.userId))];
+  const tempOkIds     =[...new Set(rangeRecs.filter(r=>r.type==="user_in"&&r.temp&&r.temp!=="").map(r=>r.userId))];
+  const highTempIds   =[...new Set(rangeRecs.filter(r=>r.type==="user_in"&&parseFloat(r.temp)>=37.5).map(r=>r.userId))];
 
-  // 集計サマリー
   const total=arrivedUserIds.length;
   const fullOk=arrivedUserIds.filter(id=>serviceUserIds.includes(id)&&tempOkIds.includes(id)).length;
 
-  // 印刷HTML生成
+  // 利用者ごとの体温履歴
+  const getTempHistory=uid=>rangeRecs.filter(r=>r.type==="user_in"&&r.userId===uid&&r.temp).map(r=>({date:r.time?.slice(0,16)||"",temp:r.temp,by:r.createdBy||""}));
+  // 変更履歴（record.history配列）
+  const getChangeHistory=uid=>rangeRecs.filter(r=>r.userId===uid&&(r.history||[]).length>0).flatMap(r=>(r.history||[]).map(h=>({...h,recordType:r.type,recordTime:r.time?.slice(0,16)||""})));
+
+  // ===== 強化版監査PDF =====
   const printAudit=()=>{
     const facName=fac?.name||"全施設";
     const rows=myUsers.filter(u=>arrivedUserIds.includes(u.id));
-    const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>監査チェックリスト</title>
-    <style>body{font-family:'MS Gothic',sans-serif;padding:20px;color:#111;}
-    h2{font-size:16px;margin-bottom:4px;}p{font-size:11px;color:#555;margin-bottom:16px;}
-    table{border-collapse:collapse;width:100%;font-size:12px;}
-    th,td{border:1px solid #aaa;padding:6px 10px;text-align:center;}
-    th{background:#eee;font-weight:700;}
-    .ok{color:#1a7a3a;font-weight:700;}.ng{color:#c0392b;font-weight:700;}.na{color:#999;}
+    const now=new Date().toLocaleString("ja-JP");
+
+    const userDetailHtml=rows.map(u=>{
+      const tempHist=getTempHistory(u.id);
+      const svcRecs=rangeRecs.filter(r=>r.type==="service"&&r.userId===u.id);
+      const inRecs=rangeRecs.filter(r=>r.type==="user_in"&&r.userId===u.id);
+      const changeHist=getChangeHistory(u.id);
+      const hasTemp=tempOkIds.includes(u.id);
+      const hasSvc=serviceUserIds.includes(u.id);
+      const hasHigh=highTempIds.includes(u.id);
+      return `
+      <div class="user-block" style="page-break-inside:avoid;margin-bottom:18px;border:1px solid #bbb;border-radius:6px;overflow:hidden;">
+        <div class="user-hd" style="background:${hasSvc&&hasTemp?"#e8f5ec":"#fdf0ee"};padding:8px 12px;border-bottom:1px solid #bbb;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:14px;font-weight:700;">${u.name}</span>
+          <span style="font-size:11px;color:${hasSvc&&hasTemp?"#155a30":"#c0392b"};font-weight:700;">${hasSvc&&hasTemp?"✅ 記録完備":"⚠ 要確認"}</span>
+        </div>
+        <div style="padding:8px 12px;">
+          <!-- チェックリスト -->
+          <table style="border-collapse:collapse;width:100%;font-size:11px;margin-bottom:8px;">
+            <tr>
+              <td style="border:1px solid #ddd;padding:4px 8px;">来所</td><td style="border:1px solid #ddd;padding:4px 8px;color:#1a7a3a;font-weight:700;">✓ ${inRecs.length}回</td>
+              <td style="border:1px solid #ddd;padding:4px 8px;">体温</td><td style="border:1px solid #ddd;padding:4px 8px;color:${hasTemp?"#1a7a3a":"#c0392b"};font-weight:700;">${hasTemp?"✓ 記録あり":"✗ 未入力"}${hasHigh?" 🔴発熱あり":""}</td>
+              <td style="border:1px solid #ddd;padding:4px 8px;">サービス記録</td><td style="border:1px solid #ddd;padding:4px 8px;color:${hasSvc?"#1a7a3a":"#c0392b"};font-weight:700;">${hasSvc?"✓ 入力済":"✗ 未入力"}</td>
+              <td style="border:1px solid #ddd;padding:4px 8px;">写真</td><td style="border:1px solid #ddd;padding:4px 8px;color:${photoUserIds.includes(u.id)?"#1a7a3a":"#999"};">${photoUserIds.includes(u.id)?"✓ あり":"— なし"}</td>
+            </tr>
+          </table>
+          <!-- 体温履歴 -->
+          ${tempHist.length>0?`<div style="margin-bottom:6px;"><div style="font-size:10px;font-weight:700;color:#555;margin-bottom:3px;">🌡 体温履歴</div><div style="display:flex;flex-wrap:wrap;gap:5px;">${tempHist.map(t=>`<span style="background:${parseFloat(t.temp)>=37.5?"#fdf0ee":"#f0f8f0"};border:1px solid ${parseFloat(t.temp)>=37.5?"#e09090":"#90c090"};border-radius:4px;padding:2px 7px;font-size:10px;font-family:monospace;">${t.date.slice(5)} ${t.temp}℃</span>`).join("")}</div></div>`:""}
+          <!-- サービス記録概要 -->
+          ${svcRecs.length>0?`<div style="margin-bottom:6px;"><div style="font-size:10px;font-weight:700;color:#555;margin-bottom:3px;">📋 サービス提供記録</div>${svcRecs.map(s=>`<div style="font-size:10px;padding:3px 0;border-bottom:1px dotted #ddd;">${s.time?.slice(0,16)||""} 在所:${s.arrival||"-"}〜${s.departure||"-"} ${(s.items||[]).slice(0,3).join("・")}</div>`).join("")}</div>`:""}
+          <!-- 変更履歴 -->
+          ${changeHist.length>0?`<div><div style="font-size:10px;font-weight:700;color:#555;margin-bottom:3px;">📝 変更履歴</div>${changeHist.slice(0,5).map(h=>`<div style="font-size:9px;color:#666;padding:2px 0;">${h.at||""} ${h.by||""}: ${h.desc||h.action||""}</div>`).join("")}</div>`:""}
+        </div>
+      </div>`;
+    }).join("");
+
+    const html=`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"/>
+    <title>監査提出書類 — ${facName}</title>
+    <style>
+      @page{size:A4 portrait;margin:15mm 12mm;}
+      *{box-sizing:border-box;margin:0;padding:0;}
+      body{font-family:'MS Gothic','Hiragino Kaku Gothic Pro',Meiryo,sans-serif;font-size:10pt;color:#111;background:#fff;}
+      .cover{text-align:center;padding:30px 20px 20px;border-bottom:3px solid #1a3a6a;margin-bottom:20px;}
+      .cover h1{font-size:20pt;font-weight:900;color:#1a3a6a;}
+      .cover .sub{font-size:11pt;color:#555;margin-top:8px;}
+      .summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px;}
+      .summary-box{border:1px solid #ccc;border-radius:6px;padding:10px;text-align:center;}
+      .summary-box .val{font-size:22pt;font-weight:900;font-family:monospace;}
+      .summary-box .lbl{font-size:9pt;color:#666;}
+      .sign-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin:24px 0 16px;}
+      .sign-box{border:1px solid #aaa;border-radius:6px;padding:10px 12px;min-height:64px;}
+      .sign-box .sign-lbl{font-size:9pt;color:#555;margin-bottom:8px;}
+      .sign-box .sign-line{border-bottom:1px solid #888;margin-top:32px;}
     </style></head><body>
-    <h2>📋 監査チェックリスト — ${facName}</h2>
-    <p>期間：${dateFrom} 〜 ${dateTo}　　出力日時：${new Date().toLocaleString("ja-JP")}</p>
-    <table><thead><tr>
-      <th>利用者名</th><th>来所</th><th>体温</th><th>サービス記録</th><th>写真記録</th>
-    </tr></thead><tbody>
-    ${rows.map(u=>`<tr>
-      <td style="text-align:left;font-weight:700">${u.name}</td>
-      <td class="ok">✓</td>
-      <td class="${tempOkIds.includes(u.id)?"ok":"ng"}">${tempOkIds.includes(u.id)?"✓ あり":"✗ なし"}</td>
-      <td class="${serviceUserIds.includes(u.id)?"ok":"ng"}">${serviceUserIds.includes(u.id)?"✓ 入力済":"✗ 未入力"}</td>
-      <td class="${photoUserIds.includes(u.id)?"ok":"na"}">${photoUserIds.includes(u.id)?"✓ あり":"— なし"}</td>
-    </tr>`).join("")}
-    </tbody></table>
-    <p style="margin-top:16px;font-size:10px;">合計来所者数: ${total}名　完備（来所+体温+サービス記録済み）: ${fullOk}名</p>
+    <div class="cover">
+      <h1>📋 監査提出書類</h1>
+      <div class="sub">${facName}　　期間：${dateFrom} 〜 ${dateTo}</div>
+      <div class="sub" style="font-size:9pt;color:#888;margin-top:4px;">出力日時：${now}</div>
+    </div>
+    <!-- サマリー -->
+    <div class="summary-grid">
+      <div class="summary-box"><div class="val" style="color:#005a9a">${total}</div><div class="lbl">来所者数</div></div>
+      <div class="summary-box"><div class="val" style="color:#1a7a3a">${fullOk}</div><div class="lbl">記録完備</div></div>
+      <div class="summary-box"><div class="val" style="color:${total-fullOk>0?"#c0392b":"#999"}">${total-fullOk}</div><div class="lbl">未完備</div></div>
+      <div class="summary-box"><div class="val" style="color:${highTempIds.length>0?"#c0392b":"#999"}">${highTempIds.length}</div><div class="lbl">高体温者数</div></div>
+    </div>
+    <!-- 利用者別詳細 -->
+    ${userDetailHtml}
+    <!-- サイン欄 -->
+    <div class="sign-row">
+      <div class="sign-box"><div class="sign-lbl">管理者 確認サイン</div><div class="sign-line"></div></div>
+      <div class="sign-box"><div class="sign-lbl">担当職員 サイン</div><div class="sign-line"></div></div>
+      <div class="sign-box"><div class="sign-lbl">確認日時</div><div style="font-size:11pt;font-weight:700;margin-top:12px;">${new Date().toLocaleDateString("ja-JP")}</div></div>
+    </div>
     </body></html>`;
-    const w=window.open("","_blank","width=860,height=700");
-    if(w){w.document.write(html);w.document.close();w.print();}
+    const w=window.open("","_blank","width=900,height=750");
+    if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),400);}
   };
 
   return <div className="fl-wrap">
@@ -5448,39 +5574,60 @@ function AuditScreen({user,onBack,store}){
     {/* 期間選択 */}
     <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:16,background:"var(--wh)",padding:14,borderRadius:12,border:"1px solid var(--bd)"}}>
       <span style={{fontSize:12,fontWeight:700,color:"var(--tx3)"}}>期間：</span>
-      <input type="date" className="fi" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}
-        style={{padding:"7px 10px",borderRadius:8,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontSize:14,fontFamily:"'DM Mono',monospace"}}/>
+      <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}
+        style={{padding:"8px 10px",borderRadius:8,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontSize:16,fontFamily:"'DM Mono',monospace",outline:"none"}}/>
       <span style={{color:"var(--tx3)"}}>〜</span>
-      <input type="date" className="fi" value={dateTo} onChange={e=>setDateTo(e.target.value)}
-        style={{padding:"7px 10px",borderRadius:8,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontSize:14,fontFamily:"'DM Mono',monospace"}}/>
+      <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}
+        style={{padding:"8px 10px",borderRadius:8,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontSize:16,fontFamily:"'DM Mono',monospace",outline:"none"}}/>
+      {/* クイック選択 */}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {[["今日",0,0],["今週",-(new Date().getDay()||7)+1,0],["今月",-(new Date().getDate()-1),0]].map(([label,from,to])=>(
+          <button key={label} onClick={()=>{
+            const d=new Date();
+            const f=new Date(d);f.setDate(d.getDate()+from);
+            const t=new Date(d);t.setDate(d.getDate()+to);
+            setDateFrom(f.toISOString().slice(0,10));
+            setDateTo(t.toISOString().slice(0,10));
+          }} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+            {label}
+          </button>
+        ))}
+      </div>
     </div>
 
     {/* サマリーカード */}
-    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:18}}>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:9,marginBottom:18}}>
       {[
-        {label:"来所者数",val:total,color:"var(--tl)"},
-        {label:"記録完備",val:fullOk,color:"var(--gr)"},
-        {label:"未完備",val:total-fullOk,color:total-fullOk>0?"var(--ro)":"var(--tx3)"},
+        {label:"来所者数",    val:total,           color:"var(--tl)"},
+        {label:"記録完備",   val:fullOk,          color:"var(--gr)"},
+        {label:"未完備",     val:total-fullOk,    color:total-fullOk>0?"var(--ro)":"var(--tx3)"},
+        {label:"高体温者",   val:highTempIds.length,color:highTempIds.length>0?"var(--ro)":"var(--tx3)"},
       ].map(s=><div key={s.label} className="stat-card">
         <div className="stat-label">{s.label}</div>
-        <div className="stat-val" style={{color:s.color}}>{s.val}</div>
+        <div className="stat-val" style={{color:s.color,fontSize:22}}>{s.val}</div>
       </div>)}
     </div>
 
     {/* 利用者ごとのチェックリスト */}
     {arrivedUserIds.length===0
-      ? <div style={{textAlign:"center",color:"var(--tx3)",padding:"32px 0",fontSize:13}}>
+      ? <div style={{textAlign:"center",color:"var(--tx3)",padding:"32px 0",fontSize:13,background:"var(--wh)",borderRadius:12,border:"1px solid var(--bd)"}}>
           指定期間内に来所記録がありません
         </div>
       : myUsers.filter(u=>arrivedUserIds.includes(u.id)).map(u=>{
           const hasTemp=tempOkIds.includes(u.id);
           const hasService=serviceUserIds.includes(u.id);
           const hasPhoto=photoUserIds.includes(u.id);
+          const hasHigh=highTempIds.includes(u.id);
           const allOk=hasTemp&&hasService;
-          return <div key={u.id} className="audit-user-row" style={{borderColor:allOk?"rgba(44,170,96,0.4)":"rgba(224,56,56,0.3)"}}>
-            <div className="audit-user-name">
-              {allOk?"✅":"⚠️"} {u.name}
-              {!allOk&&<span style={{fontSize:10,fontWeight:700,color:"var(--ro)",marginLeft:8}}>要確認</span>}
+          const expanded=expandUser===u.id;
+          const tempHist=getTempHistory(u.id);
+          const changeHist=getChangeHistory(u.id);
+          return <div key={u.id} className="audit-user-row"
+            style={{borderColor:hasHigh?"rgba(224,56,56,0.6)":allOk?"rgba(44,170,96,0.4)":"rgba(224,56,56,0.3)",cursor:"pointer"}}
+            onClick={()=>setExpandUser(expanded?null:u.id)}>
+            <div className="audit-user-name" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span>{allOk&&!hasHigh?"✅":"⚠️"} {u.name}{hasHigh&&<span style={{fontSize:10,fontWeight:700,color:"var(--ro)",marginLeft:6}}>🌡 高体温</span>}</span>
+              <span style={{fontSize:11,color:"var(--tx3)"}}>{expanded?"▲ 閉じる":"▼ 詳細"}</span>
             </div>
             <div className="audit-checks">
               <span className="audit-check audit-ok">来所 ✓</span>
@@ -5488,6 +5635,27 @@ function AuditScreen({user,onBack,store}){
               <span className={`audit-check ${hasService?"audit-ok":"audit-ng"}`}>サービス記録 {hasService?"✓":"✗"}</span>
               <span className={`audit-check ${hasPhoto?"audit-ok":"audit-na"}`}>写真 {hasPhoto?"✓":"—"}</span>
             </div>
+            {/* 展開：体温履歴・変更履歴 */}
+            {expanded&&<div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--bd)"}}>
+              {tempHist.length>0&&<div style={{marginBottom:8}}>
+                <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",marginBottom:5}}>🌡 体温履歴</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                  {tempHist.map((t,i)=><span key={i} style={{fontSize:11,padding:"3px 9px",borderRadius:7,border:"1px solid",fontFamily:"'DM Mono',monospace",fontWeight:700,
+                    borderColor:parseFloat(t.temp)>=37.5?"rgba(224,56,56,0.5)":"rgba(44,170,96,0.4)",
+                    background:parseFloat(t.temp)>=37.5?"rgba(224,56,56,0.1)":"rgba(44,170,96,0.1)",
+                    color:parseFloat(t.temp)>=37.5?"var(--ro)":"var(--gr)"}}>
+                    {t.date.slice(5,16)} {t.temp}℃
+                  </span>)}
+                </div>
+              </div>}
+              {changeHist.length>0&&<div>
+                <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",marginBottom:5}}>📝 変更履歴</div>
+                {changeHist.slice(0,8).map((h,i)=><div key={i} style={{fontSize:11,color:"var(--tx3)",padding:"3px 0",borderBottom:"1px dotted var(--bd)"}}>
+                  {h.at||h.recordTime||""} {h.by&&<span style={{color:"var(--tl)"}}>{h.by}</span>} {h.desc||h.action||""}
+                </div>)}
+              </div>}
+              {tempHist.length===0&&changeHist.length===0&&<div style={{fontSize:11,color:"var(--tx3)"}}>詳細履歴なし</div>}
+            </div>}
           </div>;
         })
     }
