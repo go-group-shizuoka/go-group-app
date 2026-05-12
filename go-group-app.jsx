@@ -7684,9 +7684,11 @@ function HomeScreen({user,onNav,store}){
 // ==================== 監査モード ====================
 function AuditScreen({user,onBack,store}){
   const today=todayISO();
+  const [tab,setTab]=useState("daily");
   const [dateFrom,setDateFrom]=useState(today);
   const [dateTo,setDateTo]=useState(today);
-  const [expandUser,setExpandUser]=useState(null); // 詳細展開
+  const [expandUser,setExpandUser]=useState(null);
+  const [vm,setVm]=useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()+1};});
 
   const myFac=r=>(user.role==="admin")||(r.facilityId||r.facility_id)===user.selectedFacilityId;
   const myUsers=store.dynUsers.filter(u=>u.active!==false&&(user.role==="admin"||u.facilityId===user.selectedFacilityId));
@@ -7710,6 +7712,294 @@ function AuditScreen({user,onBack,store}){
   const getTempHistory=uid=>rangeRecs.filter(r=>r.type==="user_in"&&r.userId===uid&&r.temp).map(r=>({date:r.time?.slice(0,16)||"",temp:r.temp,by:r.createdBy||""}));
   // 変更履歴（record.history配列）
   const getChangeHistory=uid=>rangeRecs.filter(r=>r.userId===uid&&(r.history||[]).length>0).flatMap(r=>(r.history||[]).map(h=>({...h,recordType:r.type,recordTime:r.time?.slice(0,16)||""})));
+
+  // ===== 月次帳票: 月次サービス提供記録表 =====
+  const printMonthlyServiceTable=()=>{
+    const facName=fac?.name||"";
+    const yearMonth=vm.y+"-"+String(vm.m).padStart(2,"0");
+    const inMonth=r=>(r.time||"").slice(0,7)===yearMonth&&myFac(r);
+    const monthRecs=store.recs.filter(inMonth);
+    const daysInM=new Date(vm.y,vm.m,0).getDate();
+    const dayHeaders=Array.from({length:daysInM},(_,i)=>`<th style="min-width:18px;font-size:7pt;">${i+1}</th>`).join("");
+    const dow=["日","月","火","水","木","金","土"];
+    const dowHeaders=Array.from({length:daysInM},(_,i)=>{
+      const d=new Date(vm.y,vm.m-1,i+1).getDay();
+      const col=d===0?"#c0392b":d===6?"#1a4a8a":"#333";
+      return `<th style="min-width:18px;font-size:7pt;color:${col};">${dow[d]}</th>`;
+    }).join("");
+    const userRows=myUsers.map(u=>{
+      const arrivals=monthRecs.filter(r=>r.type==="user_in"&&r.userId===u.id);
+      const services=monthRecs.filter(r=>r.type==="service"&&r.userId===u.id);
+      const arrivedDates=new Set(arrivals.map(r=>(r.time||"").slice(8,10).replace(/^0/,"")));
+      const svcDates=new Set(services.map(r=>(r.time||"").slice(8,10).replace(/^0/,"")));
+      const tempMap={};arrivals.forEach(r=>{const d=(r.time||"").slice(8,10).replace(/^0/,"");tempMap[d]=r.temp||"";});
+      const cells=Array.from({length:daysInM},(_,i)=>{
+        const d=String(i+1);
+        const arr=arrivedDates.has(d);const svc=svcDates.has(d);const tmp=tempMap[d]||"";
+        const bg=arr?(svc?"#e6f5ec":"#fdf0ee"):"";
+        const content=arr?`<div style="font-size:7pt;color:${svc?"#155a30":"#c0392b"};font-weight:700;">${svc?"○":"△"}</div>${tmp?`<div style="font-size:6pt;color:#444;">${tmp}℃</div>`:""}`:""
+        return `<td style="background:${bg};padding:1px;text-align:center;vertical-align:top;height:28px;">${content}</td>`;
+      }).join("");
+      const totalDays=arrivedDates.size;const svcTotal=svcDates.size;
+      return `<tr>
+        <td style="text-align:left;padding:3px 5px;font-weight:700;font-size:9pt;white-space:nowrap;border-right:2px solid #bbb;">${u.name}</td>
+        <td style="font-size:7pt;padding:1px 4px;color:#555;border-right:1px solid #ccc;">${(u.data||u).jukyushaNo||"—"}</td>
+        ${cells}
+        <td style="font-weight:700;text-align:center;color:#1a4a8a;border-left:2px solid #bbb;">${totalDays}</td>
+        <td style="font-weight:700;text-align:center;color:${svcTotal<totalDays?"#c0392b":"#1a7a3a"};">${svcTotal}</td>
+      </tr>`;
+    }).join("");
+    const html=`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"/>
+    <title>月次サービス提供記録表 ${vm.y}年${vm.m}月</title>
+    <style>
+      @page{size:A3 landscape;margin:8mm 6mm;}
+      *{box-sizing:border-box;} body{font-family:'MS Gothic',Meiryo,sans-serif;font-size:9pt;color:#111;}
+      h2{font-size:13pt;margin-bottom:3px;} .meta{font-size:8pt;color:#555;margin-bottom:8px;}
+      table{border-collapse:collapse;width:100%;}
+      th,td{border:1px solid #ccc;padding:1px 2px;text-align:center;}
+      th{background:#dce8f8;font-weight:700;}
+      .sign-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px;}
+      .sign-box{border:1px solid #aaa;padding:6px;min-height:40px;border-radius:3px;}
+      .sign-lbl{font-size:7pt;color:#666;}
+      .legend{display:flex;gap:10px;margin-bottom:6px;font-size:8pt;}
+      .leg{display:flex;align-items:center;gap:3px;}
+    </style></head><body>
+    <h2>📋 月次サービス提供記録表</h2>
+    <div class="meta">事業所: ${facName}　対象: ${vm.y}年${vm.m}月　出力日: ${new Date().toLocaleDateString("ja-JP")}</div>
+    <div class="legend">
+      <div class="leg"><div style="width:14px;height:14px;background:#e6f5ec;border:1px solid #90c090;"></div>○ 来所+記録完備</div>
+      <div class="leg"><div style="width:14px;height:14px;background:#fdf0ee;border:1px solid #e09090;"></div>△ 来所のみ（記録不足）</div>
+      <div style="font-size:7pt;color:#888;">数字は体温(℃)</div>
+    </div>
+    <table>
+      <thead>
+        <tr><th rowspan="2" style="min-width:70px;text-align:left;padding:3px 5px;">利用者名</th>
+        <th rowspan="2" style="min-width:80px;">受給者証番号</th>
+        ${dayHeaders}
+        <th rowspan="2" style="min-width:24px;">来所<br/>日数</th>
+        <th rowspan="2" style="min-width:24px;">記録<br/>日数</th></tr>
+        <tr>${dowHeaders}</tr>
+      </thead>
+      <tbody>${userRows}</tbody>
+    </table>
+    <div class="sign-row">
+      <div class="sign-box"><div class="sign-lbl">管理者 確認印</div></div>
+      <div class="sign-box"><div class="sign-lbl">児発管 確認印</div></div>
+      <div class="sign-box"><div class="sign-lbl">担当職員</div></div>
+      <div class="sign-box"><div class="sign-lbl">確認日: ${new Date().toLocaleDateString("ja-JP")}</div></div>
+    </div></body></html>`;
+    const w=window.open("","_blank","width=1300,height=800");
+    if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),400);}
+  };
+
+  // ===== 月次帳票: 利用者別支援記録台帳 =====
+  const printUserLedger=(userId)=>{
+    const u=myUsers.find(x=>x.id===userId);
+    if(!u) return;
+    const yearMonth=vm.y+"-"+String(vm.m).padStart(2,"0");
+    const inMonth=r=>(r.time||"").slice(0,7)===yearMonth&&r.userId===userId;
+    const svcRecs=store.recs.filter(r=>inMonth(r)&&r.type==="service").sort((a,b)=>a.time>b.time?1:-1);
+    const arrRecs=store.recs.filter(r=>inMonth(r)&&r.type==="user_in").sort((a,b)=>a.time>b.time?1:-1);
+    const ud=u.data||u;
+    // 有効ISP
+    const activeIsp=(store.isps||[]).filter(x=>x.userId===userId).sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+    const ispRecAct=(store.ispRecords||[]).filter(r=>r.userId===userId&&r.docType==="isp_plan"&&["finalized","parent_consented","manager_confirmed"].includes(r.status)).sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+    const ispGoal=ispRecAct?.content?.shortGoal||activeIsp?.shortGoal||"—";
+    const ispDomains=ispRecAct?.content?.domains?.join("・")||activeIsp?.goals?.map(g=>g.domain||"").join("・")||"—";
+    const recRows=svcRecs.map(s=>{
+      const arrOnDate=arrRecs.find(r=>r.time?.slice(0,10)===s.time?.slice(0,10));
+      return `<tr style="page-break-inside:avoid;">
+        <td style="padding:5px 7px;white-space:nowrap;font-weight:700;">${(s.time||"").slice(0,16)}</td>
+        <td style="padding:5px 7px;white-space:nowrap;">${s.arrival||arrOnDate?.time?.slice(11,16)||"—"} 〜 ${s.departure||"—"}</td>
+        <td style="padding:5px 7px;text-align:center;">${arrOnDate?.temp||"—"}</td>
+        <td style="padding:5px 7px;text-align:center;">${arrOnDate?.transport||"—"}</td>
+        <td style="padding:5px 7px;font-size:9pt;">${(s.items||[]).join("・")||"—"}</td>
+        <td style="padding:5px 7px;font-size:9pt;">${s.supportNote||s.note||"—"}</td>
+        <td style="padding:5px 7px;text-align:center;font-size:9pt;">${s.staffName||s.createdBy||"—"}</td>
+      </tr>`;
+    }).join("");
+    const html=`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"/>
+    <title>支援記録台帳 ${u.name}</title>
+    <style>
+      @page{size:A4 portrait;margin:15mm 12mm;}
+      *{box-sizing:border-box;} body{font-family:'MS Gothic',Meiryo,sans-serif;font-size:10pt;color:#111;}
+      h2{font-size:14pt;border-bottom:2px solid #1a3a6a;padding-bottom:5px;margin-bottom:10px;}
+      .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;}
+      .info-item{border:1px solid #ccc;padding:5px 8px;border-radius:3px;}
+      .info-lbl{font-size:7pt;color:#666;margin-bottom:1px;}
+      .info-val{font-size:10pt;font-weight:700;}
+      table{border-collapse:collapse;width:100%;font-size:9pt;margin-top:8px;}
+      th,td{border:1px solid #ccc;padding:4px 6px;}
+      th{background:#dce8f8;font-weight:700;text-align:center;}
+      .isp-box{background:#e8f5ec;border:1px solid #90c090;border-radius:4px;padding:8px;margin-bottom:10px;font-size:9pt;}
+      .sign-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px;}
+      .sign-box{border:1px solid #aaa;padding:8px;min-height:48px;border-radius:3px;}
+      .sign-lbl{font-size:8pt;color:#666;}
+    </style></head><body>
+    <h2>📋 個別支援記録台帳</h2>
+    <div class="info-grid">
+      <div class="info-item"><div class="info-lbl">氏名</div><div class="info-val">${u.name}</div></div>
+      <div class="info-item"><div class="info-lbl">受給者証番号</div><div class="info-val">${ud.jukyushaNo||"（未入力）"}</div></div>
+      <div class="info-item"><div class="info-lbl">対象年月</div><div class="info-val">${vm.y}年${vm.m}月</div></div>
+      <div class="info-item"><div class="info-lbl">事業所名</div><div class="info-val">${fac?.name||""}</div></div>
+    </div>
+    <div class="isp-box">
+      <div style="font-weight:700;margin-bottom:3px;">📋 適用中の個別支援計画</div>
+      <div>短期目標: ${ispGoal}</div>
+      <div style="font-size:8pt;color:#444;margin-top:2px;">支援領域: ${ispDomains}</div>
+    </div>
+    <table>
+      <thead><tr>
+        <th>日時</th><th>在所時間</th><th>体温</th><th>送迎</th>
+        <th>支援内容・活動</th><th>支援の記録・様子</th><th>担当者</th>
+      </tr></thead>
+      <tbody>${recRows||`<tr><td colspan="7" style="text-align:center;color:#999;padding:12px;">この月の記録なし</td></tr>`}</tbody>
+    </table>
+    <div class="sign-row">
+      <div class="sign-box"><div class="sign-lbl">担当職員 確認サイン</div></div>
+      <div class="sign-box"><div class="sign-lbl">管理者 確認サイン　　確認日: ${new Date().toLocaleDateString("ja-JP")}</div></div>
+    </div>
+    </body></html>`;
+    const w=window.open("","_blank","width=900,height=750");
+    if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),400);}
+  };
+
+  // ===== 月次帳票: ISP整合確認表 =====
+  const printIspCompliance=()=>{
+    const yearMonth=vm.y+"-"+String(vm.m).padStart(2,"0");
+    const facName=fac?.name||"";
+    const inMonth=r=>(r.time||"").slice(0,7)===yearMonth&&myFac(r);
+    const monthSvcRecs=store.recs.filter(r=>inMonth(r)&&r.type==="service");
+    const userRows=myUsers.map(u=>{
+      const ud=u.data||u;
+      const urecs=monthSvcRecs.filter(r=>r.userId===u.id);
+      const activeIsp=(store.isps||[]).filter(x=>x.userId===u.id).sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+      const ispRec=(store.ispRecords||[]).filter(r=>r.userId===u.id&&r.docType==="isp_plan").sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+      const ispGoal=ispRec?.content?.shortGoal||activeIsp?.shortGoal||"—";
+      const ispStatus=ispRec?.status||"—";
+      const ispColor={"finalized":"#155a30","parent_consented":"#1a4a8a","manager_confirmed":"#7a5000"}[ispStatus]||"#c0392b";
+      const ispStatusLabel={"finalized":"確定済","parent_consented":"保護者同意済","manager_confirmed":"管理者確認済","cdsm_approved":"児発管承認","staff_checked":"職員確認","ai_draft":"下書き","—":"未作成"}[ispStatus]||ispStatus;
+      const recCount=urecs.length;
+      // ISP連携率（ispId or shortGoalへの言及を含む記録）
+      const linked=urecs.filter(r=>r.ispId||(r.supportNote||"").includes(ispGoal.slice(0,10))).length;
+      const linkRate=recCount>0?Math.round(linked/recCount*100):0;
+      const statusColor=linkRate>=80?"#155a30":linkRate>=50?"#7a5000":"#c0392b";
+      return `<tr>
+        <td style="padding:5px 7px;font-weight:700;">${u.name}</td>
+        <td style="padding:5px 7px;font-size:8pt;">${ud.jukyushaNo||"—"}</td>
+        <td style="padding:5px 7px;font-size:9pt;">${ispGoal.slice(0,40)}${ispGoal.length>40?"…":""}</td>
+        <td style="padding:5px 7px;text-align:center;color:${ispColor};font-weight:700;">${ispStatusLabel}</td>
+        <td style="padding:5px 7px;text-align:center;">${recCount}</td>
+        <td style="padding:5px 7px;text-align:center;">${linked}</td>
+        <td style="padding:5px 7px;text-align:center;font-weight:700;color:${statusColor};">${linkRate}%</td>
+        <td style="padding:5px 7px;text-align:center;">${ispRec?.content?.supportPeriod||activeIsp?.period||"—"}</td>
+      </tr>`;
+    }).join("");
+    const html=`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"/>
+    <title>ISP整合確認表 ${vm.y}年${vm.m}月</title>
+    <style>
+      @page{size:A4 landscape;margin:12mm 10mm;}
+      *{box-sizing:border-box;} body{font-family:'MS Gothic',Meiryo,sans-serif;font-size:9pt;color:#111;}
+      h2{font-size:13pt;margin-bottom:4px;} .meta{font-size:8pt;color:#555;margin-bottom:8px;}
+      table{border-collapse:collapse;width:100%;font-size:9pt;}
+      th,td{border:1px solid #ccc;padding:5px 7px;}
+      th{background:#dce8f8;font-weight:700;text-align:center;}
+      .sign-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:14px;}
+      .sign-box{border:1px solid #aaa;padding:8px;min-height:44px;border-radius:3px;}
+      .sign-lbl{font-size:8pt;color:#666;}
+    </style></head><body>
+    <h2>📊 個別支援計画 整合確認表</h2>
+    <div class="meta">事業所: ${facName}　対象: ${vm.y}年${vm.m}月　出力日: ${new Date().toLocaleDateString("ja-JP")}</div>
+    <div style="font-size:8pt;color:#666;margin-bottom:8px;">※ ISP連携率 = サービス記録のうちISP目標に言及した記録の割合（80%以上推奨）</div>
+    <table>
+      <thead><tr>
+        <th>利用者名</th><th>受給者証番号</th><th>ISP短期目標</th>
+        <th>ISPステータス</th><th>記録件数</th><th>ISP連携件数</th><th>ISP連携率</th><th>支援期間</th>
+      </tr></thead>
+      <tbody>${userRows}</tbody>
+    </table>
+    <div class="sign-row">
+      <div class="sign-box"><div class="sign-lbl">管理者 確認印</div></div>
+      <div class="sign-box"><div class="sign-lbl">児発管 確認印</div></div>
+      <div class="sign-box"><div class="sign-lbl">確認日: ${new Date().toLocaleDateString("ja-JP")}</div></div>
+    </div></body></html>`;
+    const w=window.open("","_blank","width=1200,height=800");
+    if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),400);}
+  };
+
+  // ===== 月次帳票: 欠落チェックレポート =====
+  const printGapReport=()=>{
+    const yearMonth=vm.y+"-"+String(vm.m).padStart(2,"0");
+    const facName=fac?.name||"";
+    const inMonth=r=>(r.time||"").slice(0,7)===yearMonth&&myFac(r);
+    const monthRecs=store.recs.filter(inMonth);
+    const reportRows=myUsers.map(u=>{
+      const arr=monthRecs.filter(r=>r.type==="user_in"&&r.userId===u.id);
+      const svc=monthRecs.filter(r=>r.type==="service"&&r.userId===u.id);
+      const dep=monthRecs.filter(r=>r.type==="user_out"&&r.userId===u.id);
+      const arrDates=[...new Set(arr.map(r=>r.time?.slice(0,10)))].filter(Boolean);
+      const svcDates=[...new Set(svc.map(r=>r.time?.slice(0,10)))].filter(Boolean);
+      const depDates=[...new Set(dep.map(r=>r.time?.slice(0,10)))].filter(Boolean);
+      const noTemp=arr.filter(r=>!r.temp||r.temp==="").length;
+      const noSvc=arrDates.filter(d=>!svcDates.includes(d));
+      const noDep=arrDates.filter(d=>!depDates.includes(d));
+      const isp=(store.isps||[]).filter(x=>x.userId===u.id).sort((a,b)=>b.endDate>a.endDate?1:-1)[0];
+      const fs=store.facesheets.find(f=>f.userId===u.id);
+      const issues=[];
+      if(noTemp>0) issues.push(`体温未入力 ${noTemp}件`);
+      if(noSvc.length>0) issues.push(`サービス記録なし ${noSvc.length}日 (${noSvc.join(",").slice(0,20)})`);
+      if(noDep.length>0) issues.push(`退所記録なし ${noDep.length}日`);
+      if(!isp) issues.push("ISP未作成");
+      else if(isp.endDate<yearMonth+"-01") issues.push(`ISP期限切れ(${isp.endDate})`);
+      if(!fs) issues.push("フェイスシート未作成");
+      const level=issues.length===0?"ok":issues.some(i=>i.includes("サービス記録")||i.includes("ISP"))?"ng":"warn";
+      const bg=level==="ok"?"#e6f5ec":level==="ng"?"#fdf0ee":"#fffaec";
+      return `<tr style="background:${bg};">
+        <td style="padding:5px 7px;font-weight:700;">${level==="ok"?"✅":level==="ng"?"🚨":"⚠️"} ${u.name}</td>
+        <td style="padding:5px 7px;text-align:center;">${arrDates.length}</td>
+        <td style="padding:5px 7px;text-align:center;color:${noTemp>0?"#c0392b":"#1a7a3a"};font-weight:700;">${noTemp>0?"✗ "+noTemp+"件":"✓"}</td>
+        <td style="padding:5px 7px;text-align:center;color:${noSvc.length>0?"#c0392b":"#1a7a3a"};font-weight:700;">${noSvc.length>0?"✗ "+noSvc.length+"日":"✓"}</td>
+        <td style="padding:5px 7px;text-align:center;color:${noDep.length>0?"#e08020":"#1a7a3a"};">${noDep.length>0?"△ "+noDep.length+"日":"✓"}</td>
+        <td style="padding:5px 7px;text-align:center;color:${!isp||isp.endDate<yearMonth+"-01"?"#c0392b":"#1a7a3a"};font-weight:700;">${!isp?"✗ 未作成":isp.endDate<yearMonth+"-01"?"✗ 期限切れ":"✓ 有効"}</td>
+        <td style="padding:5px 7px;text-align:center;color:${!fs?"#e08020":"#1a7a3a"};">${!fs?"△ 未作成":"✓"}</td>
+        <td style="padding:5px 7px;font-size:8pt;color:#444;">${issues.join(" / ")||"—"}</td>
+      </tr>`;
+    }).join("");
+    const ngCount=myUsers.filter(u=>{
+      const arr=monthRecs.filter(r=>r.type==="user_in"&&r.userId===u.id);
+      const svc=monthRecs.filter(r=>r.type==="service"&&r.userId===u.id);
+      return arr.length>0&&svc.length===0;
+    }).length;
+    const html=`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"/>
+    <title>欠落チェックレポート ${vm.y}年${vm.m}月</title>
+    <style>
+      @page{size:A4 landscape;margin:12mm 10mm;}
+      *{box-sizing:border-box;} body{font-family:'MS Gothic',Meiryo,sans-serif;font-size:9pt;color:#111;}
+      h2{font-size:13pt;margin-bottom:4px;} .meta{font-size:8pt;color:#555;margin-bottom:8px;}
+      table{border-collapse:collapse;width:100%;font-size:9pt;}
+      th,td{border:1px solid #ccc;padding:4px 7px;}
+      th{background:#dce8f8;font-weight:700;text-align:center;}
+      .sign-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:14px;}
+      .sign-box{border:1px solid #aaa;padding:8px;min-height:44px;border-radius:3px;}
+      .sign-lbl{font-size:8pt;color:#666;}
+    </style></head><body>
+    <h2>🔍 監査対応 欠落チェックレポート</h2>
+    <div class="meta">事業所: ${facName}　対象: ${vm.y}年${vm.m}月　出力日: ${new Date().toLocaleDateString("ja-JP")}</div>
+    ${ngCount>0?`<div style="background:#fdf0ee;border:1px solid #e09090;padding:6px 10px;border-radius:4px;margin-bottom:8px;font-size:9pt;color:#8a2010;font-weight:700;">🚨 サービス記録が不足している利用者が ${ngCount}名 います。提出前に確認してください。</div>`:""}
+    <table>
+      <thead><tr>
+        <th>利用者名</th><th>来所日数</th><th>体温入力</th><th>サービス記録</th><th>退所記録</th><th>ISP</th><th>フェイスシート</th><th>課題内容</th>
+      </tr></thead>
+      <tbody>${reportRows}</tbody>
+    </table>
+    <div class="sign-row">
+      <div class="sign-box"><div class="sign-lbl">管理者 確認印</div></div>
+      <div class="sign-box"><div class="sign-lbl">児発管 確認印</div></div>
+      <div class="sign-box"><div class="sign-lbl">確認日: ${new Date().toLocaleDateString("ja-JP")}</div></div>
+    </div></body></html>`;
+    const w=window.open("","_blank","width=1200,height=800");
+    if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),400);}
+  };
 
   // ===== 強化版監査PDF =====
   const printAudit=()=>{
@@ -7794,64 +8084,77 @@ function AuditScreen({user,onBack,store}){
     if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),400);}
   };
 
+  // 書類一覧: 利用者別の帳票完備状況
+  const docStatusRows=myUsers.map(u=>{
+    const ud=u.data||u;
+    const fs=store.facesheets.find(f=>f.userId===u.id);
+    const asses=(store.assessments||[]).filter(a=>a.userId===u.id);
+    const isps=(store.isps||[]).filter(x=>x.userId===u.id);
+    const ispRecs=(store.ispRecords||[]).filter(r=>r.userId===u.id&&r.docType==="isp_plan");
+    const mons=(store.monitorings||[]).filter(m=>m.userId===u.id);
+    const latestIsp=isps.sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+    const latestIspRec=ispRecs.sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+    const ispOk=latestIsp||latestIspRec;
+    const ispExpired=latestIsp&&latestIsp.endDate&&latestIsp.endDate<todayISO();
+    const jukyushaOk=ud.jukyushaNo||false;
+    const score=[!!fs,!!asses.length,ispOk&&!ispExpired,!!mons.length,jukyushaOk].filter(Boolean).length;
+    return {u,ud,fs,asses,latestIsp,latestIspRec,mons,score,jukyushaOk,ispExpired};
+  });
+
   return <div className="fl-wrap">
     <div className="fl-hd">
       <button className="bback" onClick={onBack}>← 戻る</button>
       <div className="fl-title">🔍 監査モード</div>
-      <button className="bexp" style={{marginLeft:"auto",background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={printAudit}>🖨️ 監査PDF</button>
     </div>
 
-    {/* 期間選択 */}
-    <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:16,background:"var(--wh)",padding:14,borderRadius:12,border:"1px solid var(--bd)"}}>
-      <span style={{fontSize:12,fontWeight:700,color:"var(--tx3)"}}>期間：</span>
-      <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}
-        style={{padding:"8px 10px",borderRadius:8,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontSize:16,fontFamily:"'DM Mono',monospace",outline:"none"}}/>
-      <span style={{color:"var(--tx3)"}}>〜</span>
-      <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}
-        style={{padding:"8px 10px",borderRadius:8,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontSize:16,fontFamily:"'DM Mono',monospace",outline:"none"}}/>
-      {/* クイック選択 */}
-      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        {[["今日",0,0],["今週",-(new Date().getDay()||7)+1,0],["今月",-(new Date().getDate()-1),0]].map(([label,from,to])=>(
-          <button key={label} onClick={()=>{
-            const d=new Date();
-            const f=new Date(d);f.setDate(d.getDate()+from);
-            const t=new Date(d);t.setDate(d.getDate()+to);
-            setDateFrom(f.toISOString().slice(0,10));
-            setDateTo(t.toISOString().slice(0,10));
-          }} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
-            {label}
-          </button>
+    {/* タブ */}
+    <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:16}}>
+      {[
+        {id:"daily",  icon:"📅",label:"日次チェック"},
+        {id:"monthly",icon:"📋",label:"月次帳票出力"},
+        {id:"docs",   icon:"📂",label:"書類一覧"},
+      ].map(t=><button key={t.id} onClick={()=>setTab(t.id)}
+        style={{padding:"8px 16px",borderRadius:9,border:"2px solid",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,transition:"all .15s",
+          borderColor:tab===t.id?"var(--tl)":"var(--bd)",
+          background:tab===t.id?"rgba(58,160,216,0.2)":"var(--bg)",
+          color:tab===t.id?"var(--tl)":"var(--tx3)"}}>
+        {t.icon} {t.label}
+      </button>)}
+    </div>
+
+    {/* ── 日次チェックタブ ── */}
+    {tab==="daily"&&<>
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:16,background:"var(--wh)",padding:14,borderRadius:12,border:"1px solid var(--bd)"}}>
+        <span style={{fontSize:12,fontWeight:700,color:"var(--tx3)"}}>期間：</span>
+        <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}
+          style={{padding:"8px 10px",borderRadius:8,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontSize:16,fontFamily:"'DM Mono',monospace",outline:"none"}}/>
+        <span style={{color:"var(--tx3)"}}>〜</span>
+        <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}
+          style={{padding:"8px 10px",borderRadius:8,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontSize:16,fontFamily:"'DM Mono',monospace",outline:"none"}}/>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {[["今日",0,0],["今週",-(new Date().getDay()||7)+1,0],["今月",-(new Date().getDate()-1),0]].map(([label,from,to])=>(
+            <button key={label} onClick={()=>{
+              const d=new Date();const f=new Date(d);f.setDate(d.getDate()+from);const t2=new Date(d);t2.setDate(d.getDate()+to);
+              setDateFrom(f.toISOString().slice(0,10));setDateTo(t2.toISOString().slice(0,10));
+            }} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <button className="bexp" style={{marginLeft:"auto",background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={printAudit}>🖨️ 監査PDF</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:9,marginBottom:18}}>
+        {[{label:"来所者数",val:total,color:"var(--tl)"},{label:"記録完備",val:fullOk,color:"var(--gr)"},{label:"未完備",val:total-fullOk,color:total-fullOk>0?"var(--ro)":"var(--tx3)"},{label:"高体温者",val:highTempIds.length,color:highTempIds.length>0?"var(--ro)":"var(--tx3)"}].map(s=>(
+          <div key={s.label} className="stat-card"><div className="stat-label">{s.label}</div><div className="stat-val" style={{color:s.color,fontSize:22}}>{s.val}</div></div>
         ))}
       </div>
-    </div>
-
-    {/* サマリーカード */}
-    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:9,marginBottom:18}}>
-      {[
-        {label:"来所者数",    val:total,           color:"var(--tl)"},
-        {label:"記録完備",   val:fullOk,          color:"var(--gr)"},
-        {label:"未完備",     val:total-fullOk,    color:total-fullOk>0?"var(--ro)":"var(--tx3)"},
-        {label:"高体温者",   val:highTempIds.length,color:highTempIds.length>0?"var(--ro)":"var(--tx3)"},
-      ].map(s=><div key={s.label} className="stat-card">
-        <div className="stat-label">{s.label}</div>
-        <div className="stat-val" style={{color:s.color,fontSize:22}}>{s.val}</div>
-      </div>)}
-    </div>
-
-    {/* 利用者ごとのチェックリスト */}
-    {arrivedUserIds.length===0
-      ? <div style={{textAlign:"center",color:"var(--tx3)",padding:"32px 0",fontSize:13,background:"var(--wh)",borderRadius:12,border:"1px solid var(--bd)"}}>
-          指定期間内に来所記録がありません
-        </div>
-      : myUsers.filter(u=>arrivedUserIds.includes(u.id)).map(u=>{
-          const hasTemp=tempOkIds.includes(u.id);
-          const hasService=serviceUserIds.includes(u.id);
-          const hasPhoto=photoUserIds.includes(u.id);
-          const hasHigh=highTempIds.includes(u.id);
-          const allOk=hasTemp&&hasService;
-          const expanded=expandUser===u.id;
-          const tempHist=getTempHistory(u.id);
-          const changeHist=getChangeHistory(u.id);
+      {arrivedUserIds.length===0
+        ?<div style={{textAlign:"center",color:"var(--tx3)",padding:"32px 0",fontSize:13,background:"var(--wh)",borderRadius:12,border:"1px solid var(--bd)"}}>指定期間内に来所記録がありません</div>
+        :myUsers.filter(u=>arrivedUserIds.includes(u.id)).map(u=>{
+          const hasTemp=tempOkIds.includes(u.id),hasService=serviceUserIds.includes(u.id);
+          const hasPhoto=photoUserIds.includes(u.id),hasHigh=highTempIds.includes(u.id);
+          const allOk=hasTemp&&hasService,expanded=expandUser===u.id;
+          const tempHist=getTempHistory(u.id),changeHist=getChangeHistory(u.id);
           return <div key={u.id} className="audit-user-row"
             style={{borderColor:hasHigh?"rgba(224,56,56,0.6)":allOk?"rgba(44,170,96,0.4)":"rgba(224,56,56,0.3)",cursor:"pointer"}}
             onClick={()=>setExpandUser(expanded?null:u.id)}>
@@ -7865,7 +8168,6 @@ function AuditScreen({user,onBack,store}){
               <span className={`audit-check ${hasService?"audit-ok":"audit-ng"}`}>サービス記録 {hasService?"✓":"✗"}</span>
               <span className={`audit-check ${hasPhoto?"audit-ok":"audit-na"}`}>写真 {hasPhoto?"✓":"—"}</span>
             </div>
-            {/* 展開：体温履歴・変更履歴 */}
             {expanded&&<div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--bd)"}}>
               {tempHist.length>0&&<div style={{marginBottom:8}}>
                 <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",marginBottom:5}}>🌡 体温履歴</div>
@@ -7888,7 +8190,100 @@ function AuditScreen({user,onBack,store}){
             </div>}
           </div>;
         })
-    }
+      }
+    </>}
+
+    {/* ── 月次帳票出力タブ ── */}
+    {tab==="monthly"&&<>
+      {/* 年月選択 */}
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:16,background:"var(--wh)",padding:12,borderRadius:12,border:"1px solid var(--bd)"}}>
+        <span style={{fontSize:12,fontWeight:700,color:"var(--tx3)"}}>対象年月：</span>
+        <select className="fsm" value={vm.y} onChange={e=>setVm(v=>({...v,y:+e.target.value}))}>
+          {Array.from({length:5},(_,i)=>2024+i).map(y=><option key={y} value={y}>{y}年</option>)}
+        </select>
+        <select className="fsm" value={vm.m} onChange={e=>setVm(v=>({...v,m:+e.target.value}))}>
+          {Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m}月</option>)}
+        </select>
+        <span style={{fontSize:11,color:"var(--tx3)",marginLeft:8}}>👉 帳票を選んで印刷してください</span>
+      </div>
+      {/* 帳票カード一覧 */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12,marginBottom:20}}>
+        {[
+          {icon:"📊",title:"月次サービス提供記録表",desc:"全利用者の来所日をA3カレンダーで確認。体温・記録状況を色で表示",color:"linear-gradient(135deg,#1a6b3a,#2d9e58)",action:printMonthlyServiceTable},
+          {icon:"📋",title:"欠落チェックレポート",desc:"体温未入力・サービス記録不足・ISP期限切れを一覧で確認",color:"linear-gradient(135deg,#8a2010,#c0392b)",action:printGapReport},
+          {icon:"📊",title:"ISP整合確認表",desc:"ISP目標とサービス記録の連携率を利用者ごとに数値で確認",color:"linear-gradient(135deg,#1a4a8a,#2d6ed6)",action:printIspCompliance},
+        ].map(c=>(
+          <button key={c.title} onClick={c.action}
+            style={{display:"flex",flexDirection:"column",gap:8,padding:"16px 14px",borderRadius:14,background:c.color,color:"#fff",border:"none",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",textAlign:"left",transition:"transform .1s,box-shadow .1s",boxShadow:"0 4px 16px rgba(0,0,0,0.2)"}}>
+            <div style={{fontSize:26}}>{c.icon}</div>
+            <div style={{fontWeight:700,fontSize:13,lineHeight:1.4}}>{c.title}</div>
+            <div style={{fontSize:11,opacity:.85,lineHeight:1.5}}>{c.desc}</div>
+            <div style={{marginTop:4,fontSize:11,fontWeight:700,opacity:.9}}>🖨 クリックして印刷</div>
+          </button>
+        ))}
+      </div>
+      {/* 利用者別支援記録台帳 */}
+      <div className="dash-title" style={{marginBottom:10}}>📋 利用者別 支援記録台帳（個別印刷）</div>
+      <div style={{display:"flex",flexDirection:"column",gap:7}}>
+        {myUsers.map(u=>{
+          const yearMonth=vm.y+"-"+String(vm.m).padStart(2,"0");
+          const svcCount=store.recs.filter(r=>r.type==="service"&&r.userId===u.id&&(r.time||"").slice(0,7)===yearMonth).length;
+          const arrCount=store.recs.filter(r=>r.type==="user_in"&&r.userId===u.id&&(r.time||"").slice(0,7)===yearMonth).length;
+          return <div key={u.id} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"10px 13px",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,fontSize:13}}>{u.name}</div>
+              <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>
+                来所 <span style={{fontWeight:700,color:"var(--tl)"}}>{arrCount}日</span>
+                サービス記録 <span style={{fontWeight:700,color:svcCount>=arrCount?"var(--gr)":svcCount>0?"var(--am)":"var(--ro)"}}>{svcCount}件</span>
+              </div>
+            </div>
+            <button onClick={()=>printUserLedger(u.id)}
+              style={{padding:"8px 14px",borderRadius:9,background:"rgba(58,160,216,0.12)",border:"1px solid rgba(58,160,216,0.4)",color:"var(--tl)",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",whiteSpace:"nowrap"}}>
+              🖨 台帳印刷
+            </button>
+          </div>;
+        })}
+        {myUsers.length===0&&<div style={{textAlign:"center",color:"var(--tx3)",padding:24}}>利用者が登録されていません</div>}
+      </div>
+    </>}
+
+    {/* ── 書類一覧タブ ── */}
+    {tab==="docs"&&<>
+      <div className="dash-title" style={{marginBottom:10}}>📂 利用者別 書類完備状況</div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:600}}>
+          <thead><tr style={{background:"var(--bg2)"}}>
+            {["利用者名","受給者証番号","フェイスシート","アセスメント","個別支援計画","モニタリング","完備スコア"].map(h=>(
+              <th key={h} style={{padding:"7px 9px",textAlign:"left",color:"var(--tx2)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--bd)",whiteSpace:"nowrap"}}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>{docStatusRows.map(({u,ud,fs,asses,latestIsp,latestIspRec,mons,score,jukyushaOk,ispExpired})=>{
+            const Cell=({ok,warn,text})=><td style={{padding:"7px 9px"}}>
+              <span style={{fontSize:11,fontWeight:700,color:ok?"var(--gr)":warn?"var(--am)":"var(--ro)"}}>{ok?"✅":warn?"⚠️":"✗"} {text}</span>
+            </td>;
+            const ispOk=(latestIsp||latestIspRec)&&!ispExpired;
+            const ispText=latestIspRec?`${latestIspRec.status==="finalized"?"確定済":"作成中"}`
+              :latestIsp?`${ispExpired?"期限切れ":"有効"}(〜${latestIsp.endDate||"?"})` :"未作成";
+            return <tr key={u.id} style={{borderBottom:"1px solid var(--bd)"}}>
+              <td style={{padding:"7px 9px",fontWeight:700}}>{u.name}</td>
+              <td style={{padding:"7px 9px",fontFamily:"'DM Mono',monospace",fontSize:11,color:jukyushaOk?"var(--tx)":"var(--ro)"}}>{ud.jukyushaNo||"未入力"}</td>
+              <Cell ok={!!fs} text={fs?"作成済":"未作成"}/>
+              <Cell ok={asses.length>0} text={asses.length>0?`${asses.length}件`:"未作成"}/>
+              <Cell ok={ispOk} warn={latestIsp&&ispExpired} text={ispText}/>
+              <Cell ok={mons.length>0} text={mons.length>0?`${mons.length}件`:"未作成"}/>
+              <td style={{padding:"7px 9px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:7}}>
+                  <div style={{flex:1,height:8,background:"var(--bd)",borderRadius:4,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${score/5*100}%`,background:score>=4?"var(--gr)":score>=2?"var(--am)":"var(--ro)",borderRadius:4,transition:"width .3s"}}/>
+                  </div>
+                  <span style={{fontSize:11,fontWeight:700,color:score>=4?"var(--gr)":score>=2?"var(--am)":"var(--ro)"}}>{score}/5</span>
+                </div>
+              </td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
+    </>}
   </div>;
 }
 
