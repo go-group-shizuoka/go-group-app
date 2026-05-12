@@ -5674,6 +5674,327 @@ function BillingCheckTab({user,store,facilityId,yearMonth}){
   </div>;
 }
 
+// ─── 国保連出力タブ ───
+function KokuhoOutputTab({user,store,facilityId,yearMonth,vm}){
+  const fac = FACILITIES.find(f=>f.id===facilityId)||{};
+  const facSettings = store.facilityBillingSettings[facilityId]||{};
+  const TANKA = getShizuokaTanka(facSettings.city||"その他");
+  const master = getBillingMaster(yearMonth);
+  // この月の請求データ
+  const kk = store.kokuho.filter(k=>k.facilityId===facilityId&&k.year===vm.y&&k.month===vm.m);
+  // 利用者マスタ（受給者証番号などを取得）
+  const userMap = {};
+  store.dynUsers.forEach(u=>{ userMap[u.id]=u; });
+  // 月の来所記録（実績記録票用）
+  const inMonth = r => (r.time||"").slice(0,7)===yearMonth && (r.facilityId===facilityId||r.facility_id===facilityId);
+  const monthRecs = store.recs.filter(inMonth);
+
+  // ─── 出力前チェック ───
+  const checks = kk.map(k=>{
+    const u = userMap[k.userId]||{};
+    const issues=[];
+    if(!u.jukyushaNo && !u.data?.jukyushaNo) issues.push("受給者証番号未入力");
+    if(!u.jukyushaExpiry && !u.data?.jukyushaExpiry) issues.push("有効期限未入力");
+    else {
+      const exp = u.jukyushaExpiry||u.data?.jukyushaExpiry||"";
+      if(exp < yearMonth+"-28") issues.push("受給者証期限切れ");
+    }
+    if(!u.jukyushaCity && !u.data?.jukyushaCity && !u.data?.jukyushaCityName) issues.push("市区町村未入力");
+    if(!(k.serviceDays>0)) issues.push("利用日数が0");
+    return {k, u, issues};
+  });
+  const ngCount = checks.filter(c=>c.issues.length>0).length;
+  const okCount = checks.filter(c=>c.issues.length===0).length;
+
+  // ─── 詳細CSVダウンロード ───
+  const downloadCSV = () => {
+    const headers = [
+      "利用者ID","受給者証番号","氏名","フリガナ","生年月日","市区町村",
+      "サービス種別","利用日数","送迎日数","基本単位数","加算単位数","合計単位数",
+      "地域単価","請求額(円)","自己負担率","自己負担額(円)","状態","備考"
+    ];
+    const rows = kk.map(k=>{
+      const u = userMap[k.userId]||{};
+      const ud = u.data||u;
+      const jukyushaNo  = ud.jukyushaNo  || "";
+      const nameKana    = ud.nameKana    || "";
+      const dob         = ud.dob         || "";
+      const city        = ud.jukyushaCity||ud.jukyushaCityName||facSettings.city||"";
+      const svcType     = ud.serviceType || (ud.facilityId==="f1"||ud.facilityId==="f2"?"放デイ":"放デイ");
+      const tu          = calcTotalUnits(k);
+      const baseUnits   = k.serviceDays*(k.unitPrice||576);
+      const addUnits    = tu - baseUnits;
+      const billingAmt  = Math.round(tu * TANKA);
+      const copayRate   = 0.1; // 1割負担（実際は受給者証の上限管理あり）
+      const copayAmt    = Math.round(billingAmt * copayRate);
+      return [
+        k.userId, jukyushaNo, k.userName, nameKana, dob, city,
+        svcType, k.serviceDays||0, k.transportDays||0, baseUnits, addUnits, tu,
+        TANKA, billingAmt, "10%", copayAmt, k.status||"未請求", ""
+      ];
+    });
+    const csvContent = [headers, ...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const blob = new Blob(["﻿"+csvContent], {type:"text/csv;charset=utf-8;"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `kokuho_${yearMonth}_${fac.name||facilityId}.csv`;
+    a.click();
+  };
+
+  // ─── サービス提供実績記録票（印刷）───
+  const printJisseki = () => {
+    const facName = fac.name||"";
+    const jigyoshoNo = facSettings.jigyoshoNo||"（番号未設定）";
+    const daysInMonth = new Date(vm.y, vm.m, 0).getDate();
+    const dayHeaders = Array.from({length:daysInMonth},(_,i)=>i+1).map(d=>`<th>${d}</th>`).join("");
+
+    const userRows = kk.map(k=>{
+      const u = userMap[k.userId]||{};
+      const ud = u.data||u;
+      const jukyushaNo = ud.jukyushaNo||"";
+      // その利用者の来所日を取得
+      const arrivals = monthRecs.filter(r=>r.type==="user_in"&&r.userId===k.userId);
+      const arrivedDates = new Set(arrivals.map(r=>(r.time||"").slice(8,10).replace(/^0/,"")));
+      const daysCells = Array.from({length:daysInMonth},(_,i)=>{
+        const d = String(i+1);
+        const arrived = arrivedDates.has(d);
+        return `<td style="background:${arrived?"#e6f5ec":"#fff"};color:${arrived?"#1a7a3a":"#ccc"};font-size:9pt;">${arrived?"○":""}</td>`;
+      }).join("");
+      const tu = calcTotalUnits(k);
+      return `<tr>
+        <td style="text-align:left;font-weight:700;padding:3px 6px;min-width:80px;">${k.userName}</td>
+        <td style="font-size:8pt;padding:3px 4px;min-width:90px;">${jukyushaNo}</td>
+        ${daysCells}
+        <td style="font-weight:700;color:#1a4a8a;">${k.serviceDays||0}</td>
+        <td style="font-weight:700;color:#1a4a8a;">${k.transportDays||0}</td>
+        <td style="font-weight:700;">${tu.toLocaleString()}</td>
+        <td style="font-weight:700;color:#8a2010;">${Math.round(tu*TANKA).toLocaleString()}円</td>
+      </tr>`;
+    }).join("");
+
+    const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"/>
+    <title>サービス提供実績記録票 ${yearMonth}</title>
+    <style>
+      @page{size:A3 landscape;margin:10mm 8mm;}
+      *{box-sizing:border-box;} body{font-family:'MS Gothic',Meiryo,sans-serif;font-size:9pt;color:#111;}
+      h2{font-size:13pt;margin-bottom:3px;} .meta{font-size:8pt;color:#555;margin-bottom:10px;}
+      table{border-collapse:collapse;width:100%;font-size:8pt;}
+      th,td{border:1px solid #bbb;padding:2px 3px;text-align:center;}
+      th{background:#dce8f8;font-weight:700;}
+      .sign-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px;}
+      .sign-box{border:1px solid #aaa;padding:6px;min-height:44px;border-radius:3px;}
+      .sign-lbl{font-size:8pt;color:#666;margin-bottom:3px;}
+    </style></head><body>
+    <h2>📋 サービス提供実績記録票</h2>
+    <div class="meta">
+      事業所名: ${facName}　事業所番号: ${jigyoshoNo}
+      対象年月: ${vm.y}年${vm.m}月　出力日時: ${new Date().toLocaleString("ja-JP")}
+      適用マスタ: ${master.name}
+    </div>
+    <table>
+      <thead><tr>
+        <th style="min-width:80px;">利用者名</th>
+        <th style="min-width:90px;">受給者証番号</th>
+        ${dayHeaders}
+        <th>利用<br/>日数</th>
+        <th>送迎<br/>日数</th>
+        <th>単位数</th>
+        <th>請求額</th>
+      </tr></thead>
+      <tbody>${userRows}</tbody>
+    </table>
+    <div class="sign-row">
+      <div class="sign-box"><div class="sign-lbl">管理者 確認印</div></div>
+      <div class="sign-box"><div class="sign-lbl">児発管 確認印</div></div>
+      <div class="sign-box"><div class="sign-lbl">担当職員</div></div>
+      <div class="sign-box"><div class="sign-lbl">確認日: ${new Date().toLocaleDateString("ja-JP")}</div></div>
+    </div>
+    </body></html>`;
+    const w = window.open("","_blank","width=1200,height=800");
+    if(w){ w.document.write(html); w.document.close(); setTimeout(()=>w.print(),400); }
+  };
+
+  // ─── 個別請求明細書（印刷）───
+  const printMeisai = (k) => {
+    const u = userMap[k.userId]||{};
+    const ud = u.data||u;
+    const tu = calcTotalUnits(k);
+    const billingAmt = Math.round(tu*TANKA);
+    const copayAmt = Math.round(billingAmt*0.1);
+    const arrivals = monthRecs.filter(r=>r.type==="user_in"&&r.userId===k.userId);
+    const datesHtml = arrivals.map(r=>`<li>${(r.time||"").slice(0,16)}　送迎:${r.transport||"なし"}　体温:${r.temp||"-"}</li>`).join("");
+    const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"/>
+    <title>請求明細書 ${k.userName}</title>
+    <style>
+      @page{size:A4;margin:20mm 15mm;}
+      body{font-family:'MS Gothic',Meiryo,sans-serif;font-size:10pt;color:#111;}
+      h2{font-size:14pt;border-bottom:2px solid #333;padding-bottom:6px;margin-bottom:10px;}
+      .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;}
+      .info-item{border:1px solid #bbb;padding:7px 10px;border-radius:3px;}
+      .info-lbl{font-size:8pt;color:#555;margin-bottom:2px;}
+      .info-val{font-size:11pt;font-weight:700;}
+      table{border-collapse:collapse;width:100%;font-size:9pt;margin-top:8px;}
+      th,td{border:1px solid #bbb;padding:5px 8px;}
+      th{background:#e8eef8;font-weight:700;text-align:center;}
+      .total-row{font-weight:700;font-size:11pt;}
+      ul{padding-left:18px;font-size:9pt;margin:0;}
+      li{margin-bottom:3px;}
+    </style></head><body>
+    <h2>給付費請求明細書</h2>
+    <div class="info-grid">
+      <div class="info-item"><div class="info-lbl">利用者氏名</div><div class="info-val">${k.userName}</div></div>
+      <div class="info-item"><div class="info-lbl">受給者証番号</div><div class="info-val">${ud.jukyushaNo||"（未入力）"}</div></div>
+      <div class="info-item"><div class="info-lbl">支給決定市区町村</div><div class="info-val">${ud.jukyushaCity||ud.jukyushaCityName||"—"}</div></div>
+      <div class="info-item"><div class="info-lbl">サービス提供年月</div><div class="info-val">${vm.y}年${vm.m}月</div></div>
+      <div class="info-item"><div class="info-lbl">事業所名</div><div class="info-val">${fac.name||""}</div></div>
+      <div class="info-item"><div class="info-lbl">適用マスタ</div><div class="info-val">${master.name}</div></div>
+    </div>
+    <table>
+      <thead><tr><th>項目</th><th>日数</th><th>単位数</th><th>金額（円）</th></tr></thead>
+      <tbody>
+        <tr><td>基本報酬（${ud.serviceType||"放デイ"}）</td><td>${k.serviceDays||0}日</td>
+          <td>${(k.serviceDays*(k.unitPrice||576)).toLocaleString()}</td>
+          <td>${Math.round(k.serviceDays*(k.unitPrice||576)*TANKA).toLocaleString()}</td></tr>
+        ${(k.addons||[]).map(a=>`<tr><td>${a.name||a.key}</td><td>${a.perDay?k.serviceDays+"日":"1回"}</td>
+          <td>${(a.perDay?a.units*k.serviceDays:a.units).toLocaleString()}</td>
+          <td>${Math.round((a.perDay?a.units*k.serviceDays:a.units)*TANKA).toLocaleString()}</td></tr>`).join("")}
+        <tr class="total-row" style="background:#f5f8ff;"><td colspan="2"><strong>合計</strong></td>
+          <td><strong>${tu.toLocaleString()}</strong></td>
+          <td><strong>${billingAmt.toLocaleString()}</strong></td></tr>
+        <tr><td colspan="3">自己負担（1割）</td><td>${copayAmt.toLocaleString()}</td></tr>
+        <tr style="background:#fff8e6;"><td colspan="3"><strong>給付費請求額（9割）</strong></td>
+          <td><strong>${(billingAmt-copayAmt).toLocaleString()}</strong></td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:16px;font-size:9pt;">
+      <div style="font-weight:700;margin-bottom:6px;">■ サービス提供日一覧</div>
+      <ul>${datesHtml||"<li>記録なし</li>"}</ul>
+    </div>
+    <div style="margin-top:20px;display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      <div style="border:1px solid #aaa;padding:10px;min-height:52px;border-radius:3px;">
+        <div style="font-size:8pt;color:#555;">事業所 確認印</div>
+      </div>
+      <div style="border:1px solid #aaa;padding:10px;min-height:52px;border-radius:3px;">
+        <div style="font-size:8pt;color:#555;">保護者 確認サイン　　　　　　　年　月　日</div>
+      </div>
+    </div>
+    </body></html>`;
+    const w = window.open("","_blank","width=900,height=700");
+    if(w){ w.document.write(html); w.document.close(); setTimeout(()=>w.print(),400); }
+  };
+
+  return <div>
+    {/* ─── 出力前チェック ─── */}
+    <div style={{marginBottom:16}}>
+      <div className="dash-title" style={{marginBottom:10}}>📋 出力前チェック</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        <div style={{background:"rgba(44,170,96,0.1)",border:"1px solid rgba(44,170,96,0.35)",borderRadius:10,padding:"10px 14px",textAlign:"center"}}>
+          <div style={{fontSize:22,fontWeight:900,color:"var(--gr)"}}>{okCount}</div>
+          <div style={{fontSize:11,color:"var(--gr)",fontWeight:700}}>✅ 問題なし</div>
+        </div>
+        <div style={{background:ngCount>0?"rgba(224,56,56,0.08)":"rgba(44,170,96,0.05)",border:`1px solid ${ngCount>0?"rgba(224,56,56,0.35)":"rgba(44,170,96,0.2)"}`,borderRadius:10,padding:"10px 14px",textAlign:"center"}}>
+          <div style={{fontSize:22,fontWeight:900,color:ngCount>0?"var(--ro)":"var(--tx3)"}}>{ngCount}</div>
+          <div style={{fontSize:11,color:ngCount>0?"var(--ro)":"var(--tx3)",fontWeight:700}}>⚠️ 要確認</div>
+        </div>
+      </div>
+      {checks.map(({k,u,issues})=>{
+        const ud = u.data||u;
+        return <div key={k.id} style={{background:"var(--wh)",border:`2px solid ${issues.length>0?"rgba(224,56,56,0.3)":"rgba(44,170,96,0.3)"}`,borderRadius:11,padding:"10px 13px",marginBottom:8,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:120}}>
+            <div style={{fontWeight:700,fontSize:13,marginBottom:3}}>{issues.length>0?"⚠️":"✅"} {k.userName}</div>
+            <div style={{fontSize:10,color:"var(--tx3)",fontFamily:"'DM Mono',monospace"}}>
+              受給者証番号: <span style={{color:ud.jukyushaNo?"var(--tx)":"var(--ro)",fontWeight:700}}>{ud.jukyushaNo||"未入力"}</span>
+              　市区町村: <span style={{color:ud.jukyushaCity||ud.jukyushaCityName?"var(--tx)":"var(--ro)",fontWeight:700}}>{ud.jukyushaCity||ud.jukyushaCityName||"未入力"}</span>
+            </div>
+            {issues.length>0&&<div style={{marginTop:4}}>
+              {issues.map((iss,i)=><span key={i} style={{display:"inline-block",fontSize:10,padding:"2px 7px",borderRadius:6,background:"rgba(224,56,56,0.1)",color:"var(--ro)",fontWeight:700,marginRight:4,marginTop:2}}>✗ {iss}</span>)}
+            </div>}
+          </div>
+          <div style={{display:"flex",gap:7,alignItems:"center",flexShrink:0}}>
+            <div style={{textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:12}}>
+              <div style={{fontWeight:700,color:"var(--am)"}}>{Math.round(calcTotalUnits(k)*TANKA).toLocaleString()}円</div>
+              <div style={{fontSize:10,color:"var(--tx3)"}}>{k.serviceDays||0}日/{calcTotalUnits(k)}単位</div>
+            </div>
+            <button onClick={()=>printMeisai(k)}
+              style={{padding:"7px 12px",borderRadius:9,background:"rgba(58,160,216,0.12)",border:"1px solid rgba(58,160,216,0.4)",color:"var(--tl)",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",whiteSpace:"nowrap"}}>
+              🖨 明細書
+            </button>
+          </div>
+        </div>;
+      })}
+      {kk.length===0&&<div style={{padding:24,textAlign:"center",color:"var(--tx3)",fontSize:13}}>
+        この月の請求データがありません。<br/>
+        <span style={{fontSize:11}}>先に「月次サマリー」タブで「確定日報から自動集計」を実行してください。</span>
+      </div>}
+    </div>
+
+    {/* ─── 出力ボタン群 ─── */}
+    {kk.length>0&&<div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+      <div style={{fontWeight:700,fontSize:13,marginBottom:12}}>📤 出力メニュー</div>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        {/* CSV出力 */}
+        <button onClick={downloadCSV}
+          style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"14px 20px",borderRadius:12,background:"linear-gradient(135deg,#1a6b3a,#2d9e58)",color:"#fff",border:"none",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontWeight:700,fontSize:12,minWidth:120}}>
+          <span style={{fontSize:22}}>📊</span>
+          <span>給付費請求CSV</span>
+          <span style={{fontSize:10,opacity:.8}}>{kk.length}名・全カラム</span>
+        </button>
+        {/* 実績記録票 */}
+        <button onClick={printJisseki}
+          style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"14px 20px",borderRadius:12,background:"linear-gradient(135deg,#1a4a8a,#2d6ed6)",color:"#fff",border:"none",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontWeight:700,fontSize:12,minWidth:120}}>
+          <span style={{fontSize:22}}>📋</span>
+          <span>実績記録票印刷</span>
+          <span style={{fontSize:10,opacity:.8}}>A3横・全利用者</span>
+        </button>
+      </div>
+      {ngCount>0&&<div style={{marginTop:10,fontSize:11,color:"var(--am)",display:"flex",gap:6,alignItems:"center"}}>
+        <span>⚠️</span>
+        <span>{ngCount}名で受給者証番号・市区町村の未入力があります。「利用者管理」で入力してから出力することを推奨します。</span>
+      </div>}
+    </div>}
+
+    {/* ─── 請求ステータス個別管理 ─── */}
+    {kk.length>0&&<div>
+      <div className="dash-title" style={{marginBottom:10}}>💴 請求ステータス管理（利用者別）</div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:600}}>
+          <thead><tr style={{background:"var(--bg2)"}}>
+            {["利用者ID","氏名","受給者証番号","利用日数","請求額","ステータス","操作"].map(h=>(
+              <th key={h} style={{padding:"7px 9px",textAlign:"left",color:"var(--tx2)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--bd)",whiteSpace:"nowrap"}}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>{kk.map(k=>{
+            const u = userMap[k.userId]||{};
+            const ud = u.data||u;
+            const tu = calcTotalUnits(k);
+            const statusColor = {未請求:"var(--tx3)",請求済:"var(--tl)",入金済:"var(--gr)",過誤:"var(--ro)"}[k.status||"未請求"]||"var(--tx3)";
+            return <tr key={k.id} style={{borderBottom:"1px solid var(--bd)"}}>
+              <td style={{padding:"7px 9px",fontFamily:"'DM Mono',monospace",fontSize:10,color:"var(--tx3)"}}>{k.userId||"—"}</td>
+              <td style={{padding:"7px 9px",fontWeight:700}}>{k.userName}</td>
+              <td style={{padding:"7px 9px",fontFamily:"'DM Mono',monospace",color:ud.jukyushaNo?"var(--tx)":"var(--ro)",fontSize:11}}>{ud.jukyushaNo||"未入力"}</td>
+              <td style={{padding:"7px 9px",textAlign:"right",fontFamily:"'DM Mono',monospace"}}>{k.serviceDays||0}</td>
+              <td style={{padding:"7px 9px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:700,color:"var(--am)"}}>{Math.round(tu*TANKA).toLocaleString()}円</td>
+              <td style={{padding:"7px 9px"}}>
+                <select value={k.status||"未請求"}
+                  onChange={e=>store.updKokuho(k.id,{status:e.target.value})}
+                  style={{fontSize:11,fontWeight:700,color:statusColor,background:"transparent",border:"1px solid var(--bd)",borderRadius:7,padding:"3px 6px",fontFamily:"'Noto Sans JP',sans-serif",cursor:"pointer"}}>
+                  {["未請求","請求済","入金済","過誤"].map(s=><option key={s} value={s}>{s}</option>)}
+                </select>
+              </td>
+              <td style={{padding:"7px 9px"}}>
+                <button onClick={()=>printMeisai(k)}
+                  style={{fontSize:11,padding:"4px 9px",borderRadius:7,background:"rgba(58,160,216,0.1)",border:"1px solid rgba(58,160,216,0.4)",color:"var(--tl)",fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                  🖨 明細書
+                </button>
+              </td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
+    </div>}
+  </div>;
+}
+
 // ─── 月次サマリータブ ───
 function BillingSummaryTab({user,store,facilityId,yearMonth,vm,setVm}){
   const [city,setCity]=useState(()=>store.facilityBillingSettings[facilityId]?.city||"その他");
@@ -5839,6 +6160,7 @@ function KokuhoScreen({user,store,onBack}){
   const tabs=[
     {id:"check",   icon:"🔍",label:"請求前チェック"},
     {id:"summary", icon:"💴",label:"月次サマリー"},
+    {id:"output",  icon:"📤",label:"国保連出力"},
     {id:"addons",  icon:"⚙️",label:"加算設定"},
     {id:"staff",   icon:"👥",label:"職員体制"},
     {id:"facility",icon:"🏢",label:"事業所設定"},
@@ -5877,10 +6199,11 @@ function KokuhoScreen({user,store,onBack}){
       </button>)}
     </div>
     {/* コンテンツ */}
-    {tab==="check"   &&<BillingCheckTab   user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
-    {tab==="summary" &&<BillingSummaryTab user={user} store={store} facilityId={facilityId} yearMonth={yearMonth} vm={vm} setVm={setVm}/>}
-    {tab==="addons"  &&<BillingAddonsTab  user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
-    {tab==="staff"   &&<BillingStaffTab   user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
+    {tab==="check"   &&<BillingCheckTab    user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
+    {tab==="summary" &&<BillingSummaryTab  user={user} store={store} facilityId={facilityId} yearMonth={yearMonth} vm={vm} setVm={setVm}/>}
+    {tab==="output"  &&<KokuhoOutputTab    user={user} store={store} facilityId={facilityId} yearMonth={yearMonth} vm={vm}/>}
+    {tab==="addons"  &&<BillingAddonsTab   user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
+    {tab==="staff"   &&<BillingStaffTab    user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
     {tab==="facility"&&<BillingFacilityTab user={user} store={store} facilityId={facilityId}/>}
     {tab==="master"  &&<BillingMasterTab/>}
   </div>;
