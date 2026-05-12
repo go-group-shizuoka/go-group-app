@@ -86,6 +86,28 @@ const ACCOUNTS = [
 const ACTIVITY_TYPES = ["個別支援","集団療育","運動療育","言語療育","学習支援","リハビリ","外出支援","イベント","制作活動","その他"];
 const SERVICE_ITEMS = ["着替え支援","排泄支援","食事支援","水分補給","服薬確認","健康観察","個別療育","集団活動","運動・体操","学習支援","創作活動","外出・散歩","コミュニケーション支援","その他"];
 const MOODS = ["😄","🙂","😐","😔","😢"];
+// 個別支援計画 5領域（IspServicePanel・利用者管理両方で使用するため上位に定義）
+const ISP_DOMAINS = ["健康・生活","運動・感覚","認知・行動","言語・コミュニケーション","人間関係・社会性"];
+
+// ─── サービス記録テンプレート（現場3秒入力用） ───
+const RECORD_TEMPLATES = [
+  {cat:"体調",icon:"🌡️",texts:["体調良好、笑顔で来所","体温正常・食欲あり、活動に積極的","やや疲れ気味だったが活動中は集中できた","体調不良の訴えなし、終日元気に過ごした"]},
+  {cat:"活動",icon:"🎨",texts:["積極的に活動へ参加できた","友達と協力して取り組めた","指示を理解し行動できた","最後まで粘り強く取り組んだ","苦手な場面も職員の声かけで参加できた"]},
+  {cat:"コミュニ",icon:"💬",texts:["自分の気持ちを言葉で伝えられた","友達・職員に自ら声をかけた","「ありがとう」「ごめんなさい」が言えた","順番を守って活動できた","相手の話を最後まで聞くことができた"]},
+  {cat:"支援",icon:"🤝",texts:["視覚スケジュールで見通しを持てた","切り替えが上手くできた","落ち着きスペースで自己調整できた","好きな活動を通じて達成感を得られた","保護者へ連絡帳で支援内容を共有"]},
+  {cat:"監査向け",icon:"📎",texts:["個別支援計画に基づき支援を実施した","本日の支援目標に沿った活動を行った","安全確認を実施し特記事項なし","支援記録は個別支援計画と整合しています","担当職員が個別に対応し適切に支援した"]},
+];
+
+// ISP情報＋チェック項目から支援記録文を自動生成（AIテンプレートベース）
+function generateAutoNote(checkedItems, ispGoal, mood, domains){
+  const parts=[];
+  if(ispGoal) parts.push(`個別支援計画の短期目標「${ispGoal.length>25?ispGoal.slice(0,25)+"…":ispGoal}」に沿って支援を実施した。`);
+  if(checkedItems.length>0) parts.push(checkedItems.slice(0,3).join("、")+"を実施した。");
+  const moodMap={"😄":"終始笑顔で意欲的に過ごした","🙂":"概ね落ち着いて参加できた","😐":"普通の様子で活動に参加した","😔":"やや意欲が低下していたが職員のフォローで参加できた","😢":"不安な様子がみられたが支援により落ち着くことができた"};
+  if(mood&&moodMap[mood]) parts.push(moodMap[mood]+"。");
+  if(domains?.length>0) parts.push(`【${domains.join("・")}】の領域に関連した支援を実施した。`);
+  return parts.join(" ");
+}
 const SHIFT_TYPES = [
   { key: "A", label: "早番", time: "8:00〜17:00", color: "rgba(0,180,216,0.22)", text: "#48cae4" },
   { key: "B", label: "遅番", time: "11:00〜20:00", color: "rgba(82,183,136,0.22)", text: "#52b788" },
@@ -1951,6 +1973,9 @@ function useStore() {
   const [ispRecords, setIspRecords] = useState([]);
   const addIspRecord = r => { setIspRecords(p=>[...p,r]); sbSave("isp_records",{id:r.id,facility_id:r.facilityId||null,data:r}); };
   const updIspRecord = (id,ch) => setIspRecords(p=>p.map(x=>{ if(x.id!==id) return x; const u={...x,...ch}; sbSave("isp_records",{id,facility_id:u.facilityId||null,data:u}); return u; }));
+  // ─── 日々のモニタリング蓄積ノート（ISP連携サービス記録から自動生成） ───
+  const [monitoringNotes, setMonitoringNotes] = useState([]);
+  const addMonitoringNote = n => { setMonitoringNotes(p=>[...p,n]); sbSave("monitoring_notes",{id:n.id,facility_id:n.facilityId||null,data:n}); };
   // 起動時にSupabaseからデータ読み込み
   useEffect(() => {
     loadFromSupabase(setRecs, setMsgs, setDailyReports, setDynUsers, setDynStaff);
@@ -1976,6 +2001,7 @@ function useStore() {
     sbLoad("kokuho_data").then(d=>{ if(d?.length) setKokuho(p=>{ const ids=d.map(x=>x.id); return [...p.filter(x=>!ids.includes(x.id)),...d.map(x=>x.data||x)]; }); });
     sbLoad("isp_drafts").then(d=>{ if(d?.length) setIspDrafts(d.map(x=>x.data||x)); });
     sbLoad("isp_records").then(d=>{ if(d?.length) setIspRecords(d.map(x=>x.data||x)); });
+    sbLoad("monitoring_notes").then(d=>{ if(d?.length) setMonitoringNotes(d.map(x=>x.data||x)); });
   }, []);
   // ─── トースト通知 ───
   const [toastMsg, setToastMsg] = useState("");
@@ -1984,7 +2010,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType};
+  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,trData,updTr,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType};
 }
 
 
@@ -2427,14 +2453,124 @@ function PhotoRecord({user,onBack,store}){
   </div>;
 }
 
+// ==================== ISP連携パネル ====================
+// サービス記録入力時にISP情報・5領域・チェックリスト・テンプレートを表示
+function IspServicePanel({userId,store,checkedItems,onToggleItem,domains,onToggleDomain,supp,onSuppChange,onAutoNote}){
+  const ISP_ACTIVE=["staff_checked","cdsm_approved","manager_confirmed","parent_explained","parent_consented","finalized"];
+  const isp=(store.ispRecords||[]).filter(r=>r.userId===userId&&r.docType==="isp_plan"&&ISP_ACTIVE.includes(r.status)).sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+  const [tmplCat,setTmplCat]=useState(0);
+  const [showSuggest,setShowSuggest]=useState(false);
+
+  if(!isp) return null;
+  const c=isp.content||{};
+  // ISPのsupportContentを行ごとに分割してチェックリスト項目化
+  const supportLines=(c.supportContent||"").split("\n").map(s=>s.replace(/^[①②③④⑤⑥⑦⑧⑨⑩\d\.\-・\s]+/,"").trim()).filter(s=>s.length>3).slice(0,7);
+  // 最近のモニタリングノート（直近3件）
+  const recentNotes=(store.monitoringNotes||[]).filter(n=>n.userId===userId).sort((a,b)=>b.date>a.date?1:-1).slice(0,3);
+
+  return <div style={{marginBottom:16}}>
+    {/* ISP目標バナー */}
+    <div style={{background:"rgba(58,160,216,0.09)",border:"1px solid rgba(58,160,216,0.28)",borderRadius:12,padding:"11px 14px",marginBottom:10}}>
+      <div style={{fontSize:10,fontWeight:700,color:"var(--tl)",marginBottom:6,letterSpacing:1}}>📋 個別支援計画 連携中</div>
+      <div style={{fontSize:13,fontWeight:700,color:"var(--tx)",lineHeight:1.6,marginBottom:8}}>{c.shortGoal||"目標未設定"}</div>
+      {/* 5領域バッジ */}
+      {c.supportContent&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8}}>
+        {ISP_DOMAINS.map(d=>{
+          const selected=domains.includes(d);
+          return <button key={d} onClick={()=>onToggleDomain(d)} style={{padding:"4px 9px",borderRadius:8,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",transition:"all .15s",
+            borderColor:selected?"#7030b8":"var(--bd)",background:selected?"rgba(144,72,216,0.2)":"var(--bg)",color:selected?"var(--pu)":"var(--tx3)"}}>
+            {d}
+          </button>;
+        })}
+        <span style={{fontSize:10,color:"var(--tx3)",alignSelf:"center",marginLeft:2}}>（タップして関連領域を選択）</span>
+      </div>}
+      {/* 直近の記録件数 */}
+      {recentNotes.length>0&&<div style={{fontSize:10,color:"var(--tx3)"}}>📊 直近の記録：{recentNotes[0].date} — {recentNotes[0].result?.slice(0,20)||"記録あり"}</div>}
+    </div>
+
+    {/* 支援内容チェックリスト（ISPから自動生成） */}
+    {supportLines.length>0&&<div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+      <div style={{fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:8,letterSpacing:1}}>✅ 本日の支援（ISPより）</div>
+      <div style={{display:"flex",flexDirection:"column",gap:5}}>
+        {supportLines.map((line,i)=>{
+          const checked=checkedItems.includes(line);
+          return <label key={i} style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer",padding:"6px 8px",borderRadius:8,background:checked?"rgba(44,170,96,0.1)":"transparent",border:checked?"1px solid rgba(44,170,96,0.3)":"1px solid transparent",transition:"all .15s"}}>
+            <input type="checkbox" checked={checked} onChange={()=>onToggleItem(line)} style={{marginTop:2,width:16,height:16,cursor:"pointer",flexShrink:0}}/>
+            <span style={{fontSize:12,color:checked?"var(--gr)":"var(--tx2)",fontWeight:checked?700:400,lineHeight:1.5}}>{line}</span>
+          </label>;
+        })}
+      </div>
+    </div>}
+
+    {/* テンプレート文章 */}
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+      <div style={{fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:7,letterSpacing:1}}>⚡ テンプレート挿入</div>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
+        {RECORD_TEMPLATES.map((t,i)=><button key={i} onClick={()=>setTmplCat(i)}
+          style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",
+            borderColor:tmplCat===i?"var(--tl)":"var(--bd)",background:tmplCat===i?"rgba(58,160,216,0.18)":"var(--bg)",color:tmplCat===i?"var(--tl)":"var(--tx3)"}}>
+          {t.icon} {t.cat}
+        </button>)}
+      </div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+        {RECORD_TEMPLATES[tmplCat].texts.map((txt,i)=><button key={i}
+          onClick={()=>onSuppChange(supp?(supp+"\n"+txt):txt)}
+          style={{padding:"5px 10px",borderRadius:8,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg2)",border:"1px solid var(--bd)",color:"var(--tx2)",textAlign:"left"}}>
+          {txt}
+        </button>)}
+      </div>
+    </div>
+
+    {/* AI自動提案ボタン */}
+    <div style={{display:"flex",gap:8,marginBottom:4}}>
+      <button onClick={()=>{const note=generateAutoNote(checkedItems,c.shortGoal,null,domains);onSuppChange(note);setShowSuggest(true);}}
+        style={{flex:1,padding:"9px",borderRadius:10,background:"rgba(144,72,216,0.12)",color:"var(--pu)",fontWeight:700,fontSize:12,border:"1px solid rgba(144,72,216,0.3)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+        🤖 AI記録を自動生成
+      </button>
+      {supp&&<button onClick={()=>{const audit=`個別支援計画に基づき支援を実施した。${supp.length>50?supp.slice(0,50)+"…":supp}（記録者確認済み）`;onSuppChange(audit);}}
+        style={{flex:1,padding:"9px",borderRadius:10,background:"rgba(240,112,32,0.1)",color:"var(--am)",fontWeight:700,fontSize:12,border:"1px solid rgba(240,112,32,0.3)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+        📎 監査向けに整形
+      </button>}
+    </div>
+    {showSuggest&&<div style={{fontSize:10,color:"var(--tl)",marginBottom:4}}>✅ AI提案を入力欄に反映しました。内容を確認・修正してください。</div>}
+  </div>;
+}
+
 // ==================== SERVICE RECORD ====================
 function ServiceRecord({user,onBack,store}){
   const [mode,setMode]=useState("list");const [sel,setSel]=useState(null);const [its,setIts]=useState([]);const [mood,setMood]=useState("");const [arr,setArr]=useState(nowHM());const [dep,setDep]=useState("");const [body,setBody]=useState("");const [supp,setSupp]=useState("");const [spec,setSpec]=useState("");const [done,setDone]=useState(false);const [view,setView]=useState(null);
+  // ISP連携用の追加state
+  const [ispDomains,setIspDomains]=useState([]);  // 選択された5領域
+  const [ispChecked,setIspChecked]=useState([]); // チェックされた支援項目
   const users=store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false);const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
   const recs=store.recs.filter(r=>r.type==="service"&&(user.role==="admin"||r.facilityId===user.selectedFacilityId)).sort((a,b)=>b.time>a.time?1:-1);
   const tog=i=>setIts(p=>p.includes(i)?p.filter(x=>x!==i):[...p,i]);
-  const save=()=>{store.addRec({id:genId(),type:"service",userId:sel.id,userName:sel.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:nowStr(),arrival:arr,departure:dep,items:its,mood,bodyNote:body,supportNote:supp,specialNote:spec,createdBy:user.displayName,history:[]});setDone(true);};
-  const reset=()=>{setDone(false);setMode("list");setSel(null);setIts([]);setMood("");setBody("");setSupp("");setSpec("");setDep("");setArr(nowHM());};
+  const togDomain=d=>setIspDomains(p=>p.includes(d)?p.filter(x=>x!==d):[...p,d]);
+  const togChecked=item=>setIspChecked(p=>p.includes(item)?p.filter(x=>x!==item):[...p,item]);
+  // 利用者選択時：今日の来所記録から来所時刻を自動取得
+  const selectUser=(u)=>{
+    setSel(u); setIspDomains([]); setIspChecked([]);
+    const todayIn=store.recs.filter(r=>r.type==="user_in"&&r.userId===u.id&&matchDateStr(r.time,todayISO())).sort((a,b)=>b.time>a.time?1:-1)[0];
+    if(todayIn) setArr(extractHM2(todayIn.time));
+    const todayOut=store.recs.filter(r=>r.type==="user_out"&&r.userId===u.id&&matchDateStr(r.time,todayISO())).sort((a,b)=>b.time>a.time?1:-1)[0];
+    if(todayOut) setDep(extractHM2(todayOut.time));
+  };
+  const matchDateStr=(t,d)=>{ if(!t)return false; const p=d.replace(/-/g,"/"); const [y,mo,dy]=d.split("-"); return t.includes(p)||t.includes(y+"/"+Number(mo)+"/"+Number(dy))||t.startsWith(d); };
+  const extractHM2=(t)=>{ if(!t)return""; const m=t.match(/(\d{1,2}:\d{2})/); return m?m[1]:""; };
+  const save=()=>{
+    // ISP情報を取得してsupportNoteに含める
+    const ISP_ACTIVE=["staff_checked","cdsm_approved","manager_confirmed","parent_explained","parent_consented","finalized"];
+    const activeIsp=(store.ispRecords||[]).filter(r=>r.userId===sel.id&&r.docType==="isp_plan"&&ISP_ACTIVE.includes(r.status)).sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+    const finalSupp=supp||(ispChecked.length>0?generateAutoNote(ispChecked,activeIsp?.content?.shortGoal,mood,ispDomains):"");
+    const recId=genId();
+    store.addRec({id:recId,type:"service",userId:sel.id,userName:sel.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:nowStr(),arrival:arr,departure:dep,items:its,mood,bodyNote:body,supportNote:finalSupp,specialNote:spec,createdBy:user.displayName,history:[],ispLinked:!!activeIsp,ispId:activeIsp?.id||null,ispDomains,ispCheckedItems:ispChecked});
+    // モニタリング蓄積ノートを保存
+    if(activeIsp){
+      store.addMonitoringNote({id:genId(),userId:sel.id,facilityId:user.selectedFacilityId,date:todayISO(),ispId:activeIsp.id,shortGoal:activeIsp.content?.shortGoal||"",checkedItems:ispChecked,domains:ispDomains,note:finalSupp,mood,result:finalSupp.slice(0,80),createdBy:user.displayName,createdAt:nowStr()});
+    }
+    setDone(true);
+  };
+  const reset=()=>{setDone(false);setMode("list");setSel(null);setIts([]);setMood("");setBody("");setSupp("");setSpec("");setDep("");setArr(nowHM());setIspDomains([]);setIspChecked([]);};
   if(done)return <div className="succ"><div className="si">📋</div><div className="st">記録完了</div><div className="sd">{sel?.name} さんのサービス提供記録を保存しました</div><div style={{display:"flex",gap:10,marginTop:12}}><button className="bpri" style={{maxWidth:180}} onClick={reset}>続けて入力</button><button className="bpri" style={{maxWidth:150,background:"rgba(255,255,255,0.1)"}} onClick={onBack}>ホームへ</button></div></div>;
   if(view)return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={()=>setView(null)}>← 戻る</button><div className="fl-title">📋 記録詳細</div><button className="bexp" style={{marginLeft:"auto",background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={()=>printServiceRecord(view,fac?.name||"")}>🖨️ 印刷</button></div><div className="fc">
     <div style={{marginBottom:12}}><div style={{fontSize:18,fontWeight:900,marginBottom:3}}>{view.userName} <span style={{fontSize:22}}>{view.mood}</span></div><div style={{fontSize:11,color:"var(--g4)",fontFamily:"'DM Mono',monospace"}}>{view.time}</div></div>
@@ -2446,19 +2582,54 @@ function ServiceRecord({user,onBack,store}){
     <hr className="div"/><div style={{fontSize:11,color:"var(--g4)"}}>記録者: {view.createdBy}</div>
   </div></div>;
   if(mode==="new")return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={()=>setMode("list")}>← 戻る</button><div className="fl-title">📋 サービス提供記録</div></div><div className="fc">
-    <div className="slbl">STEP 1 — 利用者を選択</div><div className="ng">{users.map(u=><button key={u.id} className={`nb ${sel?.id===u.id?"s":""}`} onClick={()=>setSel(u)}>{u.name}</button>)}</div>
-    <hr className="div"/><div className="slbl">STEP 2 — 在所時間</div>
+    {/* STEP 1 — 利用者を選択 */}
+    <div className="slbl">STEP 1 — 利用者を選択</div>
+    <div className="ng">{users.map(u=><button key={u.id} className={`nb ${sel?.id===u.id?"s":""}`} onClick={()=>selectUser(u)}>{u.name}</button>)}</div>
+
+    {/* STEP 2 — 在所時間（来所記録から自動取得） */}
+    <hr className="div"/>
+    <div className="slbl">STEP 2 — 在所時間 <span style={{fontSize:10,color:"var(--tl)",fontWeight:400}}>(来所記録から自動取得)</span></div>
     <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
       <div style={{display:"flex",alignItems:"center",gap:7}}><span style={{fontSize:11,color:"var(--tx3)"}}>来所</span><TimePicker value={arr} onChange={setArr} label="来所時刻"/></div>
       <span style={{color:"var(--tx3)"}}>〜</span>
       <div style={{display:"flex",alignItems:"center",gap:7}}><span style={{fontSize:11,color:"var(--tx3)"}}>退所</span><TimePicker value={dep} onChange={setDep} label="退所時刻"/></div>
     </div>
-    <hr className="div"/><div className="slbl">STEP 3 — 今日の様子</div><div className="mr">{MOODS.map(m=><button key={m} className={`mbtn ${mood===m?"on":""}`} onClick={()=>setMood(m)}>{m}</button>)}</div>
-    <hr className="div"/><div className="slbl">STEP 4 — 提供サービス（複数OK）</div><div className="cbg">{SERVICE_ITEMS.map(i=><button key={i} className={`cb ${its.includes(i)?"on":""}`} onClick={()=>tog(i)}>{i}</button>)}</div>
-    <hr className="div"/><div className="slbl">体調・健康状態</div><textarea className="fta" placeholder="例）体温36.5℃、食欲あり、元気に過ごした" value={body} onChange={e=>setBody(e.target.value)}/>
-    <hr className="div"/><div className="slbl">支援内容・様子</div><textarea className="fta" placeholder="例）個別療育で集中できた。友達との関わりも増えている。" value={supp} onChange={e=>setSupp(e.target.value)}/>
-    <hr className="div"/><div className="slbl" style={{color:"var(--ro)"}}>⚠ 特記事項（任意）</div><textarea className="fta" placeholder="例）帰りに転倒、膝に擦り傷あり。保護者に報告済み。" value={spec} onChange={e=>setSpec(e.target.value)} style={{borderColor:"rgba(231,111,81,0.3)"}}/>
-    <button className="bsave" disabled={!sel||its.length===0||!mood||!arr} onClick={save} style={{marginTop:14}}>記録を保存する</button>
+
+    {/* STEP 3 — 今日の様子 */}
+    <hr className="div"/>
+    <div className="slbl">STEP 3 — 今日の様子</div>
+    <div className="mr">{MOODS.map(m=><button key={m} className={`mbtn ${mood===m?"on":""}`} onClick={()=>setMood(m)}>{m}</button>)}</div>
+
+    {/* ISP連携パネル（個別支援計画がある場合に自動表示） */}
+    {sel&&<><hr className="div"/>
+    <div className="slbl">STEP 4 — 個別支援計画 × 支援記録</div>
+    <IspServicePanel userId={sel.id} store={store}
+      checkedItems={ispChecked} onToggleItem={togChecked}
+      domains={ispDomains} onToggleDomain={togDomain}
+      supp={supp} onSuppChange={setSupp} onAutoNote={()=>{}}/></>}
+
+    {/* STEP 5 — 提供サービス */}
+    <hr className="div"/>
+    <div className="slbl">STEP {sel?"5":"4"} — 提供サービス（複数OK）</div>
+    <div className="cbg">{SERVICE_ITEMS.map(i=><button key={i} className={`cb ${its.includes(i)?"on":""}`} onClick={()=>tog(i)}>{i}</button>)}</div>
+
+    {/* 体調・支援記録 */}
+    <hr className="div"/>
+    <div className="slbl">体調・健康状態</div>
+    <textarea className="fta" placeholder="例）体温36.5℃、食欲あり、元気に過ごした" value={body} onChange={e=>setBody(e.target.value)}/>
+    <hr className="div"/>
+    <div className="slbl">支援内容・様子 <span style={{fontSize:10,color:"var(--tl)",fontWeight:400}}>(テンプレートやAI生成を活用できます)</span></div>
+    <textarea className="fta" rows={4} placeholder="支援内容を入力（テンプレート挿入やAI生成ボタンも使えます）" value={supp} onChange={e=>setSupp(e.target.value)}/>
+    <hr className="div"/>
+    <div className="slbl" style={{color:"var(--ro)"}}>⚠ 特記事項（任意）</div>
+    <textarea className="fta" placeholder="例）帰りに転倒、膝に擦り傷あり。保護者に報告済み。" value={spec} onChange={e=>setSpec(e.target.value)} style={{borderColor:"rgba(231,111,81,0.3)"}}/>
+
+    {/* ISP連携バッジ */}
+    {ispChecked.length>0&&<div style={{fontSize:11,color:"var(--gr)",fontWeight:700,margin:"8px 0",background:"rgba(44,170,96,0.1)",borderRadius:8,padding:"6px 10px"}}>
+      ✅ {ispChecked.length}項目チェック済み — モニタリングに自動蓄積されます
+    </div>}
+
+    <button className="bsave" disabled={!sel||!mood||!arr} onClick={save} style={{marginTop:14}}>記録を保存する</button>
   </div></div>;
   return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">📋 サービス提供記録</div></div>
     <div style={{paddingBottom:8}}><button className="bsave" onClick={()=>setMode("new")} style={{maxWidth:220}}>＋ 新しい記録を作成</button></div>
@@ -3619,7 +3790,7 @@ function MonitoringTab({u,myMonitorings,myIsps,user,store}){
 }
 
 // ==================== 個別支援計画（原案）タブ ====================
-const ISP_DOMAINS = ["健康・生活","運動・感覚","認知・行動","言語・コミュニケーション","人間関係・社会性"];
+// ISP_DOMAINS は上部（MOODS近く）で定義済み
 const ISP_PRIORITY_TYPES = ["本人支援","家族支援","地域支援"];
 const WEEKDAY_LABELS = ["月","火","水","木","金","土","日・祝"];
 const WEEKDAY_KEYS2 = ["mon","tue","wed","thu","fri","sat","sun"];
@@ -4271,6 +4442,9 @@ function IspMonitoringForm({record, u, user, store, onSave, onCancel}){
   const init = record?.content || {};
   const latestIsp = [...(store.ispRecords||[])].filter(r=>r.userId===u.id&&r.docType==="isp_plan"&&r.status==="finalized")
     .sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+  // 蓄積されたモニタリングノートを取得（ISP連携サービス記録から自動生成）
+  const accNotes=(store.monitoringNotes||[]).filter(n=>n.userId===u.id).sort((a,b)=>b.date>a.date?1:-1).slice(0,20);
+  const [showAcc,setShowAcc]=useState(accNotes.length>0);
   const [f,setF]=useState({
     monitoringDate: init.monitoringDate||init.date||todayISO(),
     targetPeriod: init.targetPeriod || (latestIsp ? `${latestIsp.content?.validFrom||""}〜${latestIsp.content?.validTo||""}` : ""),
@@ -4289,6 +4463,24 @@ function IspMonitoringForm({record, u, user, store, onSave, onCancel}){
   });
   const upd=(k,v)=>setF(p=>({...p,[k]:v}));
   const [saving,setSaving]=useState(false);
+
+  // 蓄積記録から自動入力（ワンクリック反映）
+  const autoFillFromNotes=()=>{
+    if(accNotes.length===0) return;
+    const notes=accNotes;
+    // チェック項目の頻出ワードを抽出
+    const allChecked=notes.flatMap(n=>n.checkedItems||[]);
+    const freq={}; allChecked.forEach(x=>{freq[x]=(freq[x]||0)+1;});
+    const topItems=Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k])=>k);
+    // 気分の傾向
+    const moods=notes.map(n=>n.mood).filter(Boolean);
+    const moodSummary=moods.length>0?`（気分記録：${moods.slice(0,5).join("")}）`:"";
+    const achieved=topItems.length>0?`以下の支援項目を継続して実施できた：${topItems.join("、")}。${moodSummary}`:"蓄積された記録を確認してください。";
+    const staffObs=notes.slice(0,3).map(n=>n.result||n.note).filter(Boolean).join("\n");
+    upd("achievedItems", achieved);
+    upd("staffObservation", staffObs.slice(0,300));
+    upd("shortGoalResult", `${notes.length}回の支援記録を蓄積。${notes.filter(n=>n.mood==="😄"||n.mood==="🙂").length}回は良好な様子で参加。`);
+  };
 
   const handleSave=()=>{
     setSaving(true);
@@ -4318,6 +4510,30 @@ function IspMonitoringForm({record, u, user, store, onSave, onCancel}){
       <button className="bback" onClick={onCancel}>← 戻る</button>
       <div style={{fontSize:15,fontWeight:900}}>📊 モニタリング記録</div>
     </div>
+    {/* 蓄積データパネル（サービス記録から自動蓄積） */}
+    {accNotes.length>0&&<div style={{background:"rgba(144,72,216,0.07)",border:"1px solid rgba(144,72,216,0.28)",borderRadius:12,padding:"11px 14px",marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+        <div style={{fontSize:12,fontWeight:700,color:"var(--pu)"}}>📊 蓄積された支援記録 ({accNotes.length}件)</div>
+        <button onClick={()=>setShowAcc(p=>!p)}
+          style={{fontSize:11,color:"var(--pu)",background:"none",border:"none",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+          {showAcc?"▲ 閉じる":"▼ 開く"}
+        </button>
+      </div>
+      {showAcc&&<>
+        <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8}}>
+          {accNotes.slice(0,8).map((n,i)=>(
+            <div key={i} style={{background:"var(--bg2)",borderRadius:7,padding:"3px 8px",fontSize:10,color:"var(--tx3)"}}>
+              {n.date} {n.mood||""} <span style={{color:"var(--tx2)"}}>{n.result?.slice(0,15)||"記録"}</span>
+            </div>
+          ))}
+          {accNotes.length>8&&<div style={{fontSize:10,color:"var(--tx3)"}}>…他{accNotes.length-8}件</div>}
+        </div>
+        <button onClick={autoFillFromNotes}
+          style={{width:"100%",padding:"9px",borderRadius:10,background:"var(--pu)",color:"#fff",fontWeight:700,fontSize:12,border:"none",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+          🤖 蓄積記録からモニタリングを自動入力
+        </button>
+      </>}
+    </div>}
     {latestIsp&&<div style={{background:"rgba(44,170,96,0.08)",border:"1px solid rgba(44,170,96,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:11}}>
       <div style={{fontWeight:700,color:"var(--gr)",marginBottom:4}}>参照中の個別支援計画</div>
       <div style={{color:"var(--tx2)"}}>期間: {latestIsp.content?.validFrom}〜{latestIsp.content?.validTo}</div>

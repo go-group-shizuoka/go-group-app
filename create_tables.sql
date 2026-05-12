@@ -101,6 +101,17 @@ CREATE TABLE IF NOT EXISTS public.isp_records (
 ALTER TABLE public.isp_records ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "anon_all" ON public.isp_records FOR ALL USING (true) WITH CHECK (true);
 
+-- 12. 日々のモニタリング蓄積ノート（ISP連携サービス記録から自動生成）
+-- userId・date・checkedItems・domainsなどを蓄積し、モニタリング作成時に参照
+CREATE TABLE IF NOT EXISTS public.monitoring_notes (
+  id TEXT PRIMARY KEY,
+  facility_id TEXT,
+  data JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.monitoring_notes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "anon_all" ON public.monitoring_notes FOR ALL USING (true) WITH CHECK (true);
+
 -- 11. 個別支援計画 下書き
 CREATE TABLE IF NOT EXISTS public.isp_drafts (
   id TEXT PRIMARY KEY,
