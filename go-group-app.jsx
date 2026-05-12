@@ -6510,8 +6510,6 @@ function IspConsentForm({record, u, user, store, onSave, onCancel}){
     </div>
   </div>;
 }
-  </div>;
-}
 
 // ─── 承認フローアクションバー ───
 function IspApprovalPanel({rec, u, user, store}){
