@@ -2685,9 +2685,19 @@ function TimePicker({value, onChange, label=""}){
 // ==================== COMMON COMPONENTS ====================
 function Cam({cap,onCap}){return <div className={`cam ${cap?"cp":""}`} onClick={onCap}><div className="ci2">{cap?"✅":"📷"}</div><div className="ct2">{cap?"撮影済み（再撮影）":"タップして撮影"}</div></div>;}
 function FlowWrap({title,onBack,children}){return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">{title}</div></div><div className="fc">{children}</div></div>;}
-function LoginScreen({onLogin}){
+function LoginScreen({onLogin, store}){
   const [un,setUn]=useState(""); const [pw,setPw]=useState(""); const [fac,setFac]=useState("f1"); const [err,setErr]=useState("");
-  const go=()=>{const a=ACCOUNTS.find(x=>x.username===un&&x.password===pw);if(!a){setErr("IDまたはパスワードが正しくありません");return;}onLogin({...a,selectedFacilityId:a.facilityId||fac});};
+  const go=()=>{
+    // 1) 固定アカウント（デモ・管理者）で検索
+    let a=ACCOUNTS.find(x=>x.username===un&&x.password===pw);
+    // 2) なければdynStaff（スタッフ管理で登録した職員）で検索
+    if(!a && store){
+      const ds=(store.dynStaff||[]).find(s=>s.loginId&&s.loginId===un&&s.loginPassword===pw&&s.active!==false);
+      if(ds) a={id:ds.id,username:ds.loginId,password:ds.loginPassword,role:ds.role||"staff",staffId:ds.id,facilityId:ds.facilityId,displayName:ds.name};
+    }
+    if(!a){setErr("IDまたはパスワードが正しくありません");return;}
+    onLogin({...a,selectedFacilityId:a.facilityId||fac});
+  };
   return <div className="lw"><div className="lc"><div className="brand">GO <span>GROUP</span></div><div className="bsub">勤怠・検温・利用記録システム</div>
     <div className="fg"><label className="fl">スタッフID</label><input className="fi" placeholder="homestaff / homemgr / admin" value={un} onChange={e=>{setUn(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()}/></div>
     <div className="fg"><label className="fl">パスワード</label><input className="fi" type="password" placeholder="pass" value={pw} onChange={e=>{setPw(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()}/></div>
@@ -9105,6 +9115,7 @@ function StaffManagement({user, store, onBack}){
       address:"", emergencyName:"", emergencyTel:"", emergencyRelation:"",
       qualification:"", qualifications:[], hireDate:todayISO(), employmentType:"正社員",
       bankName:"", bankBranch:"", bankAccountType:"普通", bankAccountNo:"", bankAccountName:"",
+      loginId:"", loginPassword:"",
       note:"", active:true
     };
     return <RegisterStaff init={init} isEdit={isEdit} user={user} store={store}
@@ -9189,6 +9200,13 @@ function RegisterStaff({init, isEdit, user, store, onBack, onSave}){
     const e = {};
     if(!form.name?.trim()) e.name = "氏名は必須です";
     if(!form.facilityId) e.facilityId = "施設は必須です";
+    // ログインIDの重複チェック（新規登録時のみ）
+    if(!isEdit && form.loginId?.trim()){
+      const taken = ACCOUNTS.some(a=>a.username===form.loginId)
+        || (store.dynStaff||[]).some(s=>s.id!==form.id && s.loginId===form.loginId);
+      if(taken) e.loginId = "このログインIDは既に使われています";
+    }
+    if(!isEdit && form.loginId?.trim() && !form.loginPassword?.trim()) e.loginPassword = "パスワードを入力してください";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -9254,6 +9272,18 @@ function RegisterStaff({init, isEdit, user, store, onBack, onSave}){
         <FormField form={form} upd={upd} errors={errors}  label="口座番号" fkey="bankAccountNo" placeholder="1234567"/>
       </div>
       <FormField form={form} upd={upd} errors={errors}  label="口座名義（カタカナ）" fkey="bankAccountName" placeholder="タナカ ミホ"/>
+    </FormSection>
+
+    {/* ===== ログイン情報 ===== */}
+    <FormSection title="■ ログイン情報" color="var(--pu)">
+      <div style={{background:"rgba(144,72,216,0.07)",border:"1px solid rgba(144,72,216,0.25)",borderRadius:9,padding:"10px 12px",marginBottom:10,fontSize:12,color:"var(--tx3)"}}>
+        🔑 ここで設定したIDとパスワードでアプリにログインできます。<br/>空欄のままにするとログイン不可となります。
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <FormField form={form} upd={upd} errors={errors} label="ログインID" fkey="loginId" placeholder="例）tanaka-miho"/>
+        <FormField form={form} upd={upd} errors={errors} label="パスワード" fkey="loginPassword" placeholder="例）pass1234"/>
+      </div>
+      {isEdit&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:4}}>※ パスワードを変更しない場合は空欄のままにしてください</div>}
     </FormSection>
 
     <FormSection title="■ 備考" color="var(--tx3)">
@@ -11180,7 +11210,7 @@ export default function App(){
     setUser(null);setScreen("home");
   };
 
-  if(!user)return <><style>{CSS}</style><div className="app"><LoginScreen onLogin={u=>{
+  if(!user)return <><style>{CSS}</style><div className="app"><LoginScreen store={store} onLogin={u=>{
     try{localStorage.setItem('gogroup_user',JSON.stringify(u));}catch(e){}
     setUser(u);setScreen("home");
   }}/></div></>;
