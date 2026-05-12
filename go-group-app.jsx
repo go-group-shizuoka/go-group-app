@@ -2889,60 +2889,327 @@ function AttendanceScreen({user,store,onBack}){
 
 // ==================== SHIFT ====================
 function ShiftScreen({user,store,onBack}){
-  const [vm,setVm]=useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()+1};});const [cell,setCell]=useState(null);
-  const isMgr=user.role==="manager"||user.role==="admin"; // スタッフは閲覧のみ
+  const [vm,setVm]=useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()+1};});
+  const [cell,setCell]=useState(null);
+  const [tab,setTab]=useState("calendar");
+  const [minStaff,setMinStaff]=useState(2); // 法定最低人数（施設設定で変更可能）
+  const [copyMsg,setCopyMsg]=useState("");
+
+  const isMgr=user.role==="manager"||user.role==="admin";
   const fStaff=store.dynStaff.filter(s=>user.role==="admin"||s.facilityId===user.selectedFacilityId);
-  const days=daysInMonth(vm.y,vm.m);const mk=d=>`${vm.y}-${String(vm.m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  const facilityId=user.selectedFacilityId;
+  const facName=FACILITIES.find(f=>f.id===facilityId)?.name||"";
+  const days=daysInMonth(vm.y,vm.m);
+  const mk=d=>`${vm.y}-${String(vm.m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  const dow=["日","月","火","水","木","金","土"];
+  const dcol=d=>{const w=new Date(vm.y,vm.m-1,d).getDay();return w===0?"var(--ro)":w===6?"var(--tl)":"var(--tx)";};
+
+  // 各日の勤務タイプ別集計
   const counts={A:0,B:0,C:0,off:0,holiday:0};
   fStaff.forEach(s=>{for(let i=1;i<=days;i++){const t=store.getShift(s.id,mk(i));if(counts[t]!==undefined)counts[t]++;}});
-  const dcol=d=>{const dow=new Date(vm.y,vm.m-1,d).getDay();return dow===0?{color:"var(--ro)"}:dow===6?{color:"var(--tl)"}:{};};
-  const csv=()=>{const h=["氏名",...Array.from({length:days},(_,i)=>i+1)];const rows=fStaff.map(s=>[s.name,...Array.from({length:days},(_,i)=>store.getShift(s.id,mk(i+1)))]);const c=[h,...rows].map(r=>r.join(",")).join("\n");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿"+c],{type:"text/csv"}));a.download=`shift_${vm.y}${String(vm.m).padStart(2,"0")}.csv`;a.click();};
+
+  // 各日の出勤人数（平日のみ）
+  const dayWorkCount=d=>{
+    const dw=new Date(vm.y,vm.m-1,d).getDay();
+    if(dw===0||dw===6) return null; // 土日はnull
+    return fStaff.filter(s=>{const t=store.getShift(s.id,mk(d));return t&&t!=="off"&&t!=="holiday"&&t!=="none";}).length;
+  };
+
   // 月間勤務時間計算
-  const calcHours=sid=>{const shiftHours={A:9,B:9,C:9,off:0,holiday:0,P1:5,P2:4,P3:4,none:0};let h=0;for(let i=1;i<=days;i++){h+=shiftHours[store.getShift(sid,mk(i))]||0;}return h;};
-  return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">📆 シフト管理</div></div>
-    <div>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-        <div style={{display:"flex",alignItems:"center",gap:9}}><button className="cn" onClick={()=>setVm(v=>v.m===1?{y:v.y-1,m:12}:{y:v.y,m:v.m-1})}>‹</button><div style={{fontSize:16,fontWeight:900}}>{vm.y}年 {vm.m}月</div><button className="cn" onClick={()=>setVm(v=>v.m===12?{y:v.y+1,m:1}:{y:v.y,m:v.m+1})}>›</button></div>
-        <button className="bexp" onClick={csv}>⬇ CSV</button>
-        <button className="bexp" style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={()=>printShift(fStaff,vm,days,store.getShift,FACILITIES.find(f=>f.id===user.selectedFacilityId)?.name||"")}>🖨️ 印刷</button>
+  const SHIFT_HOURS={A:8,B:8,C:8,off:0,holiday:0,P1:5,P2:4,P3:4,none:0};
+  const calcHours=sid=>{let h=0;for(let i=1;i<=days;i++){h+=SHIFT_HOURS[store.getShift(sid,mk(i))]||0;}return h;};
+
+  // 先月コピー
+  const copyFromPrev=()=>{
+    const pvm=vm.m===1?{y:vm.y-1,m:12}:{y:vm.y,m:vm.m-1};
+    const pdays=daysInMonth(pvm.y,pvm.m);
+    const pmk=d=>`${pvm.y}-${String(pvm.m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    let cnt=0;
+    fStaff.forEach(s=>{
+      for(let i=1;i<=Math.min(days,pdays);i++){
+        const t=store.getShift(s.id,pmk(i));
+        if(t&&t!=="none"){store.setShift(s.id,mk(i),t);cnt++;}
+      }
+    });
+    setCopyMsg(`先月から${cnt}件のシフトをコピーしました`);
+    setTimeout(()=>setCopyMsg(""),3000);
+  };
+
+  // 有給申請承認済みをシフトに反映
+  const applyApprovedLeave=()=>{
+    const yearMonth=vm.y+"-"+String(vm.m).padStart(2,"0");
+    const approved=(store.paidLeaveReqs||[]).filter(r=>
+      r.status==="承認済"&&(r.leaveDate||r.date||"").startsWith(yearMonth)
+    );
+    let cnt=0;
+    approved.forEach(r=>{
+      const date=r.leaveDate||r.date||"";
+      if(date){store.setShift(r.staffId,date,"holiday");cnt++;}
+    });
+    setCopyMsg(cnt>0?`承認済み有給${cnt}件をシフトに反映しました`:"この月の承認済み有給申請がありません");
+    setTimeout(()=>setCopyMsg(""),3000);
+  };
+
+  // CSV出力
+  const csv=()=>{
+    const h=["職員ID","氏名",...Array.from({length:days},(_,i)=>i+1),"勤務日数","勤務時間(h)"];
+    const rows=fStaff.map(s=>{
+      const shiftRow=Array.from({length:days},(_,i)=>store.getShift(s.id,mk(i+1))||"");
+      const wdays=shiftRow.filter(t=>t&&t!=="off"&&t!=="holiday"&&t!=="none").length;
+      return [s.id,s.name,...shiftRow,wdays,calcHours(s.id)];
+    });
+    const c=[h,...rows].map(r=>r.join(",")).join("\n");
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿"+c],{type:"text/csv"}));
+    a.download=`shift_${vm.y}${String(vm.m).padStart(2,"0")}.csv`;a.click();
+  };
+
+  // ラベル
+  const shiftLabel=t=>({A:"A",B:"B",C:"C",off:"休",holiday:"有",P1:"P1",P2:"P2",P3:"P3",none:"-"}[t]||"-");
+  const shiftClass=t=>`scell sc${t||"none"}`;
+
+  return <div className="fl-wrap">
+    <div className="fl-hd">
+      <button className="bback" onClick={onBack}>← 戻る</button>
+      <div className="fl-title">📆 シフト管理</div>
+    </div>
+
+    {/* 年月ナビ + タブ */}
+    <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:12,flexWrap:"wrap"}}>
+      <button className="cn" onClick={()=>setVm(v=>v.m===1?{y:v.y-1,m:12}:{y:v.y,m:v.m-1})}>‹</button>
+      <div style={{fontSize:16,fontWeight:900,minWidth:90,textAlign:"center"}}>{vm.y}年 {vm.m}月</div>
+      <button className="cn" onClick={()=>setVm(v=>v.m===12?{y:v.y+1,m:1}:{y:v.y,m:v.m+1})}>›</button>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginLeft:8}}>
+        {[{id:"calendar",icon:"📅",label:"シフト表"},{id:"check",icon:"✅",label:"充足チェック"},{id:"summary",icon:"📊",label:"勤務集計"}].map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)}
+            style={{padding:"7px 13px",borderRadius:9,border:"2px solid",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,
+              borderColor:tab===t.id?"var(--tl)":"var(--bd)",background:tab===t.id?"rgba(58,160,216,0.2)":"var(--bg)",color:tab===t.id?"var(--tl)":"var(--tx3)"}}>
+            {t.icon} {t.label}
+          </button>
+        ))}
       </div>
+      {isMgr&&<div style={{display:"flex",gap:6,marginLeft:"auto",flexWrap:"wrap"}}>
+        <button className="bexp" onClick={csv}>⬇ CSV</button>
+        <button className="bexp" style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={()=>printShift(fStaff,vm,days,store.getShift,facName)}>🖨️ 印刷</button>
+      </div>}
+    </div>
+
+    {/* コピー通知 */}
+    {copyMsg&&<div style={{background:"rgba(44,170,96,0.15)",border:"1px solid rgba(44,170,96,0.4)",borderRadius:9,padding:"8px 14px",marginBottom:10,fontSize:12,fontWeight:700,color:"var(--gr)"}}>✅ {copyMsg}</div>}
+
+    {/* ── シフト表タブ ── */}
+    {tab==="calendar"&&<>
+      {isMgr&&<div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+        <button onClick={copyFromPrev}
+          style={{padding:"7px 14px",borderRadius:9,border:"1px solid var(--bd)",background:"var(--wh)",color:"var(--tx)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+          📋 先月のシフトをコピー
+        </button>
+        <button onClick={applyApprovedLeave}
+          style={{padding:"7px 14px",borderRadius:9,border:"1px solid rgba(144,72,216,0.4)",background:"rgba(144,72,216,0.08)",color:"var(--pu)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+          🎫 承認済み有給を反映
+        </button>
+      </div>}
       <div className="sleg">{SHIFT_TYPES.map(s=><div key={s.key} className="leg"><div className="ld" style={{background:s.color,border:"1px solid "+s.text}}/><span>{s.label}（{s.time}）</span></div>)}</div>
       <div className="ssum2">{SHIFT_TYPES.filter(s=>s.key!=="none").map(s=><div key={s.key} className="ss"><div className="ssn" style={{color:s.text}}>{counts[s.key]||0}</div><div className="ssl">{s.label}</div></div>)}</div>
-      <div className="sto"><table className="stbl"><thead><tr>
-        <th className="nh">職員名</th>
-        {Array.from({length:days},(_,i)=>{const d=i+1;const dow=new Date(vm.y,vm.m-1,d).getDay();return <th key={d} style={dcol(d)}>{d}<br/><span style={{fontSize:8}}>{["日","月","火","水","木","金","土"][dow]}</span></th>;})}
-        <th style={{whiteSpace:"nowrap",paddingRight:8}}>合計時間</th>
-      </tr></thead><tbody>
+      <div className="sto"><table className="stbl"><thead>
+        <tr>
+          <th className="nh">職員名</th>
+          {Array.from({length:days},(_,i)=>{
+            const d=i+1;const dw=new Date(vm.y,vm.m-1,d).getDay();
+            return <th key={d} style={{color:dcol(d)}}>{d}<br/><span style={{fontSize:8}}>{dow[dw]}</span></th>;
+          })}
+          <th style={{whiteSpace:"nowrap",paddingRight:6,fontSize:10}}>合計h</th>
+        </tr>
+        {/* 出勤人数行 */}
+        <tr style={{background:"var(--bg2)"}}>
+          <th style={{fontSize:10,color:"var(--tx3)",textAlign:"left",paddingLeft:6}}>出勤人数</th>
+          {Array.from({length:days},(_,i)=>{
+            const d=i+1;const cnt=dayWorkCount(d);
+            const ok=cnt===null||cnt>=minStaff;
+            return <th key={d} style={{fontSize:9,fontWeight:700,color:cnt===null?"var(--tx3)":ok?"var(--gr)":"var(--ro)",background:cnt!==null&&!ok?"rgba(224,56,56,0.1)":""}}>
+              {cnt===null?"—":cnt}
+            </th>;
+          })}
+          <th/>
+        </tr>
+      </thead><tbody>
         {fStaff.map(s=><tr key={s.id}>
           <td className="nc">{s.name}</td>
-          {Array.from({length:days},(_,i)=>{const date=mk(i+1);const type=store.getShift(s.id,date);const dow=new Date(vm.y,vm.m-1,i+1).getDay();const we=dow===0||dow===6;
-            return <td key={i}><div className={`scell sc${we?"off":type||"none"}`} onClick={()=>!we&&isMgr&&setCell({staffId:s.id,date})} style={{cursor:isMgr&&!we?"pointer":"default"}}>{we?"":type==="none"||!type?"-":type==="off"?"休":type==="holiday"?"有":type==="P1"?"P1":type==="P2"?"P2":type}</div></td>;
+          {Array.from({length:days},(_,i)=>{
+            const date=mk(i+1);const type=store.getShift(s.id,date);
+            const dw=new Date(vm.y,vm.m-1,i+1).getDay();const we=dw===0||dw===6;
+            return <td key={i}>
+              <div className={shiftClass(we?"off":type)} onClick={()=>!we&&isMgr&&setCell({staffId:s.id,date})} style={{cursor:isMgr&&!we?"pointer":"default"}}>
+                {we?"":shiftLabel(type)}
+              </div>
+            </td>;
           })}
-          <td style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:"var(--tb)",paddingRight:8}}>{calcHours(s.id)}h</td>
+          <td style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:"var(--tl)",paddingRight:6}}>{calcHours(s.id)}h</td>
         </tr>)}
       </tbody></table></div>
-      {/* 月間勤務表サマリー */}
-      <div style={{marginTop:16}}>
-        <div style={{fontSize:13,fontWeight:700,marginBottom:10,color:"var(--tl)"}}>📊 月間勤務サマリー</div>
-        {fStaff.map(s=>{
-          const wdays=Array.from({length:days},(_,i)=>store.getShift(s.id,mk(i+1))).filter(t=>t!=="off"&&t!=="holiday"&&t!=="none").length;
-          const offdays=Array.from({length:days},(_,i)=>store.getShift(s.id,mk(i+1))).filter(t=>t==="off").length;
-          const holdays=Array.from({length:days},(_,i)=>store.getShift(s.id,mk(i+1))).filter(t=>t==="holiday").length;
-          return <div key={s.id} className="mt-card"><div className="mt-name">{s.name}</div>
-            <div className="mt-row"><span className="mt-key">出勤日数</span><span className="mt-val" style={{color:"var(--gr)"}}>{wdays}日</span></div>
-            <div className="mt-row"><span className="mt-key">公休日数</span><span className="mt-val" style={{color:"var(--g4)"}}>{offdays}日</span></div>
-            <div className="mt-row"><span className="mt-key">有休取得</span><span className="mt-val" style={{color:"var(--pu)"}}>{holdays}日</span></div>
-            <div className="mt-row"><span className="mt-key">勤務時間（概算）</span><span className="mt-val" style={{color:"var(--tb)"}}>{calcHours(s.id)}h</span></div>
+
+      {/* セル編集モーダル */}
+      {cell&&<div className="ov" onClick={e=>e.target===e.currentTarget&&setCell(null)}>
+        <div className="md">
+          <div className="mdtit">シフトを設定</div>
+          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:10}}>{store.dynStaff.find(s=>s.id===cell.staffId)?.name} — {dlabel(cell.date)}</div>
+          <div className="sogrid">{SHIFT_TYPES.map(s=>{
+            const cur=store.getShift(cell.staffId,cell.date);
+            return <button key={s.key} className="soBtn"
+              style={{borderColor:cur===s.key?"var(--tl)":"",background:cur===s.key?s.color:""}}
+              onClick={()=>{store.setShift(cell.staffId,cell.date,s.key);setCell(null);}}>
+              <div style={{color:s.text,fontSize:13}}>{s.label}</div>
+              <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{s.time}</div>
+            </button>;
+          })}</div>
+          <div className="mda"><button className="bcancel" onClick={()=>setCell(null)}>閉じる</button></div>
+        </div>
+      </div>}
+    </>}
+
+    {/* ── 充足チェックタブ ── */}
+    {tab==="check"&&<>
+      <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:12,flexWrap:"wrap"}}>
+        <div style={{fontSize:12,fontWeight:700,color:"var(--tx3)"}}>法定最低人数：</div>
+        <select value={minStaff} onChange={e=>setMinStaff(+e.target.value)}
+          style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontSize:14,fontFamily:"'DM Mono',monospace",outline:"none"}}>
+          {[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n}名</option>)}
+        </select>
+        <div style={{fontSize:11,color:"var(--tx3)"}}>※ 放課後等デイサービスは原則2名以上（児童指導員or保育士1名含む）</div>
+      </div>
+      {/* カレンダー形式の充足状況 */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:5,marginBottom:16}}>
+        {dow.map(d=><div key={d} style={{textAlign:"center",fontSize:11,fontWeight:700,padding:"5px 0",color:d==="日"?"var(--ro)":d==="土"?"var(--tl)":"var(--tx3)"}}>{d}</div>)}
+        {/* 月初の空白 */}
+        {Array.from({length:new Date(vm.y,vm.m-1,1).getDay()},(_,i)=><div key={"b"+i}/>)}
+        {Array.from({length:days},(_,i)=>{
+          const d=i+1;const dw=new Date(vm.y,vm.m-1,d).getDay();
+          const isWe=dw===0||dw===6;
+          const cnt=isWe?null:dayWorkCount(d);
+          const ok=cnt===null||cnt>=minStaff;
+          const isToday=mk(d)===todayISO();
+          const staffOnDay=isWe?[]:fStaff.filter(s=>{const t=store.getShift(s.id,mk(d));return t&&t!=="off"&&t!=="holiday"&&t!=="none";});
+          return <div key={d} style={{
+            background:isWe?"var(--bg)":ok?"rgba(44,170,96,0.12)":"rgba(224,56,56,0.1)",
+            border:`2px solid ${isToday?"var(--tl)":isWe?"var(--bd)":ok?"rgba(44,170,96,0.4)":"rgba(224,56,56,0.5)"}`,
+            borderRadius:10,padding:"7px 5px",minHeight:80,
+          }}>
+            <div style={{textAlign:"center",fontWeight:700,fontSize:12,color:isWe?"var(--tx3)":ok?"var(--gr)":"var(--ro)",marginBottom:4}}>
+              {d}日
+              {!isWe&&<div style={{fontSize:16,fontWeight:900,fontFamily:"'DM Mono',monospace"}}>{cnt}</div>}
+              {!isWe&&<div style={{fontSize:9,fontWeight:700,color:ok?"var(--gr)":"var(--ro)"}}>{ok?"✓ 充足":"✗ 不足"}</div>}
+            </div>
+            {!isWe&&staffOnDay.slice(0,3).map(s=>(
+              <div key={s.id} style={{fontSize:9,color:"var(--tx3)",textOverflow:"ellipsis",overflow:"hidden",whiteSpace:"nowrap"}}>{s.name}</div>
+            ))}
+            {!isWe&&staffOnDay.length>3&&<div style={{fontSize:9,color:"var(--tx3)"}}>+{staffOnDay.length-3}名</div>}
           </div>;
         })}
       </div>
-      {cell&&<div className="ov" onClick={e=>e.target===e.currentTarget&&setCell(null)}><div className="md"><div className="mdtit">シフトを設定</div><div style={{fontSize:12,color:"var(--g4)",marginBottom:10}}>{store.dynStaff.find(s=>s.id===cell.staffId)?.name} — {dlabel(cell.date)}</div>
-        <div className="sogrid">{SHIFT_TYPES.map(s=><button key={s.key} className="soBtn" style={{borderColor:store.getShift(cell.staffId,cell.date)===s.key?"var(--tl)":"",background:store.getShift(cell.staffId,cell.date)===s.key?s.color:""}} onClick={()=>{store.setShift(cell.staffId,cell.date,s.key);setCell(null);}}>
-          <div style={{color:s.text,fontSize:13}}>{s.label}</div><div style={{fontSize:10,color:"var(--g4)",marginTop:2}}>{s.time}</div>
-        </button>)}</div>
-        <div className="mda"><button className="bcancel" onClick={()=>setCell(null)}>閉じる</button></div>
-      </div></div>}
-    </div>
+      {/* 充足不足日のリスト */}
+      {(()=>{
+        const shortDays=Array.from({length:days},(_,i)=>i+1).filter(d=>{
+          const dw=new Date(vm.y,vm.m-1,d).getDay();
+          if(dw===0||dw===6) return false;
+          return dayWorkCount(d)<minStaff;
+        });
+        return shortDays.length>0?<div style={{background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.3)",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
+          <div style={{fontWeight:700,fontSize:12,color:"var(--ro)",marginBottom:6}}>🚨 充足人数不足の日（{shortDays.length}日）</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+            {shortDays.map(d=><span key={d} style={{fontSize:11,padding:"3px 9px",borderRadius:7,background:"rgba(224,56,56,0.15)",color:"var(--ro)",fontWeight:700,fontFamily:"'DM Mono',monospace"}}>
+              {vm.m}/{d}（{dow[new Date(vm.y,vm.m-1,d).getDay()]}）{dayWorkCount(d)}名
+            </span>)}
+          </div>
+        </div>:<div style={{background:"rgba(44,170,96,0.1)",border:"1px solid rgba(44,170,96,0.4)",borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
+          <span style={{fontSize:18}}>✅</span><span style={{fontWeight:700,color:"var(--gr)",fontSize:13}}>全平日で{minStaff}名以上の配置が確保されています</span>
+        </div>;
+      })()}
+    </>}
+
+    {/* ── 勤務集計タブ ── */}
+    {tab==="summary"&&<>
+      <div style={{overflowX:"auto",marginBottom:16}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:500}}>
+          <thead><tr style={{background:"var(--bg2)"}}>
+            {["職員名","職種","出勤日数","公休日数","有給取得","勤務時間","月40h超過","残日数目安"].map(h=>(
+              <th key={h} style={{padding:"8px 9px",textAlign:"left",color:"var(--tx2)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--bd)",whiteSpace:"nowrap"}}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>{fStaff.map(s=>{
+            const shifts=Array.from({length:days},(_,i)=>store.getShift(s.id,mk(i+1))||"none");
+            const wdays=shifts.filter(t=>t&&t!=="off"&&t!=="holiday"&&t!=="none").length;
+            const offdays=shifts.filter(t=>t==="off").length;
+            const holdays=shifts.filter(t=>t==="holiday").length;
+            const hours=calcHours(s.id);
+            const over=Math.max(0,hours-160); // 月160h基準（概算）
+            // 残日数（残りの平日に最低何日出れば帳尻が合うか）
+            const remainDays=Array.from({length:days},(_,i)=>i+1).filter(d=>{
+              const dw=new Date(vm.y,vm.m-1,d).getDay();
+              const t=store.getShift(s.id,mk(d));
+              return dw!==0&&dw!==6&&(!t||t==="none");
+            }).length;
+            const sd=s.data||s;
+            return <tr key={s.id} style={{borderBottom:"1px solid var(--bd)"}}>
+              <td style={{padding:"8px 9px",fontWeight:700}}>{s.name}</td>
+              <td style={{padding:"8px 9px",fontSize:11,color:"var(--tx3)"}}>{sd.role==="manager"?"管理者":sd.role==="driver"?"運転手":sd.employmentType||"—"}</td>
+              <td style={{padding:"8px 9px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:700,color:"var(--gr)"}}>{wdays}日</td>
+              <td style={{padding:"8px 9px",textAlign:"right",fontFamily:"'DM Mono',monospace",color:"var(--tx3)"}}>{offdays}日</td>
+              <td style={{padding:"8px 9px",textAlign:"right",fontFamily:"'DM Mono',monospace",color:"var(--pu)",fontWeight:holdays>0?700:400}}>{holdays}日</td>
+              <td style={{padding:"8px 9px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:700,color:hours>160?"var(--ro)":"var(--tl)"}}>{hours}h</td>
+              <td style={{padding:"8px 9px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:over>0?700:400,color:over>0?"var(--ro)":"var(--tx3)"}}>{over>0?"+"+over+"h":"—"}</td>
+              <td style={{padding:"8px 9px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:11,color:"var(--tx3)"}}>{remainDays}日</td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
+      {/* 月全体サマリー */}
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"12px 16px"}}>
+        <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:"var(--tl)"}}>📊 {vm.y}年{vm.m}月 全体集計</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8}}>
+          {[
+            {label:"在籍職員数",val:fStaff.length+"名",color:"var(--tl)"},
+            {label:"延べ出勤日数",val:fStaff.reduce((s,st)=>{let n=0;for(let i=1;i<=days;i++){const t=store.getShift(st.id,mk(i));if(t&&t!=="off"&&t!=="holiday"&&t!=="none")n++;}return s+n;},0)+"日",color:"var(--gr)"},
+            {label:"有給取得計",val:fStaff.reduce((s,st)=>{let n=0;for(let i=1;i<=days;i++){if(store.getShift(st.id,mk(i))==="holiday")n++;}return s+n;},0)+"日",color:"var(--pu)"},
+            {label:"総勤務時間",val:fStaff.reduce((s,st)=>s+calcHours(st.id),0)+"h",color:"var(--am)"},
+            {label:"申請中有給",val:(store.paidLeaveReqs||[]).filter(r=>r.staffId&&fStaff.find(s=>s.id===r.staffId)&&r.status==="申請中").length+"件",color:"var(--ro)"},
+          ].map(c=>(
+            <div key={c.label} style={{background:"var(--bg2)",borderRadius:9,padding:"10px 12px",textAlign:"center"}}>
+              <div style={{fontSize:18,fontWeight:900,color:c.color,fontFamily:"'DM Mono',monospace"}}>{c.val}</div>
+              <div style={{fontSize:10,color:"var(--tx3)",marginTop:3}}>{c.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* 有給申請一覧 */}
+      {(()=>{
+        const pending=(store.paidLeaveReqs||[]).filter(r=>fStaff.find(s=>s.id===r.staffId));
+        if(!pending.length) return null;
+        return <div style={{marginTop:14}}>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:"var(--tx)"}}>🎫 有給申請一覧（この施設の職員）</div>
+          {pending.map(r=>{
+            const s=fStaff.find(st=>st.id===r.staffId);
+            return <div key={r.id} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 13px",marginBottom:7,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:13}}>{s?.name||r.staffName||"—"}</div>
+                <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>
+                  申請日: {r.leaveDate||r.date||"—"}　種別: {r.leaveType||"有給"}　理由: {r.reason||"—"}
+                </div>
+              </div>
+              <span style={{fontSize:11,fontWeight:700,padding:"4px 10px",borderRadius:8,
+                background:r.status==="承認済"?"rgba(44,170,96,0.15)":r.status==="却下"?"rgba(224,56,56,0.1)":"rgba(255,160,0,0.15)",
+                color:r.status==="承認済"?"var(--gr)":r.status==="却下"?"var(--ro)":"var(--am)"}}>
+                {r.status||"申請中"}
+              </span>
+              {isMgr&&r.status==="申請中"&&<div style={{display:"flex",gap:5}}>
+                <button onClick={()=>store.updPaidLeaveReq(r.id,{status:"承認済"})}
+                  style={{padding:"5px 11px",borderRadius:7,background:"var(--gr)",color:"#fff",border:"none",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>✓ 承認</button>
+                <button onClick={()=>store.updPaidLeaveReq(r.id,{status:"却下"})}
+                  style={{padding:"5px 11px",borderRadius:7,background:"var(--ro)",color:"#fff",border:"none",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>✗ 却下</button>
+              </div>}
+            </div>;
+          })}
+        </div>;
+      })()}
+    </>}
   </div>;
 }
 
