@@ -1409,6 +1409,46 @@ select.fi option{background:var(--bg2);color:var(--tx);}
 .user-tag-unrecorded{background:rgba(240,112,32,0.15);color:var(--ac);border:1px solid rgba(240,112,32,0.4);}
 /* セクション区切り */
 .dash-divider{border:none;border-top:1px solid var(--bd);margin:16px 0;}
+/* ===== ワンタップ記録 ユーザーカード ===== */
+.tap-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-bottom:24px;}
+.tap-card{padding:16px 10px;border-radius:14px;border:2px solid var(--bd);background:var(--wh);text-align:center;cursor:pointer;transition:transform .1s,border-color .1s;box-shadow:var(--sh);-webkit-tap-highlight-color:transparent;user-select:none;}
+.tap-card:active{transform:scale(0.95);}
+.tap-card.arrived{border-color:var(--gr);background:rgba(44,170,96,0.08);opacity:0.72;cursor:default;}
+.tap-card-avatar{font-size:28px;margin-bottom:5px;}
+.tap-card-name{font-weight:700;font-size:13px;color:var(--tx);line-height:1.3;}
+.tap-card-status{font-size:10px;margin-top:4px;font-weight:700;}
+/* QRスキャンボタン */
+.qr-scan-btn{display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 20px;border-radius:12px;border:1.5px dashed var(--tl);background:rgba(58,160,216,0.08);color:var(--tl);font-size:14px;font-weight:700;cursor:pointer;font-family:'Noto Sans JP',sans-serif;width:100%;margin-bottom:14px;}
+.qr-scan-btn:active{background:rgba(58,160,216,0.18);}
+/* ボトムシート */
+.bsheet-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);z-index:300;display:flex;align-items:flex-end;}
+.bsheet{background:var(--wh);border-radius:18px 18px 0 0;padding:20px 20px 32px;width:100%;max-height:82vh;overflow-y:auto;}
+.bsheet-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
+.bsheet-title{font-size:18px;font-weight:900;color:var(--tx);}
+.bsheet-close{background:none;border:none;font-size:22px;cursor:pointer;color:var(--tx3);line-height:1;}
+.bsheet-field{margin-bottom:14px;}
+.bsheet-label{font-size:11px;font-weight:700;color:var(--tx3);margin-bottom:6px;}
+.bsheet-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.bsheet-toggle{display:flex;gap:8px;}
+.bsheet-toggle button{flex:1;padding:10px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Noto Sans JP',sans-serif;border:2px solid var(--bd);background:var(--bg);color:var(--tx3);transition:all .15s;}
+.bsheet-toggle button.on{border-color:var(--tl);background:rgba(58,160,216,0.2);color:var(--tl);}
+.bsheet-toggle button.on-ac{border-color:var(--ac);background:rgba(240,112,32,0.15);color:var(--ac);}
+/* ===== 今日の残件 ===== */
+.todo-card{background:var(--wh);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:10px;}
+.todo-card-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.todo-card-icon{font-size:18px;}
+.todo-card-title{font-size:13px;font-weight:700;color:var(--tx);}
+.todo-card-count{margin-left:auto;font-size:11px;font-weight:700;padding:2px 9px;border-radius:9px;background:rgba(240,112,32,0.2);color:var(--ac);}
+.todo-names{display:flex;flex-wrap:wrap;gap:5px;}
+.todo-name-chip{font-size:11px;padding:3px 9px;border-radius:8px;background:rgba(240,112,32,0.1);color:var(--ac);border:1px solid rgba(240,112,32,0.3);font-weight:700;}
+/* ===== 監査モード ===== */
+.audit-user-row{background:var(--wh);border:1px solid var(--bd);border-radius:11px;padding:13px;margin-bottom:8px;}
+.audit-user-name{font-size:14px;font-weight:700;color:var(--tx);margin-bottom:8px;}
+.audit-checks{display:flex;flex-wrap:wrap;gap:6px;}
+.audit-check{font-size:11px;padding:4px 11px;border-radius:8px;font-weight:700;}
+.audit-ok{background:rgba(44,170,96,0.2);color:var(--gr);border:1px solid rgba(44,170,96,0.4);}
+.audit-ng{background:rgba(224,56,56,0.15);color:var(--ro);border:1px solid rgba(224,56,56,0.4);}
+.audit-na{background:var(--bg);color:var(--tx3);border:1px solid var(--bd);}
 `;
 
 
@@ -1791,18 +1831,91 @@ function LoginScreen({onLogin}){
 
 // ==================== CLOCK IN/OUT ====================
 function StaffClockIn({user,onBack,store}){
-  const [sel,setSel]=useState(null);const [cap,setCap]=useState(false);const [temp,setTemp]=useState("");const [note,setNote]=useState("");const [time,setTime]=useState(nowHM());const [done,setDone]=useState(false);const [saved,setSaved]=useState("");
-  const staff=store.dynStaff.filter(s=>s.facilityId===user.selectedFacilityId&&s.active!==false);const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
-  const save=()=>{const t=buildDT(time);store.addRec({id:genId(),type:"staff_in",staffId:sel.id,staffName:sel.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:t,temp,photo:true,note,createdBy:user.displayName,history:[]});setSaved(t);setDone(true);};
-  if(done)return <div className="succ"><div className="si">🎉</div><div className="st">出勤登録完了</div><div className="sd">{sel?.name} さんの出勤を記録しました<br/>体温: {temp}℃</div><div className="sm">{saved}</div><button className="bpri" style={{maxWidth:200,marginTop:8}} onClick={onBack}>ホームに戻る</button></div>;
-  return <FlowWrap title="🟢 職員 出勤" onBack={onBack}>
-    <div className="slbl">STEP 1 — 職員を選択</div><div className="ng">{staff.map(s=><button key={s.id} className={`nb ${sel?.id===s.id?"s":""}`} onClick={()=>setSel(s)}>{s.name}</button>)}</div>
-    <hr className="div"/><div className="slbl">STEP 2 — 出勤時刻</div><div className="tr"><TimePicker value={time} onChange={setTime} label="出勤時刻"/><span className="tunit" style={{fontSize:11,marginLeft:8}}>※自動入力</span></div>
-    <hr className="div"/><div className="slbl">STEP 3 — 写真撮影</div><Cam cap={cap} onCap={()=>setCap(!cap)}/>
-    <hr className="div"/><div className="slbl">STEP 4 — 体温</div><div className="tr"><input className="ti" type="number" placeholder="36.5" step="0.1" min="35" max="42" value={temp} onChange={e=>setTemp(e.target.value)}/><span className="tunit">℃</span></div>
-    <hr className="div"/><div className="slbl">備考（任意）</div><textarea className="fta" value={note} onChange={e=>setNote(e.target.value)}/>
-    <button className="bsave" disabled={!sel||!temp||!time} onClick={save} style={{marginTop:14}}>保存する</button>
-  </FlowWrap>;
+  // ワンタップ出勤記録 — カードをタップ→ボトムシートで即保存
+  const [sheet,setSheet]=useState(null);
+  const [temp,setTemp]=useState("");
+  const [note,setNote]=useState("");
+  const [time,setTime]=useState(nowHM());
+  const [done,setDone]=useState(null);
+
+  const staffList=store.dynStaff.filter(s=>s.facilityId===user.selectedFacilityId&&s.active!==false);
+  const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
+  // 今日出勤済みのID
+  const clockedIds=[...new Set(store.recs.filter(r=>isTodayRec(r)&&r.type==="staff_in"&&(r.facilityId===user.selectedFacilityId||user.role==="admin")).map(r=>r.staffId))];
+
+  const openSheet=(s)=>{setSheet(s);setTemp("");setNote("");setTime(nowHM());};
+  const closeSheet=()=>setSheet(null);
+  const save=()=>{
+    if(!sheet) return;
+    const t=buildDT(time);
+    store.addRec({id:genId(),type:"staff_in",staffId:sheet.id,staffName:sheet.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:t,temp,photo:true,note,createdBy:user.displayName,history:[]});
+    setDone(sheet.name);setSheet(null);
+  };
+
+  if(done)return <div className="succ">
+    <div className="si">🎉</div>
+    <div className="st">出勤登録完了</div>
+    <div className="sd">{done} さんの出勤を記録しました</div>
+    <div style={{display:"flex",gap:10,marginTop:14}}>
+      <button className="bpri" style={{maxWidth:200}} onClick={()=>setDone(null)}>続けて登録</button>
+      <button className="bpri" style={{maxWidth:160,background:"rgba(255,255,255,0.1)"}} onClick={onBack}>ホームへ</button>
+    </div>
+  </div>;
+
+  return <div className="fl-wrap">
+    <div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">🟢 職員 出勤</div></div>
+    <div style={{fontSize:11,color:"var(--tx3)",marginBottom:12,textAlign:"center"}}>職員カードをタップして出勤記録</div>
+
+    {/* 職員カードグリッド */}
+    <div className="tap-card-grid">
+      {staffList.map(s=>{
+        const clocked=clockedIds.includes(s.id);
+        return <div key={s.id} className={`tap-card${clocked?" arrived":""}`} onClick={()=>!clocked&&openSheet(s)}>
+          <div className="tap-card-avatar">🧑‍💼</div>
+          <div className="tap-card-name">{s.name}</div>
+          <div className="tap-card-status" style={{color:clocked?"var(--gr)":"var(--tl)"}}>{clocked?"✓ 出勤済":"タップで記録"}</div>
+        </div>;
+      })}
+    </div>
+
+    {/* ボトムシート */}
+    {sheet&&<div className="bsheet-overlay" onClick={closeSheet}>
+      <div className="bsheet" onClick={e=>e.stopPropagation()}>
+        <div className="bsheet-hd">
+          <div>
+            <div className="bsheet-title">🟢 {sheet.name}</div>
+            <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>出勤時刻と体温を入力してください</div>
+          </div>
+          <button className="bsheet-close" onClick={closeSheet}>×</button>
+        </div>
+
+        {/* 時刻 + 体温 */}
+        <div className="bsheet-row" style={{marginBottom:14}}>
+          <div>
+            <div className="bsheet-label">出勤時刻</div>
+            <TimePicker value={time} onChange={setTime} label="時刻"/>
+          </div>
+          <div>
+            <div className="bsheet-label">体温 <span style={{color:"var(--ro)"}}>*</span></div>
+            <div style={{display:"flex",alignItems:"center",gap:5}}>
+              <input className="ti" type="number" placeholder="36.5" step="0.1" min="35" max="42" value={temp} onChange={e=>setTemp(e.target.value)} style={{flex:1}}/>
+              <span style={{fontSize:12,color:"var(--tx3)"}}>℃</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 備考 */}
+        <div className="bsheet-field">
+          <div className="bsheet-label">備考（任意）</div>
+          <textarea className="fta" placeholder="特記事項があれば..." value={note} onChange={e=>setNote(e.target.value)} style={{minHeight:52}}/>
+        </div>
+
+        <button className="bsave" disabled={!temp} style={{marginTop:4}} onClick={save}>
+          ✓ {sheet.name} の出勤を記録する
+        </button>
+      </div>
+    </div>}
+  </div>;
 }
 function StaffClockOut({user,onBack,store}){
   const [sel,setSel]=useState(null);const [cap,setCap]=useState(false);const [temp,setTemp]=useState("");const [note,setNote]=useState("");const [time,setTime]=useState(nowHM());const [done,setDone]=useState(false);const [saved,setSaved]=useState("");
@@ -1819,21 +1932,165 @@ function StaffClockOut({user,onBack,store}){
   </FlowWrap>;
 }
 function UserArrive({user,onBack,store}){
-  const [sel,setSel]=useState(null);const [cap,setCap]=useState(false);const [temp,setTemp]=useState("");const [tr,setTr]=useState("あり");const [note,setNote]=useState("");const [time,setTime]=useState(nowHM());const [done,setDone]=useState(false);const [saved,setSaved]=useState("");const [dayType,setDayType]=useState("放課後");
-  const users=store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false);const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
-  const save=()=>{const t=buildDT(time);store.addRec({id:genId(),type:"user_in",userId:sel.id,userName:sel.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:t,temp,transport:tr,dayType,photo:true,note,createdBy:user.displayName,history:[]});setSaved(t);setDone(true);};
-  if(done)return <div className="succ"><div className="si">🌟</div><div className="st">来所登録完了</div><div className="sd">{sel?.name} さんの来所を記録しました<br/>体温: {temp}℃　送迎: {tr}　区分: {dayType}</div><div className="sm">{saved}</div><button className="bpri" style={{maxWidth:200,marginTop:8}} onClick={onBack}>ホームに戻る</button></div>;
-  return <FlowWrap title="🌟 利用者 来所" onBack={onBack}>
-    <div className="slbl">STEP 1 — 利用者を選択</div><div className="ng">{users.map(u=><button key={u.id} className={`nb ${sel?.id===u.id?"s":""}`} onClick={()=>setSel(u)}>{u.name}</button>)}</div>
-    <hr className="div"/><div className="slbl">STEP 2 — 日区分</div>
-    <div className="togr">{["放課後","休日"].map(v=><button key={v} className={`tg ${dayType===v?"on":""}`} onClick={()=>setDayType(v)}>{v==="休日"?"🎌 休日":"🏫 放課後"}</button>)}</div>
-    <hr className="div"/><div className="slbl">STEP 3 — 来所時刻</div><div className="tr"><TimePicker value={time} onChange={setTime} label="来所時刻"/></div>
-    <hr className="div"/><div className="slbl">STEP 4 — 写真撮影</div><Cam cap={cap} onCap={()=>setCap(!cap)}/>
-    <hr className="div"/><div className="slbl">STEP 5 — 体温</div><div className="tr"><input className="ti" type="number" placeholder="36.5" step="0.1" min="35" max="42" value={temp} onChange={e=>setTemp(e.target.value)}/><span className="tunit">℃</span></div>
-    <hr className="div"/><div className="slbl">STEP 6 — 送迎</div><div className="togr">{["あり","なし"].map(v=><button key={v} className={`tg ${tr===v?"on":""}`} onClick={()=>setTr(v)}>送迎{v}</button>)}</div>
-    <hr className="div"/><div className="slbl">備考（任意）</div><textarea className="fta" value={note} onChange={e=>setNote(e.target.value)}/>
-    <button className="bsave" disabled={!sel||!time} onClick={save} style={{marginTop:14}}>保存する</button>
-  </FlowWrap>;
+  // ワンタップ来所記録 — カードをタップ→ボトムシートで即保存
+  const [sheet,setSheet]=useState(null);   // 選択中の利用者
+  const [temp,setTemp]=useState("");
+  const [tr,setTr]=useState("あり");
+  const [note,setNote]=useState("");
+  const [time,setTime]=useState(nowHM());
+  const [dayType,setDayType]=useState("放課後");
+  const [done,setDone]=useState(null);     // 完了した利用者名
+  const [scanning,setScanning]=useState(false);
+  const [scanErr,setScanErr]=useState("");
+  const videoRef=useRef(null);
+  const streamRef=useRef(null);
+
+  const users=store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false);
+  const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
+  // 今日来所済みのID
+  const arrivedIds=[...new Set(store.recs.filter(r=>isTodayRec(r)&&r.type==="user_in"&&(r.facilityId===user.selectedFacilityId||user.role==="admin")).map(r=>r.userId))];
+
+  const openSheet=(u)=>{
+    setSheet(u);setTemp("");setTr("あり");setNote("");setTime(nowHM());setDayType("放課後");
+  };
+  const closeSheet=()=>setSheet(null);
+
+  const save=()=>{
+    if(!sheet) return;
+    const t=buildDT(time);
+    store.addRec({id:genId(),type:"user_in",userId:sheet.id,userName:sheet.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:t,temp,transport:tr,dayType,photo:true,note,createdBy:user.displayName,history:[]});
+    setDone(sheet.name);
+    setSheet(null);
+  };
+
+  // QRスキャン（BarcodeDetector API）
+  const startScan=async()=>{
+    setScanErr("");
+    if(!("BarcodeDetector" in window)){setScanErr("このブラウザはQRスキャン非対応です。リストから選択してください。");return;}
+    setScanning(true);
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+      streamRef.current=stream;
+      if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}
+      const detector=new window.BarcodeDetector({formats:["qr_code"]});
+      const scan=async()=>{
+        if(!streamRef.current) return;
+        try{
+          const codes=await detector.detect(videoRef.current);
+          if(codes.length>0){
+            const val=codes[0].rawValue;
+            stopScan();
+            const found=users.find(u=>u.id===val||u.name===val);
+            if(found) openSheet(found);
+            else setScanErr("対応する利用者が見つかりませんでした（"+val+"）");
+          } else { requestAnimationFrame(scan); }
+        }catch(e){requestAnimationFrame(scan);}
+      };
+      requestAnimationFrame(scan);
+    }catch(e){setScanning(false);setScanErr("カメラへのアクセスが拒否されました");}
+  };
+  const stopScan=()=>{
+    if(streamRef.current){streamRef.current.getTracks().forEach(t=>t.stop());streamRef.current=null;}
+    setScanning(false);
+  };
+
+  // 完了画面
+  if(done)return <div className="succ">
+    <div className="si">🌟</div>
+    <div className="st">来所登録完了</div>
+    <div className="sd">{done} さんの来所を記録しました</div>
+    <div style={{display:"flex",gap:10,marginTop:14}}>
+      <button className="bpri" style={{maxWidth:200}} onClick={()=>setDone(null)}>続けて登録</button>
+      <button className="bpri" style={{maxWidth:160,background:"rgba(255,255,255,0.1)"}} onClick={onBack}>ホームへ</button>
+    </div>
+  </div>;
+
+  return <div className="fl-wrap">
+    <div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">🌟 利用者 来所</div></div>
+
+    {/* QRスキャン */}
+    {!scanning
+      ? <button className="qr-scan-btn" onClick={startScan}>📷 QRコードでスキャン（ワンタップ）</button>
+      : <div style={{position:"relative",borderRadius:14,overflow:"hidden",border:"2px solid var(--tl)",marginBottom:14}}>
+          <video ref={videoRef} style={{width:"100%",maxHeight:220,objectFit:"cover",display:"block"}} playsInline muted/>
+          <button onClick={stopScan} style={{position:"absolute",top:8,right:8,padding:"6px 14px",borderRadius:8,border:"none",background:"rgba(0,0,0,0.65)",color:"#fff",fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>✕ 停止</button>
+          <div style={{position:"absolute",bottom:8,left:0,right:0,textAlign:"center",color:"var(--tl)",fontSize:12,fontWeight:700,textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>QRコードをカメラに向けてください</div>
+        </div>
+    }
+    {scanErr&&<div style={{fontSize:11,color:"var(--ro)",marginBottom:10,textAlign:"center"}}>{scanErr}</div>}
+
+    <div style={{fontSize:11,color:"var(--tx3)",marginBottom:12,textAlign:"center"}}>— または下のカードをタップ —</div>
+
+    {/* 利用者カードグリッド */}
+    <div className="tap-card-grid">
+      {users.map(u=>{
+        const arrived=arrivedIds.includes(u.id);
+        return <div key={u.id} className={`tap-card${arrived?" arrived":""}`} onClick={()=>!arrived&&openSheet(u)}>
+          <div className="tap-card-avatar">👤</div>
+          <div className="tap-card-name">{u.name}</div>
+          <div className="tap-card-status" style={{color:arrived?"var(--gr)":"var(--ac)"}}>{arrived?"✓ 来所済":"タップで記録"}</div>
+        </div>;
+      })}
+    </div>
+
+    {/* ボトムシート */}
+    {sheet&&<div className="bsheet-overlay" onClick={closeSheet}>
+      <div className="bsheet" onClick={e=>e.stopPropagation()}>
+        <div className="bsheet-hd">
+          <div>
+            <div className="bsheet-title">🌟 {sheet.name}</div>
+            <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>来所記録を入力してください</div>
+          </div>
+          <button className="bsheet-close" onClick={closeSheet}>×</button>
+        </div>
+
+        {/* 時刻 + 体温（2列） */}
+        <div className="bsheet-row" style={{marginBottom:14}}>
+          <div>
+            <div className="bsheet-label">来所時刻</div>
+            <TimePicker value={time} onChange={setTime} label="時刻"/>
+          </div>
+          <div>
+            <div className="bsheet-label">体温</div>
+            <div style={{display:"flex",alignItems:"center",gap:5}}>
+              <input className="ti" type="number" placeholder="36.5" step="0.1" min="35" max="42" value={temp} onChange={e=>setTemp(e.target.value)} style={{flex:1}}/>
+              <span style={{fontSize:12,color:"var(--tx3)"}}>℃</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 日区分 */}
+        <div className="bsheet-field">
+          <div className="bsheet-label">日区分</div>
+          <div className="bsheet-toggle">
+            {["放課後","休日"].map(v=><button key={v} className={dayType===v?"on":""} onClick={()=>setDayType(v)}>
+              {v==="休日"?"🎌 休日":"🏫 放課後"}
+            </button>)}
+          </div>
+        </div>
+
+        {/* 送迎 */}
+        <div className="bsheet-field">
+          <div className="bsheet-label">送迎</div>
+          <div className="bsheet-toggle">
+            {["あり","なし"].map(v=><button key={v} className={tr===v?"on-ac":""} onClick={()=>setTr(v)}>
+              🚌 送迎{v}
+            </button>)}
+          </div>
+        </div>
+
+        {/* 備考 */}
+        <div className="bsheet-field">
+          <div className="bsheet-label">備考（任意）</div>
+          <textarea className="fta" placeholder="特記事項があれば..." value={note} onChange={e=>setNote(e.target.value)} style={{minHeight:52}}/>
+        </div>
+
+        <button className="bsave" style={{marginTop:4}} onClick={save}>
+          ✓ {sheet.name} の来所を記録する
+        </button>
+      </div>
+    </div>}
+  </div>;
 }
 function UserDepart({user,onBack,store}){
   const [sel,setSel]=useState(null);const [cap,setCap]=useState(false);const [tr,setTr]=useState("あり");const [note,setNote]=useState("");const [time,setTime]=useState(nowHM());const [done,setDone]=useState(false);const [saved,setSaved]=useState("");const [dayType,setDayType]=useState("放課後");
@@ -4995,6 +5252,24 @@ function HomeScreen({user,onNav,store}){
     alerts.unshift({level:"info",icon:"🚌",text:`送迎予定 ${transportUsers.length}名`,screen:"transport"});
   }
 
+  // ===== 今日の残件（名前付き） =====
+  const todoItems=[];
+  // サービス記録未入力の利用者
+  if(unrecordedIds.length>0){
+    todoItems.push({icon:"📋",title:"サービス記録 未入力",names:unrecordedIds.map(id=>myUsers.find(u=>u.id===id)?.name||id).filter(Boolean),screen:"service"});
+  }
+  // 体温未入力（来所済み）
+  const noTempUserIds=[...new Set(todayRecs.filter(r=>r.type==="user_in"&&!r.temp).map(r=>r.userId))];
+  if(noTempUserIds.length>0){
+    todoItems.push({icon:"🌡️",title:"体温 未入力",names:noTempUserIds.map(id=>myUsers.find(u=>u.id===id)?.name||id).filter(Boolean),screen:"user_arrive"});
+  }
+  // 写真記録なし（在所中だが写真記録がない）
+  const photoIds=[...new Set(todayRecs.filter(r=>r.type==="photo").map(r=>r.userId))];
+  const noPhotoIds=inFacility.filter(id=>!photoIds.includes(id));
+  if(noPhotoIds.length>0){
+    todoItems.push({icon:"📸",title:"写真記録 未撮影",names:noPhotoIds.map(id=>myUsers.find(u=>u.id===id)?.name||id).filter(Boolean),screen:"photo"});
+  }
+
   // ===== クイックアクション =====
   const quickCards=[
     {id:"clock_in",  icon:"🟢",title:"職員 出勤",  desc:"打刻・体温",  cls:"c1"},
@@ -5025,6 +5300,23 @@ function HomeScreen({user,onNav,store}){
           <span className="alert-icon">{a.icon}</span>
           <span className="alert-text" style={{color:a.level==="warn"?"var(--ac)":a.level==="danger"?"var(--ro)":"var(--tl)"}}>{a.text}</span>
           <span className="alert-arrow">›</span>
+        </div>
+      ))}
+    </div>}
+
+    {/* ===== 今日の残件 ===== */}
+    {todoItems.length>0&&<div className="dash-section">
+      <div className="dash-title">✅ 今日の残件</div>
+      {todoItems.map((item,i)=>(
+        <div key={i} className="todo-card" onClick={()=>onNav(item.screen)} style={{cursor:"pointer"}}>
+          <div className="todo-card-hd">
+            <span className="todo-card-icon">{item.icon}</span>
+            <span className="todo-card-title">{item.title}</span>
+            <span className="todo-card-count">{item.names.length}件</span>
+          </div>
+          <div className="todo-names">
+            {item.names.map(n=><span key={n} className="todo-name-chip">{n}</span>)}
+          </div>
         </div>
       ))}
     </div>}
@@ -5084,6 +5376,121 @@ function HomeScreen({user,onNav,store}){
         </div>
       ))}
     </div>
+  </div>;
+}
+
+// ==================== 監査モード ====================
+function AuditScreen({user,onBack,store}){
+  const today=todayISO();
+  const [dateFrom,setDateFrom]=useState(today);
+  const [dateTo,setDateTo]=useState(today);
+
+  const myFac=r=>(user.role==="admin")||(r.facilityId||r.facility_id)===user.selectedFacilityId;
+  const myUsers=store.dynUsers.filter(u=>u.active!==false&&(user.role==="admin"||u.facilityId===user.selectedFacilityId));
+  const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
+
+  // 指定期間内の記録を集計
+  const rangeRecs=store.recs.filter(r=>{
+    if(!myFac(r)) return false;
+    const d=r.time?.slice(0,10)||"";
+    return d>=dateFrom&&d<=dateTo;
+  });
+
+  // 利用者ごとの完備チェック
+  const arrivedUserIds=[...new Set(rangeRecs.filter(r=>r.type==="user_in").map(r=>r.userId))];
+  const serviceUserIds=[...new Set(rangeRecs.filter(r=>r.type==="service").map(r=>r.userId))];
+  const photoUserIds=[...new Set(rangeRecs.filter(r=>r.type==="photo").map(r=>r.userId))];
+  // 体温あり
+  const tempOkIds=[...new Set(rangeRecs.filter(r=>r.type==="user_in"&&r.temp&&r.temp!=="").map(r=>r.userId))];
+
+  // 集計サマリー
+  const total=arrivedUserIds.length;
+  const fullOk=arrivedUserIds.filter(id=>serviceUserIds.includes(id)&&tempOkIds.includes(id)).length;
+
+  // 印刷HTML生成
+  const printAudit=()=>{
+    const facName=fac?.name||"全施設";
+    const rows=myUsers.filter(u=>arrivedUserIds.includes(u.id));
+    const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>監査チェックリスト</title>
+    <style>body{font-family:'MS Gothic',sans-serif;padding:20px;color:#111;}
+    h2{font-size:16px;margin-bottom:4px;}p{font-size:11px;color:#555;margin-bottom:16px;}
+    table{border-collapse:collapse;width:100%;font-size:12px;}
+    th,td{border:1px solid #aaa;padding:6px 10px;text-align:center;}
+    th{background:#eee;font-weight:700;}
+    .ok{color:#1a7a3a;font-weight:700;}.ng{color:#c0392b;font-weight:700;}.na{color:#999;}
+    </style></head><body>
+    <h2>📋 監査チェックリスト — ${facName}</h2>
+    <p>期間：${dateFrom} 〜 ${dateTo}　　出力日時：${new Date().toLocaleString("ja-JP")}</p>
+    <table><thead><tr>
+      <th>利用者名</th><th>来所</th><th>体温</th><th>サービス記録</th><th>写真記録</th>
+    </tr></thead><tbody>
+    ${rows.map(u=>`<tr>
+      <td style="text-align:left;font-weight:700">${u.name}</td>
+      <td class="ok">✓</td>
+      <td class="${tempOkIds.includes(u.id)?"ok":"ng"}">${tempOkIds.includes(u.id)?"✓ あり":"✗ なし"}</td>
+      <td class="${serviceUserIds.includes(u.id)?"ok":"ng"}">${serviceUserIds.includes(u.id)?"✓ 入力済":"✗ 未入力"}</td>
+      <td class="${photoUserIds.includes(u.id)?"ok":"na"}">${photoUserIds.includes(u.id)?"✓ あり":"— なし"}</td>
+    </tr>`).join("")}
+    </tbody></table>
+    <p style="margin-top:16px;font-size:10px;">合計来所者数: ${total}名　完備（来所+体温+サービス記録済み）: ${fullOk}名</p>
+    </body></html>`;
+    const w=window.open("","_blank","width=860,height=700");
+    if(w){w.document.write(html);w.document.close();w.print();}
+  };
+
+  return <div className="fl-wrap">
+    <div className="fl-hd">
+      <button className="bback" onClick={onBack}>← 戻る</button>
+      <div className="fl-title">🔍 監査モード</div>
+      <button className="bexp" style={{marginLeft:"auto",background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={printAudit}>🖨️ 監査PDF</button>
+    </div>
+
+    {/* 期間選択 */}
+    <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:16,background:"var(--wh)",padding:14,borderRadius:12,border:"1px solid var(--bd)"}}>
+      <span style={{fontSize:12,fontWeight:700,color:"var(--tx3)"}}>期間：</span>
+      <input type="date" className="fi" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}
+        style={{padding:"7px 10px",borderRadius:8,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontSize:14,fontFamily:"'DM Mono',monospace"}}/>
+      <span style={{color:"var(--tx3)"}}>〜</span>
+      <input type="date" className="fi" value={dateTo} onChange={e=>setDateTo(e.target.value)}
+        style={{padding:"7px 10px",borderRadius:8,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontSize:14,fontFamily:"'DM Mono',monospace"}}/>
+    </div>
+
+    {/* サマリーカード */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:18}}>
+      {[
+        {label:"来所者数",val:total,color:"var(--tl)"},
+        {label:"記録完備",val:fullOk,color:"var(--gr)"},
+        {label:"未完備",val:total-fullOk,color:total-fullOk>0?"var(--ro)":"var(--tx3)"},
+      ].map(s=><div key={s.label} className="stat-card">
+        <div className="stat-label">{s.label}</div>
+        <div className="stat-val" style={{color:s.color}}>{s.val}</div>
+      </div>)}
+    </div>
+
+    {/* 利用者ごとのチェックリスト */}
+    {arrivedUserIds.length===0
+      ? <div style={{textAlign:"center",color:"var(--tx3)",padding:"32px 0",fontSize:13}}>
+          指定期間内に来所記録がありません
+        </div>
+      : myUsers.filter(u=>arrivedUserIds.includes(u.id)).map(u=>{
+          const hasTemp=tempOkIds.includes(u.id);
+          const hasService=serviceUserIds.includes(u.id);
+          const hasPhoto=photoUserIds.includes(u.id);
+          const allOk=hasTemp&&hasService;
+          return <div key={u.id} className="audit-user-row" style={{borderColor:allOk?"rgba(44,170,96,0.4)":"rgba(224,56,56,0.3)"}}>
+            <div className="audit-user-name">
+              {allOk?"✅":"⚠️"} {u.name}
+              {!allOk&&<span style={{fontSize:10,fontWeight:700,color:"var(--ro)",marginLeft:8}}>要確認</span>}
+            </div>
+            <div className="audit-checks">
+              <span className="audit-check audit-ok">来所 ✓</span>
+              <span className={`audit-check ${hasTemp?"audit-ok":"audit-ng"}`}>体温 {hasTemp?"✓":"✗"}</span>
+              <span className={`audit-check ${hasService?"audit-ok":"audit-ng"}`}>サービス記録 {hasService?"✓":"✗"}</span>
+              <span className={`audit-check ${hasPhoto?"audit-ok":"audit-na"}`}>写真 {hasPhoto?"✓":"—"}</span>
+            </div>
+          </div>;
+        })
+    }
   </div>;
 }
 
@@ -5444,6 +5851,7 @@ function Sidebar({user,screen,onNav,onLogout,unreadCount,open,onClose}){
       {id:"kokuho",icon:"💴",label:"国保連請求"},
       {id:"staffmgmt",icon:"👥",label:"スタッフ管理"},
       {id:"admin",icon:"📊",label:"管理画面"},
+      {id:"audit",icon:"🔍",label:"監査モード"},
     ]:[]),
   ];
 
@@ -5517,7 +5925,7 @@ export default function App(){
     service:"サービス提供記録",messages:"保護者連絡",schedule:"生徒予定表",
     daily:"業務日報",paidleave:"有給管理",users:"利用者管理",
     shift:"シフト管理",attendance:"出欠管理",transport:"送迎管理",
-    kokuho:"国保連請求",staffmgmt:"スタッフ管理",admin:"管理画面",
+    kokuho:"国保連請求",staffmgmt:"スタッフ管理",admin:"管理画面",audit:"監査モード",
   };
 
   const render=()=>{switch(screen){
@@ -5539,6 +5947,7 @@ export default function App(){
     case "schedule":return <ScheduleScreen user={user} store={store} onBack={()=>setScreen("home")}/>
     case "staffmgmt":return <StaffManagement user={user} store={store} onBack={()=>setScreen("home")}/>
     case "admin":return <AdminScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
+    case "audit":return <AuditScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
     default:return <HomeScreen user={user} onNav={setScreen} store={store}/>;
   }};
 
