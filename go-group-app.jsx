@@ -4882,7 +4882,7 @@ function UserManagement({user,store,onBack}){
         {/* ===== アセスメント ===== */}
         {hubTab==="assessment"&&<AssessmentTab u={u} myAssessments={myAssessments} user={user} store={store}/>}
         {/* ===== 個別支援計画 ===== */}
-        {hubTab==="isp"&&<IspTab u={u} myIsps={myIsps} user={user} store={store}/>}
+        {hubTab==="isp"&&<IspUserDetail u={u} user={user} store={store} onBack={()=>setHubTab("facesheet")}/>}
         {/* ===== 個別支援計画（原案） ===== */}
         {hubTab==="isp_draft"&&<IspDraftTab u={u} myIspDrafts={myIspDrafts} user={user} store={store}/>}
         {/* ===== モニタリング ===== */}
