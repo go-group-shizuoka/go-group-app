@@ -9091,10 +9091,23 @@ function StaffDetail({s, store, isMgr, onBack, onEdit}){
 function StaffManagement({user, store, onBack}){
   const [screen, setScreen] = useState("list"); // list | register | edit | detail
   const [selStaff, setSelStaff] = useState(null);
+  const [bulkMode, setBulkMode] = useState(false); // 一括削除モード
+  const [checked, setChecked] = useState([]);       // 選択中のスタッフID
   const isMgr = user.role==="manager"||user.role==="admin";
   const staffList = store.dynStaff.filter(s=>user.role==="admin"||s.facilityId===user.selectedFacilityId);
   const active = staffList.filter(s=>s.active!==false);
   const inactive = staffList.filter(s=>s.active===false);
+
+  // 一括削除実行
+  const bulkDelete = () => {
+    if(checked.length===0) return;
+    if(!window.confirm(`選択した ${checked.length} 名を完全に削除しますか？\nこの操作は取り消せません。`)) return;
+    checked.forEach(id => store.delStaff(id));
+    setChecked([]);
+    setBulkMode(false);
+  };
+  const toggleCheck = (id) => setChecked(p => p.includes(id) ? p.filter(x=>x!==id) : [...p, id]);
+  const checkAll = () => setChecked(active.map(s=>s.id));
 
   // ===== 詳細・資格証書 =====
   if(screen==="detail"&&selStaff){
@@ -9133,9 +9146,15 @@ function StaffManagement({user, store, onBack}){
   // ===== 一覧 =====
   const StaffCard = ({s}) => {
     const fac = FACILITIES.find(f=>f.id===s.facilityId);
-    return <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:14,boxShadow:"var(--sh)",transition:"all .15s",opacity:s.active===false?.6:1}}>
+    const isChecked = checked.includes(s.id);
+    return <div onClick={bulkMode?()=>toggleCheck(s.id):undefined}
+      style={{background:"var(--wh)",border:`1.5px solid ${bulkMode&&isChecked?"var(--ro)":"var(--bd)"}`,borderRadius:12,padding:14,boxShadow:"var(--sh)",transition:"all .15s",opacity:s.active===false?.6:1,cursor:bulkMode?"pointer":"default",background:bulkMode&&isChecked?"rgba(224,56,56,0.08)":"var(--wh)"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:9}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
+          {/* 一括削除モード時はチェックボックス表示 */}
+          {bulkMode&&<input type="checkbox" checked={isChecked} onChange={()=>toggleCheck(s.id)}
+            onClick={e=>e.stopPropagation()}
+            style={{width:18,height:18,accentColor:"var(--ro)",cursor:"pointer",flexShrink:0}}/>}
           <div style={{width:42,height:42,borderRadius:"50%",background:s.role==="manager"?"linear-gradient(135deg,var(--tl),var(--tl))":"linear-gradient(135deg,var(--gr),var(--tl))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",fontWeight:700,flexShrink:0}}>
             {s.name.charAt(0)}
           </div>
@@ -9144,13 +9163,16 @@ function StaffManagement({user, store, onBack}){
             <div style={{fontSize:11,color:"var(--tx3)",marginTop:1}}>{fac?.name}</div>
           </div>
         </div>
-        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+        {!bulkMode&&<div style={{display:"flex",gap:6,alignItems:"center"}}>
           <span style={{fontSize:10,padding:"3px 9px",borderRadius:10,fontWeight:700,background:s.role==="manager"?"rgba(58,160,216,0.2)":s.role==="admin"?"rgba(144,72,216,0.18)":"rgba(44,170,96,0.2)",color:s.role==="manager"?"var(--tl)":s.role==="admin"?"var(--pu)":"var(--gr)"}}>
             {s.role==="manager"?"施設管理者":s.role==="admin"?"本部管理者":"一般職員"}
           </span>
           <button onClick={()=>{setSelStaff(s);setScreen("detail");}} style={{padding:"4px 9px",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.1)",border:"1.5px solid rgba(58,160,216,0.35)",color:"var(--tl)"}}>詳細</button>
           {isMgr&&<button onClick={()=>{setSelStaff(s);setScreen("edit");}} style={{padding:"4px 9px",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx3)"}}>編集</button>}
-        </div>
+        </div>}
+        {bulkMode&&<span style={{fontSize:10,padding:"3px 9px",borderRadius:10,fontWeight:700,background:s.role==="manager"?"rgba(58,160,216,0.2)":s.role==="admin"?"rgba(144,72,216,0.18)":"rgba(44,170,96,0.2)",color:s.role==="manager"?"var(--tl)":s.role==="admin"?"var(--pu)":"var(--gr)"}}>
+          {s.role==="manager"?"施設管理者":s.role==="admin"?"本部管理者":"一般職員"}
+        </span>}
       </div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",fontSize:11,color:"var(--tx3)"}}>
         {s.employmentType&&<span style={{padding:"2px 7px",borderRadius:7,background:"var(--bg)",border:"1px solid var(--bd)"}}>{s.employmentType}</span>}
@@ -9172,7 +9194,32 @@ function StaffManagement({user, store, onBack}){
 
   return <div className="fl-wrap">
     <div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">👥 スタッフ管理</div></div>
-    {isMgr&&<div style={{marginBottom:14}}><button className="bsave" style={{maxWidth:200}} onClick={()=>setScreen("register")}>＋ 新規スタッフ登録</button></div>}
+
+    {/* ボタンエリア */}
+    {isMgr&&!bulkMode&&<div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+      <button className="bsave" style={{maxWidth:200}} onClick={()=>setScreen("register")}>＋ 新規スタッフ登録</button>
+      <button onClick={()=>{setBulkMode(true);setChecked([]);}}
+        style={{padding:"9px 16px",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(224,56,56,0.1)",border:"1.5px solid rgba(224,56,56,0.4)",color:"var(--ro)"}}>
+        🗑️ まとめて削除
+      </button>
+    </div>}
+
+    {/* 一括削除モード バー */}
+    {bulkMode&&<div style={{background:"rgba(224,56,56,0.08)",border:"1.5px solid rgba(224,56,56,0.4)",borderRadius:11,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+      <span style={{fontSize:13,fontWeight:700,color:"var(--ro)"}}>🗑️ 削除モード</span>
+      <span style={{fontSize:12,color:"var(--tx3)"}}>{checked.length}名選択中</span>
+      <button onClick={checkAll} style={{padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx2)"}}>全選択</button>
+      <button onClick={()=>setChecked([])} style={{padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx2)"}}>選択解除</button>
+      <button onClick={bulkDelete} disabled={checked.length===0}
+        style={{padding:"6px 16px",borderRadius:8,fontSize:12,fontWeight:700,cursor:checked.length===0?"not-allowed":"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:checked.length===0?"var(--bg)":"var(--ro)",border:"none",color:checked.length===0?"var(--tx3)":"#fff",opacity:checked.length===0?.5:1}}>
+        {checked.length}名を削除
+      </button>
+      <button onClick={()=>{setBulkMode(false);setChecked([]);}}
+        style={{padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx3)",marginLeft:"auto"}}>
+        キャンセル
+      </button>
+    </div>}
+
     <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
       <div style={{background:"rgba(58,160,216,0.2)",borderRadius:9,padding:"9px 14px",fontSize:13,fontWeight:700,color:"var(--tl)"}}>在籍 {active.length}名</div>
       {inactive.length>0&&<div style={{background:"var(--bg)",borderRadius:9,padding:"9px 14px",fontSize:13,fontWeight:700,color:"var(--tx3)"}}>退職 {inactive.length}名</div>}
