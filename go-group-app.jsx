@@ -2330,6 +2330,18 @@ function useStore() {
     setMonitorings(p=>[...p,m]);
     sbSave("monitorings", {id:m.id, facility_id:m.facilityId||null, user_id:m.userId||null, staff_id:m.staffId||null, monitoring_date:m.date||null, data:m});
   };
+  const updAssessment = (id,ch) => setAssessments(p=>p.map(a=>{
+    if(a.id!==id) return a;
+    const u={...a,...ch};
+    sbSave("assessments", {id, facility_id:u.facilityId||null, user_id:u.userId||null, assessor:u.assessor||null, assess_date:u.date||null, data:u});
+    return u;
+  }));
+  const updMonitoring = (id,ch) => setMonitorings(p=>p.map(m=>{
+    if(m.id!==id) return m;
+    const u={...m,...ch};
+    sbSave("monitorings", {id, facility_id:u.facilityId||null, user_id:u.userId||null, staff_id:u.staffId||null, monitoring_date:u.date||null, data:u});
+    return u;
+  }));
 
   const addDailyReport = r => {
     setDailyReports(p=>[...p.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId)),r]);
@@ -2537,7 +2549,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,monitorings,addMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType};
+  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType};
 }
 
 
@@ -5019,6 +5031,7 @@ function AssessmentTab({u,myAssessments,user,store}){
   const [notes,setNotes]=useState({});
   const [overall,setOverall]=useState("");
   const [done,setDone]=useState(false);
+  const [editId,setEditId]=useState(null); // null=新規, id=編集中
 
   const setScore=(akey,ikey,val)=>setScores(p=>({...p,[akey]:{...(p[akey]||{}),[ikey]:val}}));
   const setNote=(akey,val)=>setNotes(p=>({...p,[akey]:val}));
@@ -5026,11 +5039,28 @@ function AssessmentTab({u,myAssessments,user,store}){
   const totalScore=()=>{const areas=ASSESSMENT_AREAS.map(a=>areaScore(a.key)).filter(Boolean);return areas.length?Math.round(areas.reduce((a,b)=>a+b,0)/areas.length*10)/10:null;};
 
   const save=()=>{
-    const rec={id:genId(),userId:u.id,facilityId:u.facilityId,date,assessor,scores,notes,overall,createdAt:todayISO()};
-    store.addAssessment(rec);
+    if(editId){
+      store.updAssessment(editId,{date,assessor,scores,notes,overall,updatedAt:todayISO()});
+      setEditId(null);
+    } else {
+      const rec={id:genId(),userId:u.id,facilityId:u.facilityId,date,assessor,scores,notes,overall,createdAt:todayISO()};
+      store.addAssessment(rec);
+    }
     setDone(true);
   };
-  const reset=()=>{setDone(false);setMode("list");setScores({});setNotes({});setOverall("");setDate(todayISO());};
+  const reset=()=>{setDone(false);setMode("list");setScores({});setNotes({});setOverall("");setDate(todayISO());setEditId(null);};
+
+  // 編集モードに入る
+  const startEdit=(a)=>{
+    setDate(a.date||todayISO());
+    setAssessor(a.assessor||user.displayName);
+    setScores(a.scores||{});
+    setNotes(a.notes||{});
+    setOverall(a.overall||"");
+    setEditId(a.id);
+    setSelA(null);
+    setMode("new");
+  };
 
   const ScoreColor=s=>s>=4?"var(--gr2)":s>=3?"var(--tl)":s>=2?"var(--am)":"var(--ro)";
   const ScoreBg=s=>s>=4?"rgba(44,170,96,0.2)":s>=3?"rgba(58,160,216,0.2)":s>=2?"rgba(224,168,40,0.18)":"rgba(224,56,56,0.15)";
@@ -5040,7 +5070,10 @@ function AssessmentTab({u,myAssessments,user,store}){
   if(mode==="view"&&selA) return <div style={{paddingBottom:28}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
       <div style={{display:"flex",alignItems:"center",gap:10}}><button className="bback" onClick={()=>setMode("list")}>← 戻る</button><div style={{fontSize:15,fontWeight:900}}>📊 アセスメント詳細</div></div>
-      <button className="bexp" onClick={()=>printAssessment(u,selA,FACILITIES.find(f=>f.id===u.facilityId)?.name||"")} style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}}>🖨️ 印刷</button>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>startEdit(selA)} style={{padding:"7px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--tl)",background:"rgba(58,160,216,0.1)",color:"var(--tl)"}}>✏️ 編集</button>
+        <button className="bexp" onClick={()=>printAssessment(u,selA,FACILITIES.find(f=>f.id===u.facilityId)?.name||"")} style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}}>🖨️ 印刷</button>
+      </div>
     </div>
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
@@ -5080,8 +5113,8 @@ function AssessmentTab({u,myAssessments,user,store}){
 
   if(mode==="new") return <div style={{paddingBottom:28}}>
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-      <button className="bback" onClick={()=>setMode("list")}>← 戻る</button>
-      <div style={{fontSize:15,fontWeight:900}}>📊 アセスメント記入</div>
+      <button className="bback" onClick={()=>{setMode("list");setEditId(null);}}>← 戻る</button>
+      <div style={{fontSize:15,fontWeight:900}}>📊 アセスメント{editId?"編集":"記入"}</div>
     </div>
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -5146,16 +5179,34 @@ function IspTab({u,myIsps,user,store}){
   const [goals,setGoals]=useState([]);const [longGoal,setLongGoal]=useState("");const [shortGoal,setShortGoal]=useState("");
   const [support,setSupport]=useState("");const [evaluation,setEval]=useState("");const [period,setPeriod]=useState("2026年4月〜2026年9月");
   const [staffName,setStaffName]=useState(user.displayName);const [done,setDone]=useState(false);
+  const [editId,setEditId]=useState(null); // null=新規, id=編集中
   const tog=g=>setGoals(p=>p.includes(g)?p.filter(x=>x!==g):[...p,g]);
-  const save=()=>{store.addIsp({id:genId(),userId:u.id,facilityId:u.facilityId,period,createdAt:todayISO(),goals,longGoal,shortGoal,support,evaluation,staffName,progress:0,status:"実施中"});setDone(true);};
-  const reset=()=>{setDone(false);setMode("list");setGoals([]);setLongGoal("");setShortGoal("");setSupport("");setEval("");};
+  const save=()=>{
+    if(editId){
+      store.updIsp(editId,{period,goals,longGoal,shortGoal,support,evaluation,staffName,updatedAt:todayISO()});
+      setEditId(null);
+    } else {
+      store.addIsp({id:genId(),userId:u.id,facilityId:u.facilityId,period,createdAt:todayISO(),goals,longGoal,shortGoal,support,evaluation,staffName,progress:0,status:"実施中"});
+    }
+    setDone(true);
+  };
+  const reset=()=>{setDone(false);setMode("list");setGoals([]);setLongGoal("");setShortGoal("");setSupport("");setEval("");setEditId(null);};
+  const startEdit=(x)=>{
+    setPeriod(x.period||"");setGoals(x.goals||[]);setLongGoal(x.longGoal||"");
+    setShortGoal(x.shortGoal||"");setSupport(x.support||"");setEval(x.evaluation||"");
+    setStaffName(x.staffName||user.displayName);setEditId(x.id);
+    setView(null);setMode("new");
+  };
 
   if(done) return <div className="succ"><div className="si">📝</div><div className="st">計画を作成しました</div><div className="sd">{u.name} さんの個別支援計画を保存しました</div><div style={{display:"flex",gap:10,marginTop:12}}><button className="bpri" style={{maxWidth:160}} onClick={reset}>続けて作成</button></div></div>;
 
   if(view) return <div style={{paddingBottom:28}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
       <div style={{display:"flex",alignItems:"center",gap:10}}><button className="bback" onClick={()=>setView(null)}>← 戻る</button><div style={{fontSize:15,fontWeight:900}}>📝 個別支援計画 詳細</div></div>
-      <button className="bexp" onClick={()=>printISP(u,view,FACILITIES.find(f=>f.id===u.facilityId)?.name||"")} style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}}>🖨️ 印刷</button>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>startEdit(view)} style={{padding:"7px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--tl)",background:"rgba(58,160,216,0.1)",color:"var(--tl)"}}>✏️ 編集</button>
+        <button className="bexp" onClick={()=>printISP(u,view,FACILITIES.find(f=>f.id===u.facilityId)?.name||"")} style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}}>🖨️ 印刷</button>
+      </div>
     </div>
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
@@ -5245,6 +5296,7 @@ function MonitoringTab({u,myMonitorings,myIsps,user,store}){
   const [itemNotes,setItemNotes]=useState({});
   const [nextPlan,setNextPlan]=useState("");const [parentComment,setParentComment]=useState("");const [overallNote,setOverallNote]=useState("");
   const [done,setDone]=useState(false);
+  const [editId,setEditId]=useState(null); // null=新規, id=編集中
 
   const setIS=(k,v)=>setItemScores(p=>({...p,[k]:v}));
   const setIN=(k,v)=>setItemNotes(p=>({...p,[k]:v}));
@@ -5253,8 +5305,29 @@ function MonitoringTab({u,myMonitorings,myIsps,user,store}){
   const [monDoneInfo, setMonDoneInfo] = useState(null); // 完了後の情報表示
   const SCORE_MAP={"達成":100,"概ね達成":80,"一部達成":50,"未達成":20,"継続":50};
 
+  // 編集モードに入る
+  const startEdit=(m)=>{
+    setSelIsp(m.ispId||myIsps[0]?.id||"");
+    setDate(m.date||todayISO());
+    setStaffName(m.staffName||user.displayName);
+    setItemScores(m.itemScores||{});
+    setItemNotes(m.itemNotes||{});
+    setNextPlan(m.nextPlan||"");
+    setParentComment(m.parentComment||"");
+    setOverallNote(m.overallNote||"");
+    setEditId(m.id);
+    setView(null);
+    setMode("new");
+  };
+
   const save=()=>{
     const isp=myIsps.find(x=>x.id===selIsp);
+    if(editId){
+      store.updMonitoring(editId,{ispId:selIsp,ispPeriod:isp?.period||"",date,staffName,itemScores,itemNotes,nextPlan,parentComment,overallNote,updatedAt:todayISO()});
+      setEditId(null);
+      setDone(true);
+      return;
+    }
     const rec={id:genId(),userId:u.id,facilityId:u.facilityId,ispId:selIsp,ispPeriod:isp?.period||"",date,staffName,itemScores,itemNotes,nextPlan,parentComment,overallNote,createdAt:todayISO()};
     store.addMonitoring(rec);
 
@@ -5285,7 +5358,7 @@ function MonitoringTab({u,myMonitorings,myIsps,user,store}){
     setMonDoneInfo({progress,avgScore,needsNewIsp,userName:u.name});
     setDone(true);
   };
-  const reset=()=>{setDone(false);setMode("list");setItemScores({});setItemNotes({});setNextPlan("");setParentComment("");setOverallNote("");setMonDoneInfo(null);};
+  const reset=()=>{setDone(false);setMode("list");setItemScores({});setItemNotes({});setNextPlan("");setParentComment("");setOverallNote("");setMonDoneInfo(null);setEditId(null);};
 
   if(done) return <div className="succ">
     <div className="si">🔍</div>
@@ -5306,7 +5379,10 @@ function MonitoringTab({u,myMonitorings,myIsps,user,store}){
   if(mode==="view"&&view) return <div style={{paddingBottom:28}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
       <div style={{display:"flex",alignItems:"center",gap:10}}><button className="bback" onClick={()=>setMode("list")}>← 戻る</button><div style={{fontSize:15,fontWeight:900}}>🔍 モニタリング詳細</div></div>
-      <button className="bexp" onClick={()=>printMonitoring(u,view,FACILITIES.find(f=>f.id===u.facilityId)?.name||"")} style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}}>🖨️ 印刷</button>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>startEdit(view)} style={{padding:"7px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--tl)",background:"rgba(58,160,216,0.1)",color:"var(--tl)"}}>✏️ 編集</button>
+        <button className="bexp" onClick={()=>printMonitoring(u,view,FACILITIES.find(f=>f.id===u.facilityId)?.name||"")} style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}}>🖨️ 印刷</button>
+      </div>
     </div>
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:16,marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
@@ -5415,6 +5491,7 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
   const [mode, setMode] = useState("list");
   const [viewItem, setViewItem] = useState(null);
   const [form, setForm] = useState(()=>newDraftForm(user.displayName));
+  const [editId, setEditId] = useState(null); // null=新規, id=編集中
   const facName = FACILITIES.find(f=>f.id===u.facilityId)?.name||"";
 
   const upd = (k,v) => setForm(p=>({...p,[k]:v}));
@@ -5426,10 +5503,25 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
   const togDomain = (id,dom) => setForm(p=>({...p,goals:p.goals.map(g=>g.id!==id?g:{...g,domains:g.domains.includes(dom)?g.domains.filter(d=>d!==dom):[...g.domains,dom]})}));
 
   const save = () => {
-    const draft={...form,id:genId(),userId:u.id,facilityId:u.facilityId,createdAt:todayISO()};
-    store.addIspDraft(draft);
+    if(editId){
+      // 既存レコードを更新
+      store.updIspDraft(editId, {...form, updatedAt:todayISO()});
+      setEditId(null);
+    } else {
+      // 新規作成
+      const draft={...form,id:genId(),userId:u.id,facilityId:u.facilityId,createdAt:todayISO()};
+      store.addIspDraft(draft);
+    }
     setForm(newDraftForm(user.displayName));
     setMode("list");
+  };
+
+  // 編集モードに入る
+  const startEdit = (item) => {
+    setForm({...item});
+    setEditId(item.id);
+    setViewItem(null);
+    setMode("new");
   };
 
   // --- 詳細表示 ---
@@ -5442,6 +5534,7 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
         </div>
         <div style={{display:"flex",gap:8}}>
           <button className="bexp" onClick={()=>printIspDraft(u,viewItem,facName)} style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}}>🖨️ 印刷・PDF</button>
+          <button onClick={()=>startEdit(viewItem)} style={{padding:"7px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--tl)",background:"rgba(58,160,216,0.1)",color:"var(--tl)"}}>✏️ 編集</button>
           <button onClick={()=>{store.delIspDraft(viewItem.id);setViewItem(null);setMode("list");}} style={{padding:"7px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid rgba(224,56,56,0.4)",background:"rgba(224,56,56,0.08)",color:"var(--ro)"}}>削除</button>
         </div>
       </div>
@@ -5476,7 +5569,7 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
     <div style={{paddingBottom:32}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
         <button className="bback" onClick={()=>setMode("list")}>← 戻る</button>
-        <div style={{fontSize:15,fontWeight:900}}>📋 個別支援計画（原案）作成</div>
+        <div style={{fontSize:15,fontWeight:900}}>📋 個別支援計画（原案）{editId?"編集":"作成"}</div>
       </div>
 
       {/* 基本情報 */}
