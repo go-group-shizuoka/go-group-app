@@ -4742,19 +4742,19 @@ function UserManagement({user,store,onBack}){
           キャンセル
         </button>
       </div>}
-      {/* 全体アラートサマリー */}
+      {/* 全体アラートサマリー（人数ベースでカウント） */}
       {(()=>{
-        const allAlerts=users.flatMap(u=>getUserAlerts(u,store).filter(a=>a.status!=="ok"));
-        const urgentCount=allAlerts.filter(a=>a.status==="expired"||a.status==="urgent").length;
-        const soonCount=allAlerts.filter(a=>a.status==="soon").length;
+        // 件数ではなく「該当する利用者の人数」でカウント
+        const urgentCount=users.filter(u=>getUserAlerts(u,store).some(a=>a.status==="expired"||a.status==="urgent")).length;
+        const soonCount=users.filter(u=>!getUserAlerts(u,store).some(a=>a.status==="expired"||a.status==="urgent")&&getUserAlerts(u,store).some(a=>a.status==="soon")).length;
         return (urgentCount+soonCount)>0&&<div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
           {urgentCount>0&&<div style={{background:"rgba(224,56,56,0.15)",border:"1.5px solid rgba(224,56,56,0.4)",borderRadius:10,padding:"10px 16px",display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:20}}>🔴</span>
-            <div><div style={{fontSize:12,fontWeight:900,color:"var(--ro)"}}>要対応 {urgentCount}件</div><div style={{fontSize:10,color:"var(--ro)",opacity:.8}}>期限切れ・30日以内</div></div>
+            <div><div style={{fontSize:12,fontWeight:900,color:"var(--ro)"}}>要対応 {urgentCount}名</div><div style={{fontSize:10,color:"var(--ro)",opacity:.8}}>期限切れ・30日以内</div></div>
           </div>}
           {soonCount>0&&<div style={{background:"#fef8e6",border:"1.5px solid #e8d870",borderRadius:10,padding:"10px 16px",display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:20}}>🟡</span>
-            <div><div style={{fontSize:12,fontWeight:900,color:"#8a6200"}}>期限間近 {soonCount}件</div><div style={{fontSize:10,color:"#8a6200",opacity:.8}}>90日以内に期限</div></div>
+            <div><div style={{fontSize:12,fontWeight:900,color:"#8a6200"}}>期限間近 {soonCount}名</div><div style={{fontSize:10,color:"#8a6200",opacity:.8}}>90日以内に期限</div></div>
           </div>}
         </div>;
       })()}
