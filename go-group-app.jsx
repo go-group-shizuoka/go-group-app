@@ -4697,14 +4697,51 @@ function UserManagement({user,store,onBack}){
   const [screen,setScreen]=useState("list"); // list | hub | facesheet | assessment | isp | monitoring
   const [selUser,setSelUser]=useState(null);
   const [hubTab,setHubTab]=useState("facesheet");
+  const [bulkMode,setBulkMode]=useState(false); // 一括削除モード
+  const [checked,setChecked]=useState([]);       // 選択中の利用者ID
   const users=store.dynUsers.filter(u=>user.role==="admin"||u.facilityId===user.selectedFacilityId);
 
   const isMgr = user.role==="manager"||user.role==="admin";
+
+  // 一括削除実行
+  const bulkDelete=()=>{
+    if(checked.length===0) return;
+    if(!window.confirm(`選択した ${checked.length} 名を完全に削除しますか？\nこの操作は取り消せません。`)) return;
+    checked.forEach(id=>store.delUser(id));
+    setChecked([]);setBulkMode(false);
+  };
+  const toggleCheck=(id)=>setChecked(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+  const checkAll=()=>setChecked(users.map(u=>u.id));
+
   // ===== ユーザー選択画面 =====
   if(screen==="list") return (
     <div className="fl-wrap">
       <div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">👤 利用者管理</div></div>
-      {isMgr&&<div style={{marginBottom:12}}><button className="bsave" style={{maxWidth:200}} onClick={()=>setScreen("register")}>＋ 新規利用者登録</button></div>}
+
+      {/* ボタンエリア */}
+      {isMgr&&!bulkMode&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <button className="bsave" style={{maxWidth:200}} onClick={()=>setScreen("register")}>＋ 新規利用者登録</button>
+        <button onClick={()=>{setBulkMode(true);setChecked([]);}}
+          style={{padding:"9px 16px",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(224,56,56,0.1)",border:"1.5px solid rgba(224,56,56,0.4)",color:"var(--ro)"}}>
+          🗑️ まとめて削除
+        </button>
+      </div>}
+
+      {/* 一括削除モード バー */}
+      {bulkMode&&<div style={{background:"rgba(224,56,56,0.08)",border:"1.5px solid rgba(224,56,56,0.4)",borderRadius:11,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{fontSize:13,fontWeight:700,color:"var(--ro)"}}>🗑️ 削除モード</span>
+        <span style={{fontSize:12,color:"var(--tx3)"}}>{checked.length}名選択中</span>
+        <button onClick={checkAll} style={{padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx2)"}}>全選択</button>
+        <button onClick={()=>setChecked([])} style={{padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx2)"}}>選択解除</button>
+        <button onClick={bulkDelete} disabled={checked.length===0}
+          style={{padding:"6px 16px",borderRadius:8,fontSize:12,fontWeight:700,cursor:checked.length===0?"not-allowed":"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:checked.length===0?"var(--bg)":"var(--ro)",border:"none",color:checked.length===0?"var(--tx3)":"#fff",opacity:checked.length===0?.5:1}}>
+          {checked.length}名を削除
+        </button>
+        <button onClick={()=>{setBulkMode(false);setChecked([]);}}
+          style={{padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx3)",marginLeft:"auto"}}>
+          キャンセル
+        </button>
+      </div>}
       {/* 全体アラートサマリー */}
       {(()=>{
         const allAlerts=users.flatMap(u=>getUserAlerts(u,store).filter(a=>a.status!=="ok"));
@@ -4726,13 +4763,21 @@ function UserManagement({user,store,onBack}){
           const age=calcAge(u.dob);
           const ispCount=store.isps.filter(x=>x.userId===u.id).length;
           const latestIsp=store.isps.filter(x=>x.userId===u.id).sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
-          return <div key={u.id} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"14px 13px",cursor:"pointer",boxShadow:"var(--sh)",transition:"all .18s"}}
-            onClick={()=>{setSelUser(u);setScreen("hub");}}
-            onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--tl)";e.currentTarget.style.boxShadow="var(--sh2)";}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--bd)";e.currentTarget.style.boxShadow="var(--sh)";}}>
+          const isChecked=checked.includes(u.id);
+          return <div key={u.id}
+            style={{background:bulkMode&&isChecked?"rgba(224,56,56,0.08)":"var(--wh)",border:`1.5px solid ${bulkMode&&isChecked?"var(--ro)":"var(--bd)"}`,borderRadius:12,padding:"14px 13px",cursor:"pointer",boxShadow:"var(--sh)",transition:"all .18s"}}
+            onClick={bulkMode?()=>toggleCheck(u.id):()=>{setSelUser(u);setScreen("hub");}}
+            onMouseEnter={e=>{if(!bulkMode){e.currentTarget.style.borderColor="var(--tl)";e.currentTarget.style.boxShadow="var(--sh2)";}}}
+            onMouseLeave={e=>{if(!bulkMode){e.currentTarget.style.borderColor="var(--bd)";e.currentTarget.style.boxShadow="var(--sh)";}}} >
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-              <div style={{width:40,height:40,borderRadius:"50%",background:u.active===false?"var(--bg2)":"linear-gradient(135deg,var(--tl),var(--gr))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>👤</div>
-              {isMgr&&<button onClick={e=>{e.stopPropagation();setSelUser(u);setScreen("edit");}} style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx3)"}}>編集</button>}
+              {/* 削除モード時はチェックボックス＋アイコン */}
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                {bulkMode&&<input type="checkbox" checked={isChecked} onChange={()=>toggleCheck(u.id)}
+                  onClick={e=>e.stopPropagation()}
+                  style={{width:18,height:18,accentColor:"var(--ro)",cursor:"pointer",flexShrink:0}}/>}
+                <div style={{width:40,height:40,borderRadius:"50%",background:u.active===false?"var(--bg2)":"linear-gradient(135deg,var(--tl),var(--gr))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>👤</div>
+              </div>
+              {isMgr&&!bulkMode&&<button onClick={e=>{e.stopPropagation();setSelUser(u);setScreen("edit");}} style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx3)"}}>編集</button>}
             </div>
             <div style={{fontWeight:900,fontSize:14,marginBottom:2,color:u.active===false?"var(--tx3)":"var(--tx)"}}>{u.name}{u.active===false&&<span style={{fontSize:10,color:"var(--bda)",marginLeft:5}}>（無効）</span>}</div>
             <div style={{fontSize:11,color:"var(--tx3)",marginBottom:6}}>{age}歳 ／ {u.diagnosis}</div>
