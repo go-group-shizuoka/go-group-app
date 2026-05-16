@@ -5145,7 +5145,7 @@ function UserManagement({user,store,onBack}){
       init={init} isEdit={isEdit} user={user} store={store}
       onBack={()=>setScreen("list")}
       onSave={(u)=>{
-        if(isEdit){ store.updUser2(u.id,u); }
+        if(isEdit){ store.updUser2(u.id,u); setSelUser(u); }
         else {
           // 意味のあるID: U-GH-0001 形式で採番
           const newId = genUserId(u.facilityId||user.selectedFacilityId, store.dynUsers);
