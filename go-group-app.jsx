@@ -4389,17 +4389,21 @@ function ParentMessages({user,store,onBack}){
   const [selUserId,setSelUserId]=useState(null);
   const [newMode,setNewMode]=useState(false);       // 新規1件送信
   const [broadcastMode,setBroadcastMode]=useState(false); // 一斉送信
-  const [msgFilter,setMsgFilter]=useState("all");   // all / unread / waiting
+  const [msgFilter,setMsgFilter]=useState("all");   // all / unread / waiting / urgent
   const [inputText,setInputText]=useState("");
   const [photoData,setPhotoData]=useState(null);
+  const [isUrgent,setIsUrgent]=useState(false);     // 🚨 緊急フラグ
   const [newTo,setNewTo]=useState("");
   const [newBody,setNewBody]=useState("");
   const [newPhotoData,setNewPhotoData]=useState(null);
+  const [newUrgent,setNewUrgent]=useState(false);   // 新規送信の緊急フラグ
+  const [tmplCategory,setTmplCategory]=useState("日常"); // テンプレートカテゴリー
   // 一斉送信用
   const [bcText,setBcText]=useState("");
   const [bcPhoto,setBcPhoto]=useState(null);
   const [bcSelected,setBcSelected]=useState([]);    // 送信先userId[]
   const [bcSent,setBcSent]=useState(false);         // 送信完了フラグ
+  const [bcUrgent,setBcUrgent]=useState(false);     // 一斉送信の緊急フラグ
   const msgEndRef=useRef(null);
   const photoInputRef=useRef(null);
   const newPhotoInputRef=useRef(null);
@@ -4436,8 +4440,15 @@ function ParentMessages({user,store,onBack}){
   const filteredThreads=threads.filter(t=>{
     if(msgFilter==="unread") return t.unread>0;
     if(msgFilter==="waiting") return t.waitingRead>0;
+    if(msgFilter==="urgent") return t.msgs.some(m=>m.isUrgent&&!m.parentRead);
     return true;
-  }).sort((a,b)=>b.unread-a.unread||(b.latest?.time||"")>(a.latest?.time||"")?1:-1);
+  }).sort((a,b)=>{
+    // 緊急メッセージがあるスレッドを最上位に
+    const aUrgent=a.msgs.some(m=>m.isUrgent&&!m.parentRead)?1:0;
+    const bUrgent=b.msgs.some(m=>m.isUrgent&&!m.parentRead)?1:0;
+    if(bUrgent!==aUrgent) return bUrgent-aUrgent;
+    return b.unread-a.unread||(b.latest?.time||"")>(a.latest?.time||"")?1:-1;
+  });
 
   const selThread=filteredThreads.find(t=>t.user.id===selUserId)||threads.find(t=>t.user.id===selUserId);
   const selUser=selThread?.user;
@@ -4459,11 +4470,12 @@ function ParentMessages({user,store,onBack}){
       id:genId(),userId:selUserId,userName:selUser?.name||"",
       facilityId:user.selectedFacilityId,from:user.displayName,
       body:inputText,time:nowStr(),read:true,
-      parentRead:false,parentReadAt:null,  // 保護者既読は未確認
+      parentRead:false,parentReadAt:null,
       replies:[],isBroadcast:false,
+      isUrgent:isUrgent,          // 🚨 緊急フラグ
       ...(photoData?{photoData}:{})
     });
-    setInputText("");setPhotoData(null);
+    setInputText("");setPhotoData(null);setIsUrgent(false);
   };
 
   // ─ 新規1件送信 ─
@@ -4476,9 +4488,10 @@ function ParentMessages({user,store,onBack}){
       body:newBody,time:nowStr(),read:true,
       parentRead:false,parentReadAt:null,
       replies:[],isBroadcast:false,
+      isUrgent:newUrgent,
       ...(newPhotoData?{photoData:newPhotoData}:{})
     });
-    setNewMode(false);setNewTo("");setNewBody("");setNewPhotoData(null);
+    setNewMode(false);setNewTo("");setNewBody("");setNewPhotoData(null);setNewUrgent(false);
     setSelUserId(newTo);
   };
 
@@ -4495,6 +4508,7 @@ function ParentMessages({user,store,onBack}){
         body:bcText,time:nowStr(),read:true,
         parentRead:false,parentReadAt:null,
         replies:[],isBroadcast:true,broadcastId:batchId,
+        isUrgent:bcUrgent,
         ...(bcPhoto?{photoData:bcPhoto}:{})
       });
     });
@@ -4509,15 +4523,35 @@ function ParentMessages({user,store,onBack}){
     store.showToast("既読確認を記録しました");
   };
 
-  // ─── テンプレートメッセージ ───
-  const MSG_TEMPLATES=[
-    "本日も元気に参加できました。",
-    "本日の活動の様子をお伝えします。",
-    "体調にご注意ください。",
-    "次回のご利用日についてご確認ください。",
-    "施設からのお知らせです。",
-    "今週の活動の振り返りをお送りします。",
-  ];
+  // ─── テンプレートメッセージ（カテゴリー別） ───
+  const MSG_TEMPLATE_MAP={
+    "日常":[
+      "本日も元気に参加できました。",
+      "本日の活動の様子をお伝えします。",
+      "今日もよく頑張っていました。",
+      "笑顔で一日過ごすことができました。",
+      "今週の活動の振り返りをお送りします。",
+    ],
+    "体調":[
+      "本日、体調が優れない様子が見られました。ご自宅での様子をお聞かせください。",
+      "発熱が確認されました。お迎えをお願いできますでしょうか。",
+      "本日は食欲が少ない様子でした。ご自宅での様子はいかがでしょうか。",
+      "体調にご注意ください。無理をせずお休みいただいても大丈夫です。",
+    ],
+    "お知らせ":[
+      "次回のご利用日についてご確認ください。",
+      "施設からのお知らせです。",
+      "持ち物についてご確認をお願いします。",
+      "個別支援計画についてご確認いただきたい事項があります。",
+      "来月のイベントについてお知らせします。",
+    ],
+    "緊急":[
+      "【緊急】お子様の状態について至急ご連絡ください。",
+      "【緊急】発熱（38℃以上）のため至急お迎えをお願いします。",
+      "【緊急】ケガがありました。詳細をお電話でお伝えします。",
+    ],
+  };
+  const MSG_TEMPLATES = MSG_TEMPLATE_MAP[tmplCategory] || MSG_TEMPLATE_MAP["日常"];
 
   // ===== 一斉送信画面 =====
   if(broadcastMode) {
@@ -4569,19 +4603,44 @@ function ParentMessages({user,store,onBack}){
     }
 
     return <FlowWrap title="📢 一斉送信" onBack={()=>setBroadcastMode(false)}>
+      {/* テンプレートカテゴリー */}
+      <div style={{display:"flex",gap:5,marginBottom:8}}>
+        {Object.keys(MSG_TEMPLATE_MAP).map(cat=>(
+          <button key={cat} onClick={()=>setTmplCategory(cat)}
+            style={{padding:"4px 10px",borderRadius:7,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontWeight:700,
+              background:tmplCategory===cat?(cat==="緊急"?"var(--ro)":"var(--tl)"):"var(--bg)",
+              color:tmplCategory===cat?"#fff":"var(--tx3)",border:"1.5px solid",
+              borderColor:tmplCategory===cat?(cat==="緊急"?"var(--ro)":"var(--tl)"):"var(--bd)"}}>
+            {cat==="緊急"?"🚨 "+cat:cat}
+          </button>
+        ))}
+      </div>
       {/* テンプレート選択 */}
-      <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",marginBottom:6}}>📋 テンプレート</div>
       <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>
-        {MSG_TEMPLATES.map(t=><button key={t} onClick={()=>setBcText(t)}
+        {MSG_TEMPLATES.map(t=><button key={t} onClick={()=>{setBcText(t);if(tmplCategory==="緊急")setBcUrgent(true);}}
           style={{padding:"5px 10px",borderRadius:9,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",
-            background:bcText===t?"var(--tl)":"var(--bg)",color:bcText===t?"#fff":"var(--tx3)",border:`1.5px solid ${bcText===t?"var(--tl)":"var(--bd)"}`}}>
+            background:bcText===t?(tmplCategory==="緊急"?"rgba(224,56,56,0.15)":"var(--tl)"):"var(--bg)",
+            color:bcText===t?(tmplCategory==="緊急"?"var(--ro)":"#fff"):"var(--tx3)",
+            border:`1.5px solid ${bcText===t?(tmplCategory==="緊急"?"var(--ro)":"var(--tl)"):"var(--bd)"}`}}>
           {t}
         </button>)}
       </div>
 
+      {/* 緊急フラグ */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,padding:"8px 12px",background:bcUrgent?"rgba(224,56,56,0.08)":"var(--bg)",borderRadius:10,border:`1.5px solid ${bcUrgent?"var(--ro)":"var(--bd)"}`}}>
+        <button onClick={()=>setBcUrgent(p=>!p)}
+          style={{padding:"5px 12px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",
+            background:bcUrgent?"var(--ro)":"var(--wh)",color:bcUrgent?"#fff":"var(--tx3)",border:`1.5px solid ${bcUrgent?"var(--ro)":"var(--bd)"}`}}>
+          🚨 緊急フラグ
+        </button>
+        <span style={{fontSize:11,color:bcUrgent?"var(--ro)":"var(--tx3)"}}>
+          {bcUrgent?"全員に緊急メッセージとして送信":"通常メッセージ"}
+        </span>
+      </div>
+
       {/* メッセージ入力 */}
       <div className="slbl">メッセージ内容 <span style={{color:"var(--ro)"}}>*</span></div>
-      <textarea className="fta" style={{minHeight:100}} placeholder="全員に送るメッセージを入力..." value={bcText} onChange={e=>setBcText(e.target.value)}/>
+      <textarea className="fta" style={{minHeight:100,borderColor:bcUrgent?"var(--ro)":"var(--bd)"}} placeholder="全員に送るメッセージを入力..." value={bcText} onChange={e=>setBcText(e.target.value)}/>
 
       {/* 写真添付 */}
       <input type="file" accept="image/*" ref={bcPhotoRef} style={{display:"none"}}
@@ -4623,8 +4682,8 @@ function ParentMessages({user,store,onBack}){
 
       <button className="bsave" onClick={sendBroadcast}
         disabled={(!bcText.trim()&&!bcPhoto)||bcSelected.length===0}
-        style={{opacity:(!bcText.trim()&&!bcPhoto)||bcSelected.length===0?0.5:1}}>
-        📢 {bcSelected.length}名に一斉送信する
+        style={{opacity:(!bcText.trim()&&!bcPhoto)||bcSelected.length===0?0.5:1,background:bcUrgent?"var(--ro)":undefined}}>
+        {bcUrgent?"🚨 ":"📢 "}{bcSelected.length}名に{bcUrgent?"緊急":"一斉"}送信する
       </button>
     </FlowWrap>;
   }
@@ -4636,15 +4695,43 @@ function ParentMessages({user,store,onBack}){
       <option value="">選択してください</option>
       {facUsers.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
     </select>
-    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
-      {MSG_TEMPLATES.map(t=><button key={t} onClick={()=>setNewBody(t)}
+
+    {/* テンプレートカテゴリー */}
+    <div style={{display:"flex",gap:5,marginBottom:8}}>
+      {Object.keys(MSG_TEMPLATE_MAP).map(cat=>(
+        <button key={cat} onClick={()=>setTmplCategory(cat)}
+          style={{padding:"4px 10px",borderRadius:7,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontWeight:700,
+            background:tmplCategory===cat?(cat==="緊急"?"var(--ro)":"var(--tl)"):"var(--bg)",
+            color:tmplCategory===cat?"#fff":"var(--tx3)",border:"1.5px solid",
+            borderColor:tmplCategory===cat?(cat==="緊急"?"var(--ro)":"var(--tl)"):"var(--bd)"}}>
+          {cat==="緊急"?"🚨 "+cat:cat}
+        </button>
+      ))}
+    </div>
+    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
+      {MSG_TEMPLATES.map(t=><button key={t} onClick={()=>{setNewBody(t);if(tmplCategory==="緊急")setNewUrgent(true);}}
         style={{padding:"5px 10px",borderRadius:9,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",
-          background:newBody===t?"var(--tl)":"var(--bg)",color:newBody===t?"#fff":"var(--tx3)",border:`1.5px solid ${newBody===t?"var(--tl)":"var(--bd)"}`}}>
+          background:newBody===t?(tmplCategory==="緊急"?"rgba(224,56,56,0.15)":"var(--tl)"):"var(--bg)",
+          color:newBody===t?(tmplCategory==="緊急"?"var(--ro)":"#fff"):"var(--tx3)",
+          border:`1.5px solid ${newBody===t?(tmplCategory==="緊急"?"var(--ro)":"var(--tl)"):"var(--bd)"}`}}>
         {t}
       </button>)}
     </div>
+
+    {/* 緊急フラグ */}
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,padding:"8px 12px",background:newUrgent?"rgba(224,56,56,0.08)":"var(--bg)",borderRadius:10,border:`1.5px solid ${newUrgent?"var(--ro)":"var(--bd)"}`}}>
+      <button onClick={()=>setNewUrgent(p=>!p)}
+        style={{padding:"5px 12px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",
+          background:newUrgent?"var(--ro)":"var(--wh)",color:newUrgent?"#fff":"var(--tx3)",border:`1.5px solid ${newUrgent?"var(--ro)":"var(--bd)"}`}}>
+        🚨 緊急フラグ
+      </button>
+      <span style={{fontSize:11,color:newUrgent?"var(--ro)":"var(--tx3)"}}>
+        {newUrgent?"緊急メッセージとして送信します":"通常メッセージ"}
+      </span>
+    </div>
+
     <div className="slbl">メッセージ内容</div>
-    <textarea className="fta" style={{minHeight:120}} placeholder="保護者へのメッセージを入力..." value={newBody} onChange={e=>setNewBody(e.target.value)}/>
+    <textarea className="fta" style={{minHeight:120,borderColor:newUrgent?"var(--ro)":"var(--bd)"}} placeholder="保護者へのメッセージを入力..." value={newBody} onChange={e=>setNewBody(e.target.value)}/>
     <input type="file" accept="image/*" ref={newPhotoInputRef} style={{display:"none"}}
       onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setNewPhotoData(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
     {newPhotoData&&<div style={{margin:"10px 0",position:"relative",display:"inline-block"}}>
@@ -4653,7 +4740,10 @@ function ParentMessages({user,store,onBack}){
     </div>}
     <div style={{display:"flex",gap:8,marginTop:14}}>
       <button onClick={()=>newPhotoInputRef.current?.click()} style={{padding:"9px 14px",background:"var(--bg)",border:"1.5px solid var(--bd)",borderRadius:10,cursor:"pointer",fontSize:18}}>📷</button>
-      <button className="bsave" disabled={!newTo||(!newBody.trim()&&!newPhotoData)} onClick={sendNew} style={{flex:1}}>送信する</button>
+      <button className="bsave" disabled={!newTo||(!newBody.trim()&&!newPhotoData)} onClick={sendNew}
+        style={{flex:1,background:newUrgent?"var(--ro)":undefined}}>
+        {newUrgent?"🚨 緊急送信する":"送信する"}
+      </button>
     </div>
   </FlowWrap>;
 
@@ -4691,11 +4781,13 @@ function ParentMessages({user,store,onBack}){
           const isRead=m.parentRead===true;
           const isUnread=fromFac&&m.parentRead===false;
           return <div key={m.id||i} style={{display:"flex",flexDirection:"column",alignItems:fromFac?"flex-end":"flex-start"}}>
+            {/* 緊急ラベル */}
+            {m.isUrgent&&fromFac&&<div style={{fontSize:10,color:"var(--ro)",fontWeight:700,marginBottom:2,paddingRight:4}}>🚨 緊急メッセージ</div>}
             {/* 一斉送信ラベル */}
             {m.isBroadcast&&fromFac&&<div style={{fontSize:9,color:"var(--am)",marginBottom:2,paddingRight:4}}>📢 一斉送信</div>}
             {/* 送信者名 */}
             <div style={{fontSize:10,color:"var(--tx3)",marginBottom:2,paddingLeft:fromFac?0:4,paddingRight:fromFac?4:0}}>
-              {fromFac?m.from:"保護者"}
+              {fromFac?(m.from||"施設スタッフ"):"保護者"}
             </div>
             <div style={{display:"flex",alignItems:"flex-end",gap:6,flexDirection:fromFac?"row-reverse":"row"}}>
               {/* アバター */}
@@ -4706,11 +4798,12 @@ function ParentMessages({user,store,onBack}){
               <div style={{
                 maxWidth:"70%",padding:"9px 13px",
                 borderRadius:fromFac?"16px 4px 16px 16px":"4px 16px 16px 16px",
-                background:fromFac?"var(--tl)":"#fff",
+                background:fromFac?(m.isUrgent?"var(--ro)":"var(--tl)"):"#fff",
                 color:fromFac?"#fff":"var(--tx)",
                 fontSize:13,lineHeight:1.65,
-                boxShadow:"0 1px 3px rgba(0,0,0,0.12)",
-                wordBreak:"break-word",whiteSpace:"pre-wrap"
+                boxShadow:m.isUrgent?"0 2px 8px rgba(224,56,56,0.35)":"0 1px 3px rgba(0,0,0,0.12)",
+                wordBreak:"break-word",whiteSpace:"pre-wrap",
+                border:m.isUrgent&&!fromFac?"1.5px solid rgba(224,56,56,0.4)":"none"
               }}>
                 {m.body}
                 {m.photoData&&<img src={m.photoData} alt="添付画像" style={{display:"block",maxWidth:200,maxHeight:200,borderRadius:8,marginTop:m.body?8:0,cursor:"pointer"}} onClick={()=>window.open(m.photoData)}/>}
@@ -4742,10 +4835,23 @@ function ParentMessages({user,store,onBack}){
         </div>
       </div>}
 
+      {/* テンプレートカテゴリーバー */}
+      <div style={{flexShrink:0,padding:"4px 12px 0",background:"var(--bg)",borderTop:"1px solid var(--bd)",display:"flex",gap:4}}>
+        {Object.keys(MSG_TEMPLATE_MAP).map(cat=>(
+          <button key={cat} onClick={()=>setTmplCategory(cat)}
+            style={{padding:"3px 9px",borderRadius:7,fontSize:10,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontWeight:700,
+              background:tmplCategory===cat?(cat==="緊急"?"var(--ro)":"var(--tl)"):"transparent",
+              color:tmplCategory===cat?"#fff":"var(--tx3)",border:"none"}}>
+            {cat==="緊急"?"🚨 "+cat:cat}
+          </button>
+        ))}
+      </div>
       {/* テンプレートバー */}
-      <div style={{flexShrink:0,padding:"6px 12px",background:"var(--bg)",borderTop:"1px solid var(--bd)",overflowX:"auto",whiteSpace:"nowrap",display:"flex",gap:6}}>
-        {MSG_TEMPLATES.map(t=><button key={t} onClick={()=>setInputText(t)}
-          style={{padding:"5px 10px",borderRadius:9,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--wh)",border:"1px solid var(--bd)",color:"var(--tx3)",flexShrink:0}}>
+      <div style={{flexShrink:0,padding:"4px 12px 6px",background:"var(--bg)",overflowX:"auto",whiteSpace:"nowrap",display:"flex",gap:6}}>
+        {MSG_TEMPLATES.map(t=><button key={t} onClick={()=>{setInputText(t);if(tmplCategory==="緊急")setIsUrgent(true);}}
+          style={{padding:"5px 10px",borderRadius:9,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",
+            background:"var(--wh)",border:`1px solid ${tmplCategory==="緊急"?"rgba(224,56,56,0.4)":"var(--bd)"}`,
+            color:tmplCategory==="緊急"?"var(--ro)":"var(--tx3)",flexShrink:0}}>
           {t}
         </button>)}
       </div>
@@ -4753,12 +4859,19 @@ function ParentMessages({user,store,onBack}){
       {/* 入力エリア */}
       <input type="file" accept="image/*" ref={photoInputRef} style={{display:"none"}}
         onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setPhotoData(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
+      {/* 緊急フラグ表示バー */}
+      {isUrgent&&<div style={{flexShrink:0,padding:"5px 14px",background:"rgba(224,56,56,0.1)",borderTop:"1px solid rgba(224,56,56,0.3)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <span style={{fontSize:11,fontWeight:700,color:"var(--ro)"}}>🚨 緊急メッセージとして送信</span>
+        <button onClick={()=>setIsUrgent(false)} style={{fontSize:10,color:"var(--ro)",background:"none",border:"none",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>解除</button>
+      </div>}
       <div style={{flexShrink:0,padding:"10px 12px",background:"var(--wh)",borderTop:"1px solid var(--bd)",display:"flex",gap:8,alignItems:"flex-end"}}>
         <button onClick={()=>photoInputRef.current?.click()}
           style={{padding:"8px",background:"var(--bg)",border:"1.5px solid var(--bd)",borderRadius:10,cursor:"pointer",fontSize:18,flexShrink:0,height:40,width:40,display:"flex",alignItems:"center",justifyContent:"center"}}>📷</button>
+        <button onClick={()=>setIsUrgent(p=>!p)}
+          style={{padding:"8px",background:isUrgent?"rgba(224,56,56,0.15)":"var(--bg)",border:`1.5px solid ${isUrgent?"var(--ro)":"var(--bd)"}`,borderRadius:10,cursor:"pointer",fontSize:16,flexShrink:0,height:40,width:40,display:"flex",alignItems:"center",justifyContent:"center"}}>🚨</button>
         <textarea
-          style={{flex:1,border:"1.5px solid var(--bd)",borderRadius:12,padding:"9px 12px",fontSize:13,fontFamily:"'Noto Sans JP',sans-serif",resize:"none",lineHeight:1.5,background:"var(--bg)",color:"var(--tx)",outline:"none",maxHeight:120,minHeight:40}}
-          placeholder="メッセージを入力..."
+          style={{flex:1,border:`1.5px solid ${isUrgent?"var(--ro)":"var(--bd)"}`,borderRadius:12,padding:"9px 12px",fontSize:13,fontFamily:"'Noto Sans JP',sans-serif",resize:"none",lineHeight:1.5,background:"var(--bg)",color:"var(--tx)",outline:"none",maxHeight:120,minHeight:40}}
+          placeholder={isUrgent?"🚨 緊急メッセージを入力...":"メッセージを入力..."}
           value={inputText}
           onChange={e=>setInputText(e.target.value)}
           onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendInThread();}}}
@@ -4775,13 +4888,15 @@ function ParentMessages({user,store,onBack}){
   // ===== スレッド一覧画面 =====
   const totalUnread=allMsgs.filter(m=>!m.read).length;
   const totalWaiting=allMsgs.filter(m=>isFromFacility(m)&&m.parentRead===false).length;
+  const totalUrgent=allMsgs.filter(m=>m.isUrgent&&!m.parentRead).length;
 
   return <div className="fl-wrap">
     <div className="fl-hd">
       <button className="bback" onClick={onBack}>← 戻る</button>
       <div className="fl-title" style={{flex:1}}>
         💬 保護者連絡
-        {totalUnread>0&&<span style={{fontSize:11,background:"var(--ro)",color:"#fff",borderRadius:9,padding:"1px 7px",marginLeft:6}}>{totalUnread}件未読</span>}
+        {totalUrgent>0&&<span style={{fontSize:11,background:"var(--ro)",color:"#fff",borderRadius:9,padding:"1px 7px",marginLeft:6}}>🚨 緊急 {totalUrgent}件</span>}
+        {totalUrgent===0&&totalUnread>0&&<span style={{fontSize:11,background:"var(--ro)",color:"#fff",borderRadius:9,padding:"1px 7px",marginLeft:6}}>{totalUnread}件未読</span>}
       </div>
       <div style={{display:"flex",gap:6}}>
         <button className="bexp" style={{fontSize:11,padding:"6px 10px",whiteSpace:"nowrap"}}
@@ -4794,15 +4909,18 @@ function ParentMessages({user,store,onBack}){
 
     {/* フィルター + 統計 */}
     <div style={{padding:"8px 14px",background:"var(--bg)",borderBottom:"1px solid var(--bd)"}}>
-      <div style={{display:"flex",gap:6,marginBottom:8}}>
+      <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
         {[
-          {id:"all",   label:"全員"},
-          {id:"unread",label:`未読あり${totalUnread>0?` (${totalUnread})`:""}` },
+          {id:"all",    label:"全員"},
+          {id:"urgent", label:`🚨 緊急${totalUrgent>0?` (${totalUrgent})`:""}`,isRed:true},
+          {id:"unread", label:`未読あり${totalUnread>0?` (${totalUnread})`:""}` },
           {id:"waiting",label:`保護者未既読${totalWaiting>0?` (${totalWaiting})`:""}` },
         ].map(f=>(
           <button key={f.id} onClick={()=>setMsgFilter(f.id)}
             style={{padding:"5px 11px",borderRadius:9,fontSize:11,cursor:"pointer",fontWeight:700,fontFamily:"'Noto Sans JP',sans-serif",
-              background:msgFilter===f.id?"var(--tl)":"var(--wh)",color:msgFilter===f.id?"#fff":"var(--tx3)",border:`1.5px solid ${msgFilter===f.id?"var(--tl)":"var(--bd)"}`}}>
+              background:msgFilter===f.id?(f.isRed?"var(--ro)":"var(--tl)"):"var(--wh)",
+              color:msgFilter===f.id?"#fff":"var(--tx3)",
+              border:`1.5px solid ${msgFilter===f.id?(f.isRed?"var(--ro)":"var(--tl)"):"var(--bd)"}`}}>
             {f.label}
           </button>
         ))}
@@ -4817,42 +4935,52 @@ function ParentMessages({user,store,onBack}){
         {msgFilter==="all"?"利用者が登録されていません":"該当するスレッドがありません"}
       </div>
       :<div style={{display:"flex",flexDirection:"column",gap:0}}>
-        {filteredThreads.map(({user:u,msgs:uMsgs,unread,waitingRead,latest})=><div key={u.id}
-          onClick={()=>setSelUserId(u.id)}
-          style={{display:"flex",alignItems:"center",gap:12,padding:"13px 14px",background:"var(--wh)",borderBottom:"1px solid var(--bd)",cursor:"pointer",transition:"background .1s"}}
-          onMouseEnter={e=>e.currentTarget.style.background="var(--bg)"}
-          onMouseLeave={e=>e.currentTarget.style.background="var(--wh)"}
-        >
-          {/* アバター */}
-          <div style={{width:46,height:46,borderRadius:"50%",background:unread>0?"var(--tl)":"#c0c8d8",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,color:"#fff",fontWeight:700}}>
-            {u.name?.[0]||"?"}
-          </div>
-          {/* テキスト */}
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
-              <div style={{fontWeight:700,fontSize:14,color:"var(--tx)"}}>{u.name}</div>
-              <div style={{fontSize:10,color:"var(--tx3)",fontFamily:"'DM Mono',monospace",flexShrink:0,marginLeft:8}}>
-                {latest?.time?.slice(0,10)||""}
+        {filteredThreads.map(({user:u,msgs:uMsgs,unread,waitingRead,latest})=>{
+          const hasUrgent=uMsgs.some(m=>m.isUrgent&&!m.parentRead);
+          return <div key={u.id}
+            onClick={()=>setSelUserId(u.id)}
+            style={{display:"flex",alignItems:"center",gap:12,padding:"13px 14px",
+              background:hasUrgent?"rgba(224,56,56,0.04)":"var(--wh)",
+              borderBottom:`1px solid ${hasUrgent?"rgba(224,56,56,0.2)":"var(--bd)"}`,
+              borderLeft:hasUrgent?"3px solid var(--ro)":"3px solid transparent",
+              cursor:"pointer",transition:"background .1s"}}
+            onMouseEnter={e=>e.currentTarget.style.background=hasUrgent?"rgba(224,56,56,0.08)":"var(--bg)"}
+            onMouseLeave={e=>e.currentTarget.style.background=hasUrgent?"rgba(224,56,56,0.04)":"var(--wh)"}
+          >
+            {/* アバター */}
+            <div style={{width:46,height:46,borderRadius:"50%",background:hasUrgent?"var(--ro)":unread>0?"var(--tl)":"#c0c8d8",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,color:"#fff",fontWeight:700}}>
+              {hasUrgent?"🚨":u.name?.[0]||"?"}
+            </div>
+            {/* テキスト */}
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                <div style={{fontWeight:700,fontSize:14,color:hasUrgent?"var(--ro)":"var(--tx)",display:"flex",alignItems:"center",gap:5}}>
+                  {u.name}
+                  {hasUrgent&&<span style={{fontSize:10,background:"var(--ro)",color:"#fff",borderRadius:5,padding:"1px 5px",fontWeight:700}}>緊急</span>}
+                </div>
+                <div style={{fontSize:10,color:"var(--tx3)",fontFamily:"'DM Mono',monospace",flexShrink:0,marginLeft:8}}>
+                  {latest?.time?.slice(0,10)||""}
+                </div>
               </div>
+              <div style={{fontSize:12,color:"var(--tx2)",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
+                {latest?`${isFromFacility(latest)?latest.from||"施設":"保護者"}: ${latest.body}`:"メッセージなし"}
+              </div>
+              {waitingRead>0&&<div style={{fontSize:10,color:"var(--am)",fontWeight:700,marginTop:2}}>
+                保護者未既読 {waitingRead}件
+              </div>}
             </div>
-            <div style={{fontSize:12,color:"var(--tx2)",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
-              {latest?`${isFromFacility(latest)?"施設":"保護者"}: ${latest.body}`:"メッセージなし"}
+            {/* バッジエリア */}
+            <div style={{display:"flex",flexDirection:"column",gap:4,alignItems:"center"}}>
+              {unread>0&&<div style={{minWidth:20,height:20,borderRadius:10,background:"var(--ro)",color:"#fff",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 5px"}}>
+                {unread}
+              </div>}
+              {waitingRead>0&&<div style={{minWidth:20,height:20,borderRadius:10,background:"var(--am)",color:"#fff",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 5px"}}>
+                {waitingRead}
+              </div>}
             </div>
-            {waitingRead>0&&<div style={{fontSize:10,color:"var(--am)",fontWeight:700,marginTop:2}}>
-              保護者未既読 {waitingRead}件
-            </div>}
-          </div>
-          {/* バッジエリア */}
-          <div style={{display:"flex",flexDirection:"column",gap:4,alignItems:"center"}}>
-            {unread>0&&<div style={{minWidth:20,height:20,borderRadius:10,background:"var(--ro)",color:"#fff",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 5px"}}>
-              {unread}
-            </div>}
-            {waitingRead>0&&<div style={{minWidth:20,height:20,borderRadius:10,background:"var(--am)",color:"#fff",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 5px"}}>
-              {waitingRead}
-            </div>}
-          </div>
-          <div style={{color:"var(--bd)",fontSize:14}}>›</div>
-        </div>)}
+            <div style={{color:"var(--bd)",fontSize:14}}>›</div>
+          </div>;
+        })}
       </div>
     }
   </div>;
