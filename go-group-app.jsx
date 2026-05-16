@@ -5217,6 +5217,7 @@ function UserManagement({user,store,onBack}){
       {k:"isp",l:"個別支援計画",ic:"📝"},
       {k:"monitoring",l:"モニタリング",ic:"🔍"},
       {k:"jukyusha",l:"受給者証",ic:"🪪"},
+      {k:"soudan_genan",l:"相談支援原案",ic:"📑"},
       ...(isJidou?[
         {k:"dev_record",l:"発達段階記録",ic:"🌱"},
         {k:"parent_support",l:"保護者支援記録",ic:"👨‍👩‍👧"},
@@ -5268,6 +5269,8 @@ function UserManagement({user,store,onBack}){
         {hubTab==="parent_support"&&<ParentSupportTab u={u} user={user} store={store}/>}
         {/* ===== 受給者証OCR ===== */}
         {hubTab==="jukyusha"&&<JukyushaTab u={u} user={user} store={store}/>}
+        {/* ===== 相談支援原案OCR ===== */}
+        {hubTab==="soudan_genan"&&<SoudanGenanTab u={u} user={user} store={store}/>}
         {/* ===== 訪問記録（保育所等訪問のみ） ===== */}
         {hubTab==="visit_record"&&<UserVisitTab u={u} user={user} store={store}/>}
       </div>
@@ -6040,6 +6043,249 @@ function JukyushaTab({u, user, store}) {
         ))}
       </div>
       <button className="bsave" style={{marginTop:14,width:"100%"}} onClick={handleSave}>💾 保存する</button>
+    </div>
+  );
+
+  return null;
+}
+
+// ==================== ② 相談支援原案OCRタブ ====================
+function SoudanGenanTab({u, user, store}) {
+  const [mode, setMode] = useState("list"); // list | scan | result | detail
+  const [scanning, setScanning] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [ocrResult, setOcrResult] = useState(null);
+  const [ocrError, setOcrError] = useState("");
+  const [form, setForm] = useState({});
+  const [selDoc, setSelDoc] = useState(null);
+  const fileRef = useRef(null);
+
+  const myDocs = (store.soudanGenans||[]).filter(d=>d.userId===u.id).sort((a,b)=>b.receivedDate>a.receivedDate?1:-1);
+  const upd = (k,v) => setForm(p=>({...p,[k]:v}));
+
+  // ファイル選択 → OCR実行
+  const handleFile = async (file) => {
+    if (!file) return;
+    setOcrError(""); setPreview(URL.createObjectURL(file));
+    setScanning(true); setMode("scan");
+    try {
+      const base64 = await fileToBase64(file);
+      const res = await fetch("/api/ocr", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ imageBase64: base64, mediaType: file.type, mode: "soudan" })
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setOcrResult(data.data);
+        setForm({
+          specialistName: data.data.specialistName || "",
+          specialistOrg:  data.data.specialistOrg  || "",
+          planPeriodStart: data.data.planPeriodStart || "",
+          planPeriodEnd:   data.data.planPeriodEnd   || "",
+          userNeeds:       data.data.userNeeds        || "",
+          parentNeeds:     data.data.parentNeeds      || "",
+          longTermGoal:    data.data.longTermGoal     || "",
+          shortTermGoal:   data.data.shortTermGoal    || "",
+          supportPolicy:   data.data.supportPolicy    || "",
+          specialistComment: data.data.specialistComment || "",
+          nextMonitoringDate: data.data.nextMonitoringDate || "",
+        });
+        setMode("result");
+      } else {
+        setOcrError(data.error || "OCR解析に失敗しました。手動で入力してください。");
+        setForm({ specialistName:"", specialistOrg:"", planPeriodStart:"", planPeriodEnd:"",
+          userNeeds:"", parentNeeds:"", longTermGoal:"", shortTermGoal:"",
+          supportPolicy:"", specialistComment:"", nextMonitoringDate:"" });
+        setMode("result");
+      }
+    } catch(e) {
+      setOcrError("通信エラー: " + e.message); setMode("result");
+    } finally { setScanning(false); }
+  };
+
+  // 保存
+  const handleSave = () => {
+    const id = "sg_" + Date.now();
+    const doc = {
+      id, facilityId: u.facilityId, userId: u.id,
+      receivedDate: new Date().toISOString().slice(0,10),
+      specialistName: form.specialistName, specialistOrg: form.specialistOrg,
+      planPeriodStart: form.planPeriodStart, planPeriodEnd: form.planPeriodEnd,
+      userNeeds: form.userNeeds, parentNeeds: form.parentNeeds,
+      longTermGoal: form.longTermGoal, shortTermGoal: form.shortTermGoal,
+      supportPolicy: form.supportPolicy, specialistComment: form.specialistComment,
+      nextMonitoringDate: form.nextMonitoringDate,
+      status: "受領済み", imagePreview: preview, ocrData: ocrResult,
+      createdBy: user.displayName
+    };
+    store.addSoudanGenan(doc);
+    store.showToast("✅ 相談支援原案を保存しました");
+    setMode("list"); setPreview(null); setOcrResult(null);
+  };
+
+  // ===== リスト =====
+  if (mode==="list") return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>📑 相談支援原案一覧</div>
+        <button className="bsave" style={{padding:"8px 14px",fontSize:12}} onClick={()=>fileRef.current?.click()}>
+          📷 原案を撮影・読取
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}}
+          onChange={e=>handleFile(e.target.files[0])}/>
+      </div>
+
+      {/* 説明バナー */}
+      <div style={{background:"rgba(144,72,216,0.08)",border:"1px solid rgba(144,72,216,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"var(--pu)"}}>
+        💡 相談支援事業所から受け取った原案・計画書を撮影するだけで、ニーズや目標を自動抽出します。
+      </div>
+
+      {myDocs.length===0 && (
+        <div style={{textAlign:"center",padding:"32px 16px",color:"var(--tx3)"}}>
+          <div style={{fontSize:32,marginBottom:8}}>📑</div>
+          <div style={{fontSize:13}}>相談支援原案が登録されていません</div>
+          <div style={{fontSize:11,marginTop:4}}>「📷 原案を撮影・読取」から登録できます</div>
+        </div>
+      )}
+
+      {myDocs.map(doc=>{
+        const isExpired = doc.planPeriodEnd && doc.planPeriodEnd < new Date().toISOString().slice(0,10);
+        const isSoon = !isExpired && doc.planPeriodEnd && (
+          (new Date(doc.planPeriodEnd)-new Date()) / (1000*60*60*24) < 30
+        );
+        return (
+          <div key={doc.id} className="soudan-card" onClick={()=>{setSelDoc(doc);setMode("detail");}}
+            style={{cursor:"pointer",borderColor:isExpired?"rgba(224,56,56,0.4)":isSoon?"rgba(224,168,40,0.5)":"var(--bd)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+              <div>
+                <div style={{fontSize:12,fontWeight:900,color:"var(--pu)",marginBottom:2}}>
+                  📑 {doc.specialistOrg||"相談支援事業所"}
+                  <span style={{marginLeft:6,fontSize:10,color:"var(--tx3)",fontWeight:400}}>{doc.receivedDate}</span>
+                </div>
+                <div style={{fontSize:11,color:"var(--tx2)"}}>担当: <strong>{doc.specialistName||"—"}</strong></div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
+                {isExpired&&<span className="ocr-badge-err">⚠️ 計画期間終了</span>}
+                {isSoon&&<span className="ocr-badge-warn">⏰ 期限間近</span>}
+                {!isExpired&&!isSoon&&<span className="ocr-badge-ok">✅ 有効</span>}
+              </div>
+            </div>
+            <div className="ocr-result-row"><span className="ocr-result-label">計画期間</span><span className="ocr-result-val">{doc.planPeriodStart||"—"} 〜 {doc.planPeriodEnd||"—"}</span></div>
+            {doc.longTermGoal&&<div style={{marginTop:6,fontSize:11,color:"var(--tx2)",background:"var(--bg)",borderRadius:6,padding:"6px 8px",lineHeight:1.5}}>
+              🎯 長期目標: {doc.longTermGoal.slice(0,60)}{doc.longTermGoal.length>60?"…":""}
+            </div>}
+            <div style={{marginTop:8,display:"flex",gap:8}}>
+              <button onClick={e=>{e.stopPropagation();store.delSoudanGenan(doc.id);}}
+                style={{padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:700,border:"1px solid rgba(224,56,56,0.4)",background:"rgba(224,56,56,0.08)",color:"var(--ro)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>削除</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // ===== スキャン中 =====
+  if (mode==="scan") return (
+    <div style={{textAlign:"center",padding:"48px 16px"}}>
+      <div style={{fontSize:40,marginBottom:16}}>🔍</div>
+      <div style={{fontSize:15,fontWeight:700,color:"var(--tx)",marginBottom:8}}>OCR解析中...</div>
+      <div style={{fontSize:12,color:"var(--tx3)"}}>Claude AIが相談支援原案を読み取っています</div>
+      {preview&&<img src={preview} className="ocr-preview" alt="preview"/>}
+    </div>
+  );
+
+  // ===== OCR結果・確認 =====
+  if (mode==="result") return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+        <button className="bback" onClick={()=>{setMode("list");setPreview(null);}} style={{padding:"6px 12px",fontSize:12}}>← 戻る</button>
+        <div style={{fontSize:13,fontWeight:700}}>📑 読み取り結果を確認</div>
+      </div>
+      {preview&&<img src={preview} className="ocr-preview" alt="撮影画像"/>}
+      {ocrError&&<div style={{background:"rgba(224,168,40,0.15)",border:"1px solid rgba(224,168,40,0.4)",borderRadius:9,padding:"10px 12px",fontSize:12,color:"#8a6200",marginBottom:12}}>⚠️ {ocrError}<br/>内容を手動で入力してください。</div>}
+      {ocrResult&&<div style={{background:"rgba(144,72,216,0.1)",border:"1px solid rgba(144,72,216,0.3)",borderRadius:9,padding:"8px 12px",fontSize:11,color:"var(--pu)",marginBottom:12}}>✅ AIが自動読み取りしました。内容を確認・修正して保存してください。</div>}
+
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:16}}>
+        {/* 事業所・専門員 */}
+        <div style={{fontSize:11,fontWeight:900,color:"var(--pu)",marginBottom:8,letterSpacing:1}}>相談支援事業所</div>
+        {[
+          {label:"相談支援専門員名",key:"specialistName"},
+          {label:"相談支援事業所名",key:"specialistOrg"},
+        ].map(({label,key})=>(
+          <div key={key} style={{marginBottom:10}}>
+            <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>{label}</label>
+            <input className="fi" value={form[key]||""} onChange={e=>upd(key,e.target.value)} placeholder={label}/>
+          </div>
+        ))}
+
+        {/* 計画期間 */}
+        <div style={{fontSize:11,fontWeight:900,color:"var(--pu)",margin:"12px 0 8px",letterSpacing:1}}>計画期間</div>
+        <div style={{display:"flex",gap:8,marginBottom:10}}>
+          <div style={{flex:1}}>
+            <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>開始日</label>
+            <input className="fi" type="date" value={form.planPeriodStart||""} onChange={e=>upd("planPeriodStart",e.target.value)}/>
+          </div>
+          <div style={{flex:1}}>
+            <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>終了日</label>
+            <input className="fi" type="date" value={form.planPeriodEnd||""} onChange={e=>upd("planPeriodEnd",e.target.value)}/>
+          </div>
+        </div>
+
+        {/* ニーズ・目標 */}
+        <div style={{fontSize:11,fontWeight:900,color:"var(--pu)",margin:"12px 0 8px",letterSpacing:1}}>ニーズ・目標</div>
+        {[
+          {label:"本人の意向・ニーズ",key:"userNeeds",multi:true},
+          {label:"保護者の意向・ニーズ",key:"parentNeeds",multi:true},
+          {label:"長期目標",key:"longTermGoal",multi:true},
+          {label:"短期目標",key:"shortTermGoal",multi:true},
+          {label:"支援方針・総合的な援助方針",key:"supportPolicy",multi:true},
+          {label:"相談支援専門員コメント",key:"specialistComment",multi:true},
+        ].map(({label,key,multi})=>(
+          <div key={key} style={{marginBottom:10}}>
+            <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>{label}</label>
+            {multi
+              ? <textarea className="fta" style={{minHeight:60}} value={form[key]||""} onChange={e=>upd(key,e.target.value)} placeholder={label}/>
+              : <input className="fi" value={form[key]||""} onChange={e=>upd(key,e.target.value)} placeholder={label}/>
+            }
+          </div>
+        ))}
+        <div style={{marginBottom:10}}>
+          <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>次回モニタリング予定日</label>
+          <input className="fi" type="date" value={form.nextMonitoringDate||""} onChange={e=>upd("nextMonitoringDate",e.target.value)}/>
+        </div>
+      </div>
+      <button className="bsave" style={{marginTop:14,width:"100%"}} onClick={handleSave}>💾 保存する</button>
+    </div>
+  );
+
+  // ===== 詳細表示 =====
+  if (mode==="detail"&&selDoc) return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+        <button className="bback" onClick={()=>{setMode("list");setSelDoc(null);}} style={{padding:"6px 12px",fontSize:12}}>← 一覧へ</button>
+        <div style={{fontSize:13,fontWeight:700}}>📑 相談支援原案 詳細</div>
+      </div>
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:16}}>
+        <div style={{marginBottom:12,paddingBottom:12,borderBottom:"1px solid var(--bg2)"}}>
+          <div style={{fontSize:12,fontWeight:900,color:"var(--pu)",marginBottom:4}}>{selDoc.specialistOrg||"相談支援事業所"}</div>
+          <div style={{fontSize:11,color:"var(--tx2)"}}>担当: {selDoc.specialistName||"—"} ／ 受領日: {selDoc.receivedDate}</div>
+          <div style={{fontSize:11,color:"var(--tx2)",marginTop:2}}>計画期間: {selDoc.planPeriodStart||"—"} 〜 {selDoc.planPeriodEnd||"—"}</div>
+        </div>
+        {[
+          {label:"本人の意向・ニーズ",val:selDoc.userNeeds},
+          {label:"保護者の意向・ニーズ",val:selDoc.parentNeeds},
+          {label:"長期目標",val:selDoc.longTermGoal},
+          {label:"短期目標",val:selDoc.shortTermGoal},
+          {label:"支援方針",val:selDoc.supportPolicy},
+          {label:"専門員コメント",val:selDoc.specialistComment},
+          {label:"次回モニタリング予定日",val:selDoc.nextMonitoringDate},
+        ].filter(x=>x.val).map(({label,val})=>(
+          <div key={label} style={{marginBottom:12}}>
+            <div style={{fontSize:10,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:4}}>{label}</div>
+            <div style={{fontSize:12,color:"var(--tx)",lineHeight:1.7,background:"var(--bg)",borderRadius:7,padding:"8px 10px"}}>{val}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 
