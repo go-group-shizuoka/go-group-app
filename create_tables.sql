@@ -491,8 +491,228 @@ ALTER TABLE public.paid_leave_reqs ADD COLUMN IF NOT EXISTS leave_date DATE;
 ALTER TABLE public.paid_leave_reqs ADD COLUMN IF NOT EXISTS status     TEXT DEFAULT '申請中';
 
 -- ============================================================
+-- セクション21: サービス種別管理 新規テーブル（2026-05-16追加）
+-- 対象: 保育所等訪問支援・児童発達支援 対応
+-- ⚠️ 2026年5月30日以降の仕様: GRANTなしではData APIから見えない
+-- ============================================================
+
+
+-- ============================================================
+-- 21-1. 訪問先マスタ (visit_dests)
+-- 保育所等訪問支援で訪問する保育園・学校等を管理
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.visit_dests (
+  id               TEXT PRIMARY KEY,           -- genId()で自動生成
+  facility_id      TEXT NOT NULL,              -- f1/f2/f3/f4（GO TOWN 1STはf3）
+  name             TEXT NOT NULL,              -- 施設名（例: ひかり保育園）
+  type             TEXT,                       -- 保育園/幼稚園/小学校/中学校/高校/その他
+  address          TEXT,                       -- 住所
+  contact_person   TEXT,                       -- 担当者名
+  phone            TEXT,                       -- 電話番号
+  note             TEXT,                       -- 備考
+  data             JSONB,                      -- 追加情報
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- RLS有効化
+ALTER TABLE public.visit_dests ENABLE ROW LEVEL SECURITY;
+-- ポリシー（認証済みユーザーが全操作可能）
+DROP POLICY IF EXISTS "anon_all" ON public.visit_dests;
+CREATE POLICY "anon_all" ON public.visit_dests FOR ALL USING (true) WITH CHECK (true);
+-- ⚠️ 2026-05-30以降必須: Data API（PostgREST）からのアクセスを許可
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.visit_dests TO anon, authenticated;
+
+-- インデックス
+CREATE INDEX IF NOT EXISTS idx_visit_dests_facility ON public.visit_dests(facility_id);
+
+
+-- ============================================================
+-- 21-2. 訪問記録 (visit_records)
+-- 実際の訪問日・訪問先・支援内容・助言内容を記録
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.visit_records (
+  id               TEXT PRIMARY KEY,           -- genId()で自動生成
+  facility_id      TEXT NOT NULL,              -- 施設ID
+  user_id          TEXT,                       -- 対象利用者ID（U-T1-0001など）
+  dest_id          TEXT,                       -- 訪問先ID（visit_dests.id）
+  visit_date       DATE,                       -- 訪問日
+  visit_type       TEXT,                       -- 初回 / 2回目以降（報酬算定に使用）
+  duration         INTEGER,                    -- 訪問時間（分）
+  support_content  TEXT,                       -- 支援内容
+  school_feedback  TEXT,                       -- 学校・施設からのフィードバック
+  advice           TEXT,                       -- 職員から学校への助言内容
+  staff_name       TEXT,                       -- 担当職員名
+  status           TEXT DEFAULT '記録済み',   -- 記録済み / 報告書作成済み
+  data             JSONB,                      -- 追加情報
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- RLS有効化
+ALTER TABLE public.visit_records ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "anon_all" ON public.visit_records;
+CREATE POLICY "anon_all" ON public.visit_records FOR ALL USING (true) WITH CHECK (true);
+-- ⚠️ 2026-05-30以降必須
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.visit_records TO anon, authenticated;
+
+-- インデックス
+CREATE INDEX IF NOT EXISTS idx_visit_records_facility ON public.visit_records(facility_id);
+CREATE INDEX IF NOT EXISTS idx_visit_records_user     ON public.visit_records(user_id);
+CREATE INDEX IF NOT EXISTS idx_visit_records_date     ON public.visit_records(visit_date);
+
+
+-- ============================================================
+-- 21-3. 発達段階記録 (dev_records)
+-- 児童発達支援専用: 5領域ごとの発達状況・支援目標を記録
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.dev_records (
+  id               TEXT PRIMARY KEY,           -- genId()で自動生成
+  facility_id      TEXT NOT NULL,              -- 施設ID（GO HOMEはf1）
+  user_id          TEXT NOT NULL,              -- 対象利用者ID
+  domain           TEXT,                       -- 発達領域（身体・運動/認知・学習/言語/社会性/生活習慣）
+  level            TEXT,                       -- 達成レベル（できた/一部できた/難しかった/未実施）
+  goal             TEXT,                       -- 支援目標（ISP短期目標との連携）
+  content          TEXT,                       -- 記録内容・観察事項
+  staff_name       TEXT,                       -- 担当職員名
+  record_date      DATE,                       -- 記録日
+  data             JSONB,                      -- 追加情報
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- RLS有効化
+ALTER TABLE public.dev_records ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "anon_all" ON public.dev_records;
+CREATE POLICY "anon_all" ON public.dev_records FOR ALL USING (true) WITH CHECK (true);
+-- ⚠️ 2026-05-30以降必須
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.dev_records TO anon, authenticated;
+
+-- インデックス
+CREATE INDEX IF NOT EXISTS idx_dev_records_facility ON public.dev_records(facility_id);
+CREATE INDEX IF NOT EXISTS idx_dev_records_user     ON public.dev_records(user_id);
+CREATE INDEX IF NOT EXISTS idx_dev_records_date     ON public.dev_records(record_date);
+CREATE INDEX IF NOT EXISTS idx_dev_records_domain   ON public.dev_records(domain);
+
+
+-- ============================================================
+-- 21-4. 保護者支援記録 (parent_support_records)
+-- 児童発達支援専用: 保護者との面談・相談・支援内容を記録
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.parent_support_records (
+  id               TEXT PRIMARY KEY,           -- genId()で自動生成
+  facility_id      TEXT NOT NULL,              -- 施設ID
+  user_id          TEXT NOT NULL,              -- 対象利用者ID
+  support_type     TEXT,                       -- 個別相談/家族支援/電話相談/グループ支援/情報提供/その他
+  content          TEXT,                       -- 支援内容・相談内容
+  next_action      TEXT,                       -- 次回の対応・フォローアップ
+  staff_name       TEXT,                       -- 担当職員名
+  record_date      DATE,                       -- 記録日
+  data             JSONB,                      -- 追加情報
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- RLS有効化
+ALTER TABLE public.parent_support_records ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "anon_all" ON public.parent_support_records;
+CREATE POLICY "anon_all" ON public.parent_support_records FOR ALL USING (true) WITH CHECK (true);
+-- ⚠️ 2026-05-30以降必須
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.parent_support_records TO anon, authenticated;
+
+-- インデックス
+CREATE INDEX IF NOT EXISTS idx_parent_support_facility ON public.parent_support_records(facility_id);
+CREATE INDEX IF NOT EXISTS idx_parent_support_user     ON public.parent_support_records(user_id);
+CREATE INDEX IF NOT EXISTS idx_parent_support_date     ON public.parent_support_records(record_date);
+
+
+-- ============================================================
+-- セクション21 完了チェック（実行後に確認）
+-- ============================================================
+-- SELECT table_name FROM information_schema.tables
+-- WHERE table_schema = 'public'
+-- AND table_name IN ('visit_dests','visit_records','dev_records','parent_support_records')
+-- ORDER BY table_name;
+-- → 4行返れば作成成功
+
+
+-- ============================================================
+-- セクション22: 紙管理削減・監査対応・OCR機能（2026-05-16追加）
+-- ============================================================
+
+-- 22-1. 受給者証スキャン履歴 (jukyusha_docs)
+CREATE TABLE IF NOT EXISTS public.jukyusha_docs (
+  id               TEXT PRIMARY KEY,
+  facility_id      TEXT NOT NULL,
+  user_id          TEXT NOT NULL,
+  scan_date        DATE DEFAULT CURRENT_DATE,
+  image_url        TEXT,
+  ocr_raw_text     TEXT,
+  name             TEXT,
+  jukyusha_no      TEXT,
+  city             TEXT,
+  expiry_date      DATE,
+  service_type     TEXT,
+  service_amount   TEXT,
+  max_burden       INTEGER,
+  start_date       DATE,
+  status           TEXT DEFAULT '有効',
+  created_by       TEXT,
+  data             JSONB,
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.jukyusha_docs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "anon_all" ON public.jukyusha_docs;
+CREATE POLICY "anon_all" ON public.jukyusha_docs FOR ALL USING (true) WITH CHECK (true);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.jukyusha_docs TO anon, authenticated;
+CREATE INDEX IF NOT EXISTS idx_jukyusha_docs_user     ON public.jukyusha_docs(user_id);
+CREATE INDEX IF NOT EXISTS idx_jukyusha_docs_facility ON public.jukyusha_docs(facility_id);
+CREATE INDEX IF NOT EXISTS idx_jukyusha_docs_expiry   ON public.jukyusha_docs(expiry_date);
+
+-- 22-2. 相談支援原案 (soudan_genans)
+CREATE TABLE IF NOT EXISTS public.soudan_genans (
+  id                   TEXT PRIMARY KEY,
+  facility_id          TEXT NOT NULL,
+  user_id              TEXT NOT NULL,
+  received_date        DATE DEFAULT CURRENT_DATE,
+  image_url            TEXT,
+  ocr_raw_text         TEXT,
+  specialist_name      TEXT,
+  specialist_org       TEXT,
+  plan_period_start    DATE,
+  plan_period_end      DATE,
+  user_needs           TEXT,
+  parent_needs         TEXT,
+  long_term_goal       TEXT,
+  short_term_goal      TEXT,
+  support_policy       TEXT,
+  specialist_comment   TEXT,
+  next_monitoring_date DATE,
+  status               TEXT DEFAULT '受領済み',
+  created_by           TEXT,
+  data                 JSONB,
+  created_at           TIMESTAMPTZ DEFAULT NOW(),
+  updated_at           TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.soudan_genans ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "anon_all" ON public.soudan_genans;
+CREATE POLICY "anon_all" ON public.soudan_genans FOR ALL USING (true) WITH CHECK (true);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.soudan_genans TO anon, authenticated;
+CREATE INDEX IF NOT EXISTS idx_soudan_genans_user     ON public.soudan_genans(user_id);
+CREATE INDEX IF NOT EXISTS idx_soudan_genans_facility ON public.soudan_genans(facility_id);
+
+-- 確認クエリ
+SELECT table_name FROM information_schema.tables
+WHERE table_schema = 'public'
+AND table_name IN ('jukyusha_docs','soudan_genans')
+ORDER BY table_name;
+
+-- ============================================================
 -- 完了！
 -- ・セクション1〜19: 新規環境用 (CREATE TABLE IF NOT EXISTS)
 -- ・セクション20   : 既存環境用 (ALTER TABLE ADD COLUMN IF NOT EXISTS)
--- 既存環境では主にセクション20だけ実行すればOKです
+-- ・セクション21   : サービス種別管理 新規4テーブル（2026-05-16追加）
+-- ・セクション22   : 受給者証OCR・相談支援原案（2026-05-16追加）
+-- 既存環境ではセクション22のみ実行すればOKです
 -- ============================================================

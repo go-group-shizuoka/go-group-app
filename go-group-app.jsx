@@ -2095,7 +2095,31 @@ select.fi option{background:var(--bg2);color:var(--tx);}
 .reward-table th{padding:7px 10px;background:var(--bg3);font-size:10px;font-weight:700;color:var(--tx2);text-align:left;border-bottom:2px solid var(--bd);}
 .reward-table td{padding:8px 10px;border-bottom:1px solid var(--bd);color:var(--tx);}
 .reward-table tr:hover td{background:var(--bg3);}
+/* ===== OCR・受給者証・相談支援原案 ===== */
+.ocr-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:flex-end;justify-content:center;}
+.ocr-modal{background:var(--wh);border-radius:18px 18px 0 0;padding:20px 16px 32px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;}
+.ocr-preview{width:100%;max-height:220px;object-fit:contain;border-radius:10px;margin:10px 0;border:1px solid var(--bd);}
+.ocr-result-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd);gap:8px;}
+.ocr-result-label{font-size:11px;font-weight:700;color:var(--tx2);min-width:110px;flex-shrink:0;}
+.ocr-result-val{font-size:13px;color:var(--tx);text-align:right;flex:1;}
+.ocr-badge-ok{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:rgba(44,170,96,0.18);color:var(--gr2);border:1px solid rgba(44,170,96,0.4);}
+.ocr-badge-warn{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:rgba(224,168,40,0.18);color:#8a6200;border:1px solid rgba(224,168,40,0.4);}
+.ocr-badge-err{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:rgba(224,56,56,0.15);color:var(--ro);border:1px solid rgba(224,56,56,0.4);}
+.jukyusha-card{background:var(--wh);border:1.5px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:var(--sh);transition:all .15s;}
+.jukyusha-card.expired{border-color:rgba(224,56,56,0.5);background:rgba(224,56,56,0.04);}
+.jukyusha-card.expiring{border-color:rgba(224,168,40,0.5);background:rgba(224,168,40,0.04);}
+.soudan-card{background:var(--wh);border:1.5px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:var(--sh);}
+.soudan-goal-box{background:var(--bg3);border-radius:9px;padding:10px 12px;margin-bottom:8px;font-size:12px;line-height:1.6;}
+.timeline-item{display:flex;gap:12px;margin-bottom:0;position:relative;}
+.timeline-item::before{content:"";position:absolute;left:18px;top:36px;bottom:-8px;width:2px;background:var(--bd);}
+.timeline-item:last-child::before{display:none;}
+.timeline-dot{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;border:2px solid var(--wh);box-shadow:0 0 0 2px var(--bd);}
+.timeline-body{flex:1;background:var(--wh);border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin-bottom:8px;box-shadow:var(--sh);}
+.timeline-date{font-size:10px;color:var(--tx3);font-weight:700;margin-bottom:3px;}
+.timeline-title{font-size:13px;font-weight:700;color:var(--tx);margin-bottom:2px;}
+.timeline-sub{font-size:11px;color:var(--tx2);line-height:1.5;}
 `;
+
 
 
 // ==================== STORE ====================
@@ -2703,6 +2727,24 @@ function useStore() {
   const updParentSupportRecord = (id,ch) => setParentSupportRecords(p=>p.map(r=>{ if(r.id!==id) return r; const u={...r,...ch}; sbSave("parent_support_records",{id,facility_id:u.facilityId,user_id:u.userId,record_date:u.date,data:u}); return u; }));
   const delParentSupportRecord = id => { setParentSupportRecords(p=>p.filter(r=>r.id!==id)); sbDelete("parent_support_records",id); };
 
+  // ─── 受給者証OCR履歴 ───
+  const [jukyushaDocs, setJukyushaDocs] = useState([]);
+  const addJukyushaDoc = d => {
+    setJukyushaDocs(p=>[...p,d]);
+    sbSave("jukyusha_docs",{id:d.id,facility_id:d.facilityId,user_id:d.userId,expiry_date:d.expiryDate||null,jukyusha_no:d.jukyushaNo||null,status:d.status||"有効",data:d});
+  };
+  const updJukyushaDoc = (id,ch) => setJukyushaDocs(p=>p.map(d=>{ if(d.id!==id) return d; const u={...d,...ch}; sbSave("jukyusha_docs",{id,facility_id:u.facilityId,user_id:u.userId,expiry_date:u.expiryDate||null,jukyusha_no:u.jukyushaNo||null,status:u.status||"有効",data:u}); return u; }));
+  const delJukyushaDoc = id => { setJukyushaDocs(p=>p.filter(d=>d.id!==id)); sbDelete("jukyusha_docs",id); };
+
+  // ─── 相談支援原案 ───
+  const [soudanGenans, setSoudanGenans] = useState([]);
+  const addSoudanGenan = g => {
+    setSoudanGenans(p=>[...p,g]);
+    sbSave("soudan_genans",{id:g.id,facility_id:g.facilityId,user_id:g.userId,received_date:g.receivedDate||null,specialist_name:g.specialistName||null,plan_period_end:g.planPeriodEnd||null,data:g});
+  };
+  const updSoudanGenan = (id,ch) => setSoudanGenans(p=>p.map(g=>{ if(g.id!==id) return g; const u={...g,...ch}; sbSave("soudan_genans",{id,facility_id:u.facilityId,user_id:u.userId,received_date:u.receivedDate||null,specialist_name:u.specialistName||null,plan_period_end:u.planPeriodEnd||null,data:u}); return u; }));
+  const delSoudanGenan = id => { setSoudanGenans(p=>p.filter(g=>g.id!==id)); sbDelete("soudan_genans",id); };
+
   // ─── トースト通知 ───
   const [toastMsg, setToastMsg] = useState("");
   const [toastType, setToastType] = useState("success");
@@ -2710,7 +2752,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan};
 }
 
 
@@ -5174,6 +5216,7 @@ function UserManagement({user,store,onBack}){
       {k:"isp_draft",l:"個別支援計画（原案）",ic:"📄"},
       {k:"isp",l:"個別支援計画",ic:"📝"},
       {k:"monitoring",l:"モニタリング",ic:"🔍"},
+      {k:"jukyusha",l:"受給者証",ic:"🪪"},
       ...(isJidou?[
         {k:"dev_record",l:"発達段階記録",ic:"🌱"},
         {k:"parent_support",l:"保護者支援記録",ic:"👨‍👩‍👧"},
@@ -5223,6 +5266,8 @@ function UserManagement({user,store,onBack}){
         {hubTab==="dev_record"&&<DevRecordTab u={u} user={user} store={store}/>}
         {/* ===== 保護者支援記録（児発のみ） ===== */}
         {hubTab==="parent_support"&&<ParentSupportTab u={u} user={user} store={store}/>}
+        {/* ===== 受給者証OCR ===== */}
+        {hubTab==="jukyusha"&&<JukyushaTab u={u} user={user} store={store}/>}
         {/* ===== 訪問記録（保育所等訪問のみ） ===== */}
         {hubTab==="visit_record"&&<UserVisitTab u={u} user={user} store={store}/>}
       </div>
@@ -5800,6 +5845,205 @@ function MonitoringTab({u,myMonitorings,myIsps,user,store}){
       </div>;
     })}
   </div>;
+}
+
+// ==================== OCR共通ユーティリティ ====================
+
+// 画像ファイル → Base64変換
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// 期限ステータス判定
+function jukyushaStatus(expiryDate) {
+  if (!expiryDate) return "unknown";
+  const exp = new Date(expiryDate);
+  const now = new Date();
+  const diff = (exp - now) / (1000 * 60 * 60 * 24);
+  if (diff < 0) return "expired";
+  if (diff <= 30) return "warn";
+  return "ok";
+}
+
+// ==================== ① 受給者証OCRタブ ====================
+function JukyushaTab({u, user, store}) {
+  const [mode, setMode] = useState("list"); // list | scan | result | edit
+  const [scanning, setScanning] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [ocrResult, setOcrResult] = useState(null);
+  const [ocrError, setOcrError] = useState("");
+  const [form, setForm] = useState({});
+  const fileRef = useRef(null);
+
+  const myDocs = (store.jukyushaDocs||[]).filter(d=>d.userId===u.id).sort((a,b)=>b.scanDate>a.scanDate?1:-1);
+
+  // ファイル選択 → OCR実行
+  const handleFile = async (file) => {
+    if (!file) return;
+    setOcrError("");
+    setPreview(URL.createObjectURL(file));
+    setScanning(true);
+    setMode("scan");
+    try {
+      const base64 = await fileToBase64(file);
+      const res = await fetch("/api/ocr", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ imageBase64: base64, mediaType: file.type, mode: "jukyusha" })
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setOcrResult(data.data);
+        setForm({
+          name: data.data.name || u.name || "",
+          nameKana: data.data.nameKana || "",
+          jukyushaNo: data.data.jukyushaNo || "",
+          city: data.data.city || "",
+          expiryDate: data.data.expiryDate || "",
+          serviceType: data.data.serviceType || "",
+          serviceAmount: data.data.serviceAmount || "",
+          maxBurden: data.data.maxBurden || "",
+          startDate: data.data.startDate || "",
+        });
+        setMode("result");
+      } else {
+        setOcrError(data.error || "OCRの解析に失敗しました。手動で入力してください。");
+        setForm({ name: u.name || "", jukyushaNo: u.jukyushaNo || "", city: u.jukyushaCity || "", expiryDate: u.jukyushaExpiry || "" });
+        setMode("result");
+      }
+    } catch(e) {
+      setOcrError("通信エラー: " + e.message);
+      setMode("result");
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  // 保存
+  const handleSave = () => {
+    const id = "jd_" + Date.now();
+    const doc = {
+      id, facilityId: u.facilityId, userId: u.id,
+      scanDate: new Date().toISOString().slice(0,10),
+      name: form.name, jukyushaNo: form.jukyushaNo,
+      city: form.city, expiryDate: form.expiryDate,
+      serviceType: form.serviceType, serviceAmount: form.serviceAmount,
+      maxBurden: form.maxBurden ? parseInt(form.maxBurden) : null,
+      startDate: form.startDate, status: "有効",
+      imagePreview: preview, ocrData: ocrResult,
+      createdBy: user.displayName
+    };
+    // 旧受給者証を「旧」に変更
+    myDocs.filter(d=>d.status==="有効").forEach(d=>store.updJukyushaDoc(d.id,{status:"旧"}));
+    store.addJukyushaDoc(doc);
+    // 利用者の受給者証情報も更新
+    store.updUser2(u.id, { jukyushaNo: form.jukyushaNo, jukyushaCity: form.city, jukyushaExpiry: form.expiryDate });
+    store.showToast("✅ 受給者証を保存しました");
+    setMode("list"); setPreview(null); setOcrResult(null);
+  };
+
+  const upd = (k,v) => setForm(p=>({...p,[k]:v}));
+
+  // ===== リスト表示 =====
+  if (mode === "list") return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>📋 受給者証一覧</div>
+        <button className="bsave" style={{padding:"8px 14px",fontSize:12}} onClick={()=>fileRef.current?.click()}>
+          📷 受給者証を撮影・読取
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}}
+          onChange={e=>handleFile(e.target.files[0])}/>
+      </div>
+
+      {/* APIキー未設定の場合の案内 */}
+      <div style={{background:"rgba(58,160,216,0.08)",border:"1px solid rgba(58,160,216,0.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"var(--tl)"}}>
+        💡 OCR機能はAnthropic APIキーが必要です。Vercel Dashboard → Settings → Environment Variables に
+        <strong> ANTHROPIC_API_KEY </strong>を設定してください。未設定の場合は手動入力になります。
+      </div>
+
+      {myDocs.length === 0 && (
+        <div style={{textAlign:"center",padding:"32px 16px",color:"var(--tx3)"}}>
+          <div style={{fontSize:32,marginBottom:8}}>📄</div>
+          <div style={{fontSize:13}}>受給者証が登録されていません</div>
+          <div style={{fontSize:11,marginTop:4}}>「📷 受給者証を撮影・読取」から登録できます</div>
+        </div>
+      )}
+
+      {myDocs.map(doc => {
+        const st = jukyushaStatus(doc.expiryDate);
+        return (
+          <div key={doc.id} className={`jukyusha-card ${st==="expired"?"expired":st==="warn"?"expiring":""}`}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+              <div>
+                <div style={{fontSize:12,fontWeight:900,color:"var(--tx)",marginBottom:2}}>
+                  {doc.status==="有効"?"✅ 現行受給者証":doc.status==="旧"?"📁 旧受給者証":"📄"}
+                  <span style={{marginLeft:6,fontSize:10,color:"var(--tx3)"}}>{doc.scanDate}</span>
+                </div>
+                <div style={{fontSize:11,color:"var(--tx2)"}}>受給者証番号: <strong>{doc.jukyushaNo||"—"}</strong></div>
+              </div>
+              {st==="expired"&&<span className="ocr-badge-err">⚠️ 期限切れ</span>}
+              {st==="warn"&&<span className="ocr-badge-warn">⏰ 期限間近</span>}
+              {st==="ok"&&doc.status==="有効"&&<span className="ocr-badge-ok">✅ 有効</span>}
+            </div>
+            <div className="ocr-result-row"><span className="ocr-result-label">有効期限</span><span className="ocr-result-val" style={{color:st==="expired"?"var(--ro)":st==="warn"?"#8a6200":"var(--tx)"}}>{doc.expiryDate||"—"}</span></div>
+            <div className="ocr-result-row"><span className="ocr-result-label">自治体</span><span className="ocr-result-val">{doc.city||"—"}</span></div>
+            <div className="ocr-result-row"><span className="ocr-result-label">支給量</span><span className="ocr-result-val">{doc.serviceAmount||"—"}</span></div>
+            <div className="ocr-result-row" style={{borderBottom:"none"}}><span className="ocr-result-label">負担上限月額</span><span className="ocr-result-val">{doc.maxBurden!=null?doc.maxBurden+"円":"—"}</span></div>
+            <div style={{marginTop:8,display:"flex",gap:8}}>
+              <button onClick={()=>store.delJukyushaDoc(doc.id)} style={{padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:700,border:"1px solid rgba(224,56,56,0.4)",background:"rgba(224,56,56,0.08)",color:"var(--ro)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>削除</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // ===== スキャン中 =====
+  if (mode === "scan") return (
+    <div style={{textAlign:"center",padding:"48px 16px"}}>
+      <div style={{fontSize:40,marginBottom:16}}>🔍</div>
+      <div style={{fontSize:15,fontWeight:700,color:"var(--tx)",marginBottom:8}}>OCR解析中...</div>
+      <div style={{fontSize:12,color:"var(--tx3)"}}>Claude AIが受給者証を読み取っています</div>
+      {preview && <img src={preview} className="ocr-preview" alt="preview"/>}
+    </div>
+  );
+
+  // ===== OCR結果・確認 =====
+  if (mode === "result") return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+        <button className="bback" onClick={()=>{setMode("list");setPreview(null);}} style={{padding:"6px 12px",fontSize:12}}>← 戻る</button>
+        <div style={{fontSize:13,fontWeight:700}}>📋 読み取り結果を確認</div>
+      </div>
+      {preview && <img src={preview} className="ocr-preview" alt="撮影画像"/>}
+      {ocrError && <div style={{background:"rgba(224,168,40,0.15)",border:"1px solid rgba(224,168,40,0.4)",borderRadius:9,padding:"10px 12px",fontSize:12,color:"#8a6200",marginBottom:12}}>⚠️ {ocrError}<br/>内容を手動で入力してください。</div>}
+      {ocrResult && <div style={{background:"rgba(44,170,96,0.1)",border:"1px solid rgba(44,170,96,0.3)",borderRadius:9,padding:"8px 12px",fontSize:11,color:"var(--gr2)",marginBottom:12}}>✅ AIが自動読み取りしました。内容を確認して保存してください。</div>}
+
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:16}}>
+        {[
+          {label:"氏名",key:"name"}, {label:"ふりがな",key:"nameKana"},
+          {label:"受給者証番号",key:"jukyushaNo"}, {label:"自治体名",key:"city"},
+          {label:"有効期限",key:"expiryDate",type:"date"}, {label:"支給開始日",key:"startDate",type:"date"},
+          {label:"サービス種別",key:"serviceType"}, {label:"支給量",key:"serviceAmount"},
+          {label:"負担上限月額(円)",key:"maxBurden",type:"number"},
+        ].map(({label,key,type="text"})=>(
+          <div key={key} style={{marginBottom:10}}>
+            <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>{label}</label>
+            <input className="fi" type={type} value={form[key]||""} onChange={e=>upd(key,e.target.value)} placeholder={label+"を入力"}/>
+          </div>
+        ))}
+      </div>
+      <button className="bsave" style={{marginTop:14,width:"100%"}} onClick={handleSave}>💾 保存する</button>
+    </div>
+  );
+
+  return null;
 }
 
 // ==================== 発達段階記録タブ（児童発達支援専用） ====================
