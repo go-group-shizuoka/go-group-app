@@ -89,6 +89,114 @@ const MOODS = ["😄","🙂","😐","😔","😢"];
 // 個別支援計画 5領域（IspServicePanel・利用者管理両方で使用するため上位に定義）
 const ISP_DOMAINS = ["健康・生活","運動・感覚","認知・行動","言語・コミュニケーション","人間関係・社会性"];
 
+// ==================== サービス種別マスタ ====================
+// ⚠️ 単価・加算をコードへ直書き禁止。法改正時はここを更新する。
+const SERVICE_TYPES = [
+  {
+    id: "houkago",
+    name: "放課後等デイサービス",
+    short: "放デイ",
+    color: "#3aa0d8",
+    bg: "rgba(58,160,216,0.15)",
+    icon: "🏫",
+    requiredDocs: ["個別支援計画","フェイスシート","アセスメント","サービス提供記録","業務日報","モニタリング"],
+    alertRules: ["isp","assessment","monitoring","jukyusha"],
+  },
+  {
+    id: "jidouhattatsu",
+    name: "児童発達支援",
+    short: "児発",
+    color: "#e07020",
+    bg: "rgba(240,112,32,0.15)",
+    icon: "🌱",
+    requiredDocs: ["個別支援計画","フェイスシート","アセスメント","発達段階記録","保護者支援記録","サービス提供記録","業務日報","モニタリング"],
+    alertRules: ["isp","assessment","monitoring","jukyusha","dev_record","parent_support"],
+  },
+  {
+    id: "hoikuvisit",
+    name: "保育所等訪問支援",
+    short: "訪問",
+    color: "#2caa60",
+    bg: "rgba(44,170,96,0.15)",
+    icon: "🚌",
+    requiredDocs: ["訪問計画書","訪問記録","学校連携記録","保護者同意書","個別支援計画"],
+    alertRules: ["isp","jukyusha","visit_record"],
+  },
+];
+
+// 施設ごとに運営しているサービス種別（GO GROUP 施設構成）
+const FACILITY_SERVICES = {
+  "f1": ["houkago","jidouhattatsu"],   // GO HOME：多機能型
+  "f2": ["houkago"],                    // GO ROOM：放デイ
+  "f3": ["houkago","hoikuvisit"],       // GO TOWN 1ST：放デイ＋保育所等訪問
+  "f4": ["houkago"],                    // GO TOWN 2ND：放デイ
+};
+
+// ==================== 報酬単価マスタ ====================
+// ⚠️ 法改正・地域区分変更時はここを更新する（コードへ直書き禁止）
+const REWARD_MASTER = {
+  houkago: {
+    label: "放課後等デイサービス",
+    timeTypes: [
+      { key:"放課後", code:"6612B", unitPrice:530, label:"放課後（平日）" },
+      { key:"休日",   code:"6612C", unitPrice:684, label:"休日・長期休暇" },
+    ],
+    addons: [
+      { id:"transport_one",  name:"送迎加算（片道）",        unit:54  },
+      { id:"transport_both", name:"送迎加算（往復）",        unit:108 },
+      { id:"meal",           name:"食事提供加算",            unit:30  },
+      { id:"medical",        name:"医療連携体制加算",        unit:100 },
+      { id:"support_staff",  name:"専門的支援加算",          unit:120 },
+      { id:"behavior",       name:"行動障害支援加算",        unit:155 },
+    ],
+  },
+  jidouhattatsu: {
+    label: "児童発達支援",
+    timeTypes: [
+      { key:"未就学", code:"7111B", unitPrice:611, label:"未就学児（平日）" },
+      { key:"休日",   code:"7111C", unitPrice:790, label:"休日" },
+    ],
+    addons: [
+      { id:"transport_one",   name:"送迎加算（片道）",       unit:54  },
+      { id:"transport_both",  name:"送迎加算（往復）",       unit:108 },
+      { id:"parent_support",  name:"保護者支援加算",         unit:80  },
+      { id:"family_support",  name:"家族支援加算",           unit:150 },
+      { id:"meal",            name:"食事提供加算",           unit:30  },
+      { id:"support_staff",   name:"専門的支援加算",         unit:120 },
+      { id:"early_support",   name:"早期支援加算",           unit:200 },
+    ],
+  },
+  hoikuvisit: {
+    label: "保育所等訪問支援",
+    timeTypes: [
+      { key:"初回",     code:"8111B", unitPrice:794, label:"初回訪問" },
+      { key:"2回目以降", code:"8112B", unitPrice:686, label:"2回目以降" },
+    ],
+    addons: [
+      { id:"specialist", name:"専門支援加算",               unit:250 },
+      { id:"long",       name:"長時間支援加算（2h以上）",   unit:100 },
+    ],
+  },
+};
+
+// 施設のサービス種別一覧を返すヘルパー
+function getFacilityServiceTypes(facilityId) {
+  const ids = FACILITY_SERVICES[facilityId] || ["houkago"];
+  return ids.map(id => SERVICE_TYPES.find(s=>s.id===id)).filter(Boolean);
+}
+
+// 利用者のサービス種別オブジェクトを返す
+function getUserServiceType(u) {
+  return SERVICE_TYPES.find(s=>s.id===(u.serviceType||"houkago")) || SERVICE_TYPES[0];
+}
+
+// 訪問種別
+const VISIT_DEST_TYPES = ["保育園","幼稚園","認定こども園","小学校","中学校","高等学校","その他"];
+// 発達5領域（児発用）
+const DEV_DOMAINS = ["身体・運動","認知・学習","言語・コミュニケーション","社会性・対人関係","生活習慣・自立"];
+// 保護者支援種別
+const PARENT_SUPPORT_TYPES = ["個別相談","家族支援","電話相談","グループ支援","情報提供","その他"];
+
 // ─── サービス記録テンプレート（現場3秒入力用） ───
 const RECORD_TEMPLATES = [
   {cat:"体調",icon:"🌡️",texts:["体調良好、笑顔で来所","体温正常・食欲あり、活動に積極的","やや疲れ気味だったが活動中は集中できた","体調不良の訴えなし、終日元気に過ごした"]},
@@ -1966,6 +2074,27 @@ select.fi option{background:var(--bg2);color:var(--tx);}
 .audit-ok{background:rgba(44,170,96,0.2);color:var(--gr);border:1px solid rgba(44,170,96,0.4);}
 .audit-ng{background:rgba(224,56,56,0.15);color:var(--ro);border:1px solid rgba(224,56,56,0.4);}
 .audit-na{background:var(--bg);color:var(--tx3);border:1px solid var(--bd);}
+/* ===== サービス種別バッジ ===== */
+.svc-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:10px;font-size:10px;font-weight:700;border:1px solid transparent;}
+.svc-houkago{background:rgba(58,160,216,0.18);color:#2070a0;border-color:rgba(58,160,216,0.4);}
+.svc-jidouhattatsu{background:rgba(240,112,32,0.18);color:#c05000;border-color:rgba(240,112,32,0.4);}
+.svc-hoikuvisit{background:rgba(44,170,96,0.18);color:#1a7040;border-color:rgba(44,170,96,0.4);}
+/* ===== 訪問支援 ===== */
+.visit-card{background:var(--wh);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:9px;cursor:pointer;transition:all .15s;box-shadow:var(--sh);}
+.visit-card:hover{border-color:var(--gr2);box-shadow:var(--sh2);}
+.visit-dest-card{background:var(--wh);border:1px solid var(--bd);border-radius:11px;padding:13px;margin-bottom:8px;box-shadow:var(--sh);}
+.visit-report{background:var(--bg3);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-top:10px;}
+/* ===== 発達記録 ===== */
+.dev-domain{background:var(--bg3);border:1.5px solid var(--bd);border-radius:9px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:all .13s;}
+.dev-domain.on{border-color:var(--ac);background:rgba(240,112,32,0.08);}
+.dev-record-card{background:var(--wh);border:1px solid var(--bd);border-radius:11px;padding:13px;margin-bottom:8px;box-shadow:var(--sh);}
+/* ===== 保護者支援 ===== */
+.ps-card{background:var(--wh);border:1px solid var(--bd);border-radius:11px;padding:13px;margin-bottom:8px;box-shadow:var(--sh);}
+/* ===== 報酬マスタ表 ===== */
+.reward-table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px;}
+.reward-table th{padding:7px 10px;background:var(--bg3);font-size:10px;font-weight:700;color:var(--tx2);text-align:left;border-bottom:2px solid var(--bd);}
+.reward-table td{padding:8px 10px;border-bottom:1px solid var(--bd);color:var(--tx);}
+.reward-table tr:hover td{background:var(--bg3);}
 `;
 
 
@@ -2131,6 +2260,11 @@ function useStore() {
     setHist(h2=>[...h2,{id:genId(),recordId:id,...h}]);
     return {...r,...ch,history:[...(r.history||[]),h]};
   }));
+  // 記録を完全削除（Supabaseからも削除）
+  const delRec = (id) => {
+    setRecs(p=>p.filter(r=>r.id!==id));
+    sbDelete("records", id);
+  };
   const setShift = (sid,date,type) => {setShifts(p=>({...p,[sid]:{...(p[sid]||{}),[date]:type}}));sbSave("shifts",{id:sid+"_"+date,staff_id:sid,date:date,shift_type:type});};
   const getShift = (sid,date) => shifts[sid]?.[date]||"none";
   const setAtt = (uid,date,status) => {
@@ -2542,6 +2676,33 @@ function useStore() {
     sbLoad("isp_records").then(d=>{ if(d?.length) setIspRecords(d.map(x=>x.data||x)); });
     sbLoad("monitoring_notes").then(d=>{ if(d?.length) setMonitoringNotes(d.map(x=>x.data||x)); });
   }, []);
+  // ─── 訪問先マスタ（保育所等訪問支援） ───
+  const [visitDests, setVisitDests] = useState([
+    {id:"vd1",facilityId:"f3",name:"ひかり保育園",type:"保育園",address:"静岡市〇〇1-2-3",contactPerson:"鈴木先生",phone:"054-000-0001",note:""},
+    {id:"vd2",facilityId:"f3",name:"みどり小学校",type:"小学校",address:"静岡市〇〇4-5-6",contactPerson:"田中先生",phone:"054-000-0002",note:""},
+  ]);
+  const addVisitDest = d => { setVisitDests(p=>[...p,d]); sbSave("visit_dests",{id:d.id,facility_id:d.facilityId,data:d}); };
+  const updVisitDest = (id,ch) => setVisitDests(p=>p.map(d=>{ if(d.id!==id) return d; const u={...d,...ch}; sbSave("visit_dests",{id,facility_id:u.facilityId,data:u}); return u; }));
+  const delVisitDest = id => { setVisitDests(p=>p.filter(d=>d.id!==id)); sbDelete("visit_dests",id); };
+
+  // ─── 訪問記録（保育所等訪問支援） ───
+  const [visitRecords, setVisitRecords] = useState([]);
+  const addVisitRecord = r => { setVisitRecords(p=>[...p,r]); sbSave("visit_records",{id:r.id,facility_id:r.facilityId,user_id:r.userId||null,visit_date:r.date,data:r}); };
+  const updVisitRecord = (id,ch) => setVisitRecords(p=>p.map(r=>{ if(r.id!==id) return r; const u={...r,...ch}; sbSave("visit_records",{id,facility_id:u.facilityId,user_id:u.userId||null,visit_date:u.date,data:u}); return u; }));
+  const delVisitRecord = id => { setVisitRecords(p=>p.filter(r=>r.id!==id)); sbDelete("visit_records",id); };
+
+  // ─── 発達段階記録（児童発達支援） ───
+  const [devRecords, setDevRecords] = useState([]);
+  const addDevRecord = r => { setDevRecords(p=>[...p,r]); sbSave("dev_records",{id:r.id,facility_id:r.facilityId,user_id:r.userId,record_date:r.date,data:r}); };
+  const updDevRecord = (id,ch) => setDevRecords(p=>p.map(r=>{ if(r.id!==id) return r; const u={...r,...ch}; sbSave("dev_records",{id,facility_id:u.facilityId,user_id:u.userId,record_date:u.date,data:u}); return u; }));
+  const delDevRecord = id => { setDevRecords(p=>p.filter(r=>r.id!==id)); sbDelete("dev_records",id); };
+
+  // ─── 保護者支援記録（児童発達支援） ───
+  const [parentSupportRecords, setParentSupportRecords] = useState([]);
+  const addParentSupportRecord = r => { setParentSupportRecords(p=>[...p,r]); sbSave("parent_support_records",{id:r.id,facility_id:r.facilityId,user_id:r.userId,record_date:r.date,data:r}); };
+  const updParentSupportRecord = (id,ch) => setParentSupportRecords(p=>p.map(r=>{ if(r.id!==id) return r; const u={...r,...ch}; sbSave("parent_support_records",{id,facility_id:u.facilityId,user_id:u.userId,record_date:u.date,data:u}); return u; }));
+  const delParentSupportRecord = id => { setParentSupportRecords(p=>p.filter(r=>r.id!==id)); sbDelete("parent_support_records",id); };
+
   // ─── トースト通知 ───
   const [toastMsg, setToastMsg] = useState("");
   const [toastType, setToastType] = useState("success");
@@ -2549,7 +2710,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord};
 }
 
 
@@ -2717,6 +2878,15 @@ function LoginScreen({onLogin, store}){
     <button className="bpri" onClick={go}>ログイン</button>
     {err&&<p className="err">{err}</p>}
     <p className="hint">デモID: homestaff / homemgr / admin</p>
+    {/* Produce By バッジ */}
+    <div style={{marginTop:28,display:"flex",justifyContent:"center"}}>
+      <div style={{display:"inline-flex",alignItems:"center",gap:12,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:12,padding:"10px 20px"}}>
+        <span style={{fontSize:11,color:"rgba(255,255,255,0.5)",letterSpacing:1,fontWeight:500,whiteSpace:"nowrap"}}>Produce By</span>
+        <div style={{background:"#fff",borderRadius:8,padding:"4px 8px",display:"flex",alignItems:"center"}}>
+          <img src="/bells-logo.jpg" alt="株式会社BELLSインターナショナル" style={{height:36,width:"auto",display:"block"}}/>
+        </div>
+      </div>
+    </div>
   </div></div>;
 }
 
@@ -3272,6 +3442,29 @@ function ShiftScreen({user,store,onBack}){
   const [minStaff,setMinStaff]=useState(2); // 法定最低人数（施設設定で変更可能）
   const [copyMsg,setCopyMsg]=useState("");
 
+  // 月が変わったら平日を自動でCに設定（未入力のみ・土日は除く）
+  useEffect(()=>{
+    if(!store.setShift) return;
+    const isMgrUser=user.role==="manager"||user.role==="admin";
+    if(!isMgrUser) return;
+    const targetStaff=store.dynStaff.filter(s=>user.role==="admin"||s.facilityId===user.selectedFacilityId);
+    const days2=daysInMonth(vm.y,vm.m);
+    const mk2=d=>`${vm.y}-${String(vm.m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    // 少し遅延させてstoreのロード完了後に実行
+    const tid=setTimeout(()=>{
+      targetStaff.forEach(s=>{
+        for(let d=1;d<=days2;d++){
+          const dw=new Date(vm.y,vm.m-1,d).getDay();
+          if(dw===0) continue; // 日曜スキップ
+          if(dw===6&&s.facilityId!=="f3") continue; // TOWN 1ST以外は土曜スキップ
+          const existing=store.getShift(s.id,mk2(d));
+          if(!existing||existing==="none") store.setShift(s.id,mk2(d),"C");
+        }
+      });
+    },600);
+    return ()=>clearTimeout(tid);
+  },[vm.y,vm.m,user.selectedFacilityId,store.dynStaff.length]);
+
   const isMgr=user.role==="manager"||user.role==="admin";
   const fStaff=store.dynStaff.filter(s=>user.role==="admin"||s.facilityId===user.selectedFacilityId);
   const facilityId=user.selectedFacilityId;
@@ -3281,14 +3474,28 @@ function ShiftScreen({user,store,onBack}){
   const dow=["日","月","火","水","木","金","土"];
   const dcol=d=>{const w=new Date(vm.y,vm.m-1,d).getDay();return w===0?"var(--ro)":w===6?"var(--tl)":"var(--tx)";};
 
+  // GO TOWN 1STは土曜も営業
+  const isTown1st = facilityId==="f3";
+
+  // スタッフ表示順: 林康義→渡邊詳子→南條徹→木村信哉→入社日順
+  const SHIFT_PRIORITY=["林康義","渡邊詳子","南條徹","木村信哉"];
+  const sortedStaff=[...fStaff].sort((a,b)=>{
+    const ai=SHIFT_PRIORITY.indexOf(a.name),bi=SHIFT_PRIORITY.indexOf(b.name);
+    if(ai!==-1&&bi!==-1) return ai-bi;
+    if(ai!==-1) return -1;
+    if(bi!==-1) return 1;
+    return (a.joinDate||a.createdAt||"").localeCompare(b.joinDate||b.createdAt||"");
+  });
+
   // 各日の勤務タイプ別集計
   const counts={A:0,B:0,C:0,off:0,holiday:0};
-  fStaff.forEach(s=>{for(let i=1;i<=days;i++){const t=store.getShift(s.id,mk(i));if(counts[t]!==undefined)counts[t]++;}});
+  sortedStaff.forEach(s=>{for(let i=1;i<=days;i++){const t=store.getShift(s.id,mk(i));if(counts[t]!==undefined)counts[t]++;}});
 
-  // 各日の出勤人数（平日のみ）
+  // 各日の出勤人数（TOWN 1STは土曜も含む）
   const dayWorkCount=d=>{
     const dw=new Date(vm.y,vm.m-1,d).getDay();
-    if(dw===0||dw===6) return null; // 土日はnull
+    if(dw===0) return null; // 日曜は常にnull
+    if(dw===6&&!isTown1st) return null; // 土曜はTOWN 1ST以外null
     return fStaff.filter(s=>{const t=store.getShift(s.id,mk(d));return t&&t!=="off"&&t!=="holiday"&&t!=="none";}).length;
   };
 
@@ -3310,6 +3517,22 @@ function ShiftScreen({user,store,onBack}){
     });
     setCopyMsg(`先月から${cnt}件のシフトをコピーしました`);
     setTimeout(()=>setCopyMsg(""),3000);
+  };
+
+  // 平日（TOWN 1STは土曜も）をCで一括設定（未入力のみ）
+  const fillWeekdaysWithC=()=>{
+    let cnt=0;
+    sortedStaff.forEach(s=>{
+      for(let d=1;d<=days;d++){
+        const dw=new Date(vm.y,vm.m-1,d).getDay();
+        if(dw===0) continue; // 日曜スキップ
+        if(dw===6&&s.facilityId!=="f3") continue; // TOWN 1ST以外は土曜スキップ
+        const existing=store.getShift(s.id,mk(d));
+        if(!existing||existing==="none"){store.setShift(s.id,mk(d),"C");cnt++;}
+      }
+    });
+    setCopyMsg(`${cnt}日分をCシフトで設定しました（既存シフトは変更しません）`);
+    setTimeout(()=>setCopyMsg(""),4000);
   };
 
   // 有給申請承認済みをシフトに反映
@@ -3356,7 +3579,7 @@ function ShiftScreen({user,store,onBack}){
       <div style={{fontSize:16,fontWeight:900,minWidth:90,textAlign:"center"}}>{vm.y}年 {vm.m}月</div>
       <button className="cn" onClick={()=>setVm(v=>v.m===12?{y:v.y+1,m:1}:{y:v.y,m:v.m+1})}>›</button>
       <div style={{display:"flex",gap:5,flexWrap:"wrap",marginLeft:8}}>
-        {[{id:"calendar",icon:"📅",label:"シフト表"},{id:"check",icon:"✅",label:"充足チェック"},{id:"summary",icon:"📊",label:"勤務集計"}].map(t=>(
+        {[{id:"calendar",icon:"📅",label:"シフト表"},{id:"facilities",icon:"🏢",label:"店舗別"},{id:"check",icon:"✅",label:"充足チェック"},{id:"summary",icon:"📊",label:"勤務集計"}].map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)}
             style={{padding:"7px 13px",borderRadius:9,border:"2px solid",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,
               borderColor:tab===t.id?"var(--tl)":"var(--bd)",background:tab===t.id?"rgba(58,160,216,0.2)":"var(--bg)",color:tab===t.id?"var(--tl)":"var(--tx3)"}}>
@@ -3376,6 +3599,10 @@ function ShiftScreen({user,store,onBack}){
     {/* ── シフト表タブ ── */}
     {tab==="calendar"&&<>
       {isMgr&&<div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+        <button onClick={fillWeekdaysWithC}
+          style={{padding:"7px 14px",borderRadius:9,border:"1px solid rgba(58,160,216,0.5)",background:"rgba(58,160,216,0.1)",color:"var(--tl)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+          🗓️ 平日をCで一括設定
+        </button>
         <button onClick={copyFromPrev}
           style={{padding:"7px 14px",borderRadius:9,border:"1px solid var(--bd)",background:"var(--wh)",color:"var(--tx)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
           📋 先月のシフトをコピー
@@ -3409,11 +3636,14 @@ function ShiftScreen({user,store,onBack}){
           <th/>
         </tr>
       </thead><tbody>
-        {fStaff.map(s=><tr key={s.id}>
+        {sortedStaff.map(s=><tr key={s.id}>
           <td className="nc">{s.name}</td>
           {Array.from({length:days},(_,i)=>{
             const date=mk(i+1);const type=store.getShift(s.id,date);
-            const dw=new Date(vm.y,vm.m-1,i+1).getDay();const we=dw===0||dw===6;
+            const dw=new Date(vm.y,vm.m-1,i+1).getDay();
+            // TOWN 1STスタッフは土曜も編集可
+            const isSatWork=s.facilityId==="f3";
+            const we=dw===0||(dw===6&&!isSatWork);
             return <td key={i}>
               <div className={shiftClass(we?"off":type)} onClick={()=>!we&&isMgr&&setCell({staffId:s.id,date})} style={{cursor:isMgr&&!we?"pointer":"default"}}>
                 {we?"":shiftLabel(type)}
@@ -3425,6 +3655,79 @@ function ShiftScreen({user,store,onBack}){
       </tbody></table></div>
 
       {/* セル編集モーダル */}
+      {cell&&<div className="ov" onClick={e=>e.target===e.currentTarget&&setCell(null)}>
+        <div className="md">
+          <div className="mdtit">シフトを設定</div>
+          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:10}}>{store.dynStaff.find(s=>s.id===cell.staffId)?.name} — {dlabel(cell.date)}</div>
+          <div className="sogrid">{SHIFT_TYPES.map(s=>{
+            const cur=store.getShift(cell.staffId,cell.date);
+            return <button key={s.key} className="soBtn"
+              style={{borderColor:cur===s.key?"var(--tl)":"",background:cur===s.key?s.color:""}}
+              onClick={()=>{store.setShift(cell.staffId,cell.date,s.key);setCell(null);}}>
+              <div style={{color:s.text,fontSize:13}}>{s.label}</div>
+              <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{s.time}</div>
+            </button>;
+          })}</div>
+          <div className="mda"><button className="bcancel" onClick={()=>setCell(null)}>閉じる</button></div>
+        </div>
+      </div>}
+    </>}
+
+    {/* ── 店舗別シフト表タブ ── */}
+    {tab==="facilities"&&<>
+      <div style={{marginBottom:8,fontSize:11,color:"var(--tx3)"}}>各店舗のスタッフシフトを一覧表示します</div>
+      {FACILITIES.map(fac=>{
+        const facStaff=[...store.dynStaff.filter(s=>s.facilityId===fac.id&&s.active!==false)].sort((a,b)=>{
+          const ai=SHIFT_PRIORITY.indexOf(a.name),bi=SHIFT_PRIORITY.indexOf(b.name);
+          if(ai!==-1&&bi!==-1) return ai-bi;
+          if(ai!==-1) return -1; if(bi!==-1) return 1;
+          return (a.joinDate||a.createdAt||"").localeCompare(b.joinDate||b.createdAt||"");
+        });
+        if(facStaff.length===0) return null;
+        const isFacTown1st=fac.id==="f3";
+        return <div key={fac.id} style={{marginBottom:20}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"8px 12px",background:"rgba(58,160,216,0.12)",borderRadius:9,border:"1px solid rgba(58,160,216,0.3)"}}>
+            <span style={{fontSize:14,fontWeight:900,color:"var(--tl)"}}>🏢 {fac.name}</span>
+            <span style={{fontSize:11,color:"var(--tx3)"}}>{facStaff.length}名</span>
+            {isMgr&&<button onClick={()=>printShift(facStaff,vm,days,store.getShift,fac.name)} style={{marginLeft:"auto",padding:"5px 11px",borderRadius:8,border:"1px solid var(--ac)",background:"#fff8f0",color:"var(--ac)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🖨️ 印刷</button>}
+          </div>
+          <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+            <table className="stbl" style={{fontSize:10,minWidth:"max-content"}}>
+              <thead>
+                <tr>
+                  <th className="nh" style={{fontSize:11}}>職員名</th>
+                  {Array.from({length:days},(_,i)=>{
+                    const d=i+1;const dw=new Date(vm.y,vm.m-1,d).getDay();
+                    const isSat=dw===6;const isSun=dw===0;
+                    const isWe=(isSun)||(isSat&&!isFacTown1st);
+                    return <th key={d} style={{color:dw===0?"var(--ro)":dw===6?"var(--tl)":"var(--tx)",opacity:isWe?0.4:1,minWidth:22,fontSize:9}}>
+                      {d}<br/><span style={{fontSize:7}}>{dow[dw]}</span>
+                    </th>;
+                  })}
+                  <th style={{fontSize:9,whiteSpace:"nowrap",paddingRight:4}}>合計h</th>
+                </tr>
+              </thead>
+              <tbody>
+                {facStaff.map(s=><tr key={s.id}>
+                  <td className="nc" style={{fontSize:11,whiteSpace:"nowrap"}}>{s.name}</td>
+                  {Array.from({length:days},(_,i)=>{
+                    const date=mk(i+1);const type=store.getShift(s.id,date);
+                    const dw=new Date(vm.y,vm.m-1,i+1).getDay();
+                    const we=dw===0||(dw===6&&!isFacTown1st);
+                    return <td key={i}>
+                      <div className={shiftClass(we?"off":type)} onClick={()=>!we&&isMgr&&setCell({staffId:s.id,date})} style={{cursor:isMgr&&!we?"pointer":"default",fontSize:10}}>
+                        {we?"":shiftLabel(type)}
+                      </div>
+                    </td>;
+                  })}
+                  <td style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:"var(--tl)",paddingRight:4}}>{calcHours(s.id)}h</td>
+                </tr>)}
+              </tbody>
+            </table>
+          </div>
+        </div>;
+      })}
+      {/* セル編集モーダル（店舗別タブでも使用） */}
       {cell&&<div className="ov" onClick={e=>e.target===e.currentTarget&&setCell(null)}>
         <div className="md">
           <div className="mdtit">シフトを設定</div>
@@ -4582,6 +4885,21 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
         </div>
         <FormField form={form} upd={upd} errors={errors}  label="所属施設" fkey="facilityId" required
           options={[{value:"",label:"選択してください"},...FACILITIES.map(f=>({value:f.id,label:f.name}))]}/>
+        {/* サービス種別（施設ごとに選択肢が変わる） */}
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,display:"block",marginBottom:7}}>サービス種別 <span style={{color:"var(--ro)"}}>*</span></label>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {getFacilityServiceTypes(form.facilityId||user.selectedFacilityId||"f1").map(st=><button key={st.id}
+              onClick={()=>upd("serviceType",st.id)}
+              style={{padding:"8px 16px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",
+                borderColor:form.serviceType===st.id?st.color:"var(--bd)",
+                background:form.serviceType===st.id?st.bg:"var(--bg)",
+                color:form.serviceType===st.id?st.color:"var(--tx3)"}}>
+              {st.icon} {st.name}
+            </button>)}
+          </div>
+          {!form.serviceType&&<div style={{fontSize:11,color:"var(--ro)",marginTop:4}}>※ サービス種別を選択してください（請求・記録様式が変わります）</div>}
+        </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
           <FormField form={form} upd={upd} errors={errors}  label="診断名" fkey="diagnosis" placeholder="自閉スペクトラム症"/>
           <FormField form={form} upd={upd} errors={errors}  label="障害種別・等級" fkey="disabilityGrade" placeholder="療育手帳 B1"/>
@@ -4792,8 +5110,10 @@ function UserManagement({user,store,onBack}){
               {isMgr&&!bulkMode&&<button onClick={e=>{e.stopPropagation();setSelUser(u);setScreen("edit");}} style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx3)"}}>編集</button>}
             </div>
             <div style={{fontWeight:900,fontSize:14,marginBottom:2,color:u.active===false?"var(--tx3)":"var(--tx)"}}>{u.name}{u.active===false&&<span style={{fontSize:10,color:"var(--bda)",marginLeft:5}}>（無効）</span>}</div>
-            <div style={{fontSize:11,color:"var(--tx3)",marginBottom:6}}>{age}歳 ／ {u.diagnosis}</div>
-            <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:4}}>
+            <div style={{fontSize:11,color:"var(--tx3)",marginBottom:4}}>{age}歳 ／ {u.diagnosis}</div>
+            {/* サービス種別バッジ */}
+            {(()=>{const st=getUserServiceType(u);return <span className={`svc-badge svc-${st.id}`} style={{marginBottom:5,display:"inline-flex"}}>{st.icon} {st.short}</span>;})()}
+            <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:4,marginTop:4}}>
               {ispCount>0&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:8,background:"rgba(58,160,216,0.2)",color:"var(--tl)",fontWeight:700}}>計画{ispCount}件</span>}
               {latestIsp&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:8,background:latestIsp.progress>=80?"rgba(44,170,96,0.2)":"rgba(224,168,40,0.18)",color:latestIsp.progress>=80?"var(--gr2)":"var(--am)",fontWeight:700}}>{latestIsp.progress}%</span>}
               {store.facesheets.find(f=>f.userId===u.id)&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:8,background:"rgba(144,72,216,0.18)",color:"var(--pu)",fontWeight:700}}>FS有</span>}
@@ -4845,12 +5165,22 @@ function UserManagement({user,store,onBack}){
     const myAssessments=store.assessments.filter(a=>a.userId===u.id);
     const myMonitorings=store.monitorings.filter(m=>m.userId===u.id);
     const myIspDrafts=(store.ispDrafts||[]).filter(d=>d.userId===u.id).sort((a,b)=>b.createdAt>a.createdAt?1:-1);
+    const svcType = getUserServiceType(u);
+    const isJidou   = u.serviceType==="jidouhattatsu";
+    const isVisit   = u.serviceType==="hoikuvisit";
     const TABS=[
       {k:"facesheet",l:"フェイスシート",ic:"📋"},
       {k:"assessment",l:"アセスメント",ic:"📊"},
       {k:"isp_draft",l:"個別支援計画（原案）",ic:"📄"},
       {k:"isp",l:"個別支援計画",ic:"📝"},
       {k:"monitoring",l:"モニタリング",ic:"🔍"},
+      ...(isJidou?[
+        {k:"dev_record",l:"発達段階記録",ic:"🌱"},
+        {k:"parent_support",l:"保護者支援記録",ic:"👨‍👩‍👧"},
+      ]:[]),
+      ...(isVisit?[
+        {k:"visit_record",l:"訪問記録",ic:"🚌"},
+      ]:[]),
     ];
     return (
       <div className="fl-wrap">
@@ -4860,10 +5190,12 @@ function UserManagement({user,store,onBack}){
         {/* プロフィールバナー */}
         <div style={{background:"linear-gradient(135deg,var(--tl),var(--gr))",borderRadius:12,padding:"14px 16px",marginBottom:14,color:"#fff",display:"flex",alignItems:"center",gap:14}}>
           <div style={{width:52,height:52,borderRadius:"50%",background:"rgba(255,255,255,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0}}>👤</div>
-          <div>
+          <div style={{flex:1}}>
             <div style={{fontSize:20,fontWeight:900}}>{u.name}</div>
             <div style={{fontSize:12,opacity:.85,marginTop:2}}>{age}歳（{u.dob}生）／ {u.diagnosis}</div>
             <div style={{fontSize:11,opacity:.75,marginTop:1}}>{FACILITIES.find(f=>f.id===u.facilityId)?.name} ／ 送迎: {u.hasTransport?"あり":"なし"}</div>
+            {/* サービス種別バッジ（白抜き） */}
+            <span style={{display:"inline-flex",alignItems:"center",gap:4,marginTop:5,padding:"2px 9px",borderRadius:10,fontSize:10,fontWeight:700,background:"rgba(255,255,255,0.22)",border:"1px solid rgba(255,255,255,0.5)",color:"#fff"}}>{svcType.icon} {svcType.name}</span>
           </div>
         </div>
         {/* タブ */}
@@ -4887,6 +5219,12 @@ function UserManagement({user,store,onBack}){
         {hubTab==="isp_draft"&&<IspDraftTab u={u} myIspDrafts={myIspDrafts} user={user} store={store}/>}
         {/* ===== モニタリング ===== */}
         {hubTab==="monitoring"&&<MonitoringTab u={u} myMonitorings={myMonitorings} myIsps={myIsps} user={user} store={store}/>}
+        {/* ===== 発達段階記録（児発のみ） ===== */}
+        {hubTab==="dev_record"&&<DevRecordTab u={u} user={user} store={store}/>}
+        {/* ===== 保護者支援記録（児発のみ） ===== */}
+        {hubTab==="parent_support"&&<ParentSupportTab u={u} user={user} store={store}/>}
+        {/* ===== 訪問記録（保育所等訪問のみ） ===== */}
+        {hubTab==="visit_record"&&<UserVisitTab u={u} user={user} store={store}/>}
       </div>
     );
   }
@@ -5461,6 +5799,234 @@ function MonitoringTab({u,myMonitorings,myIsps,user,store}){
         {m.overallNote&&<div style={{fontSize:12,color:"var(--tx2)",lineHeight:1.5}}>{m.overallNote.length>70?m.overallNote.slice(0,70)+"…":m.overallNote}</div>}
       </div>;
     })}
+  </div>;
+}
+
+// ==================== 発達段階記録タブ（児童発達支援専用） ====================
+function DevRecordTab({u, user, store}) {
+  const [mode, setMode] = useState("list"); // list | new
+  const [form, setForm] = useState({date:todayISO(), domain:"", level:"", goal:"", content:"", staffName:user.displayName||""});
+  const [saved, setSaved] = useState(false);
+  const myRecs = (store.devRecords||[]).filter(r=>r.userId===u.id).sort((a,b)=>b.date>a.date?1:-1);
+
+  const handleSave = () => {
+    if(!form.domain||!form.content) return;
+    store.addDevRecord({...form, id:genId(), userId:u.id, facilityId:u.facilityId});
+    setSaved(true);
+    setTimeout(()=>{setSaved(false);setMode("list");setForm(p=>({...p,domain:"",level:"",goal:"",content:""}));},1500);
+  };
+
+  if(mode==="new") return <div>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+      <button className="bback" onClick={()=>setMode("list")}>← 戻る</button>
+      <div style={{fontSize:14,fontWeight:900}}>🌱 発達段階記録 入力</div>
+    </div>
+    {saved&&<div className="succ"><div className="si">✅</div><div className="st">保存しました</div></div>}
+    {!saved&&<>
+      <div className="fg"><label className="fl">記録日</label><input className="fi" type="date" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))}/></div>
+      <div className="fg"><label className="fl">発達領域 <span style={{color:"var(--ro)"}}>*</span></label>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+          {DEV_DOMAINS.map(d=><button key={d} onClick={()=>setForm(p=>({...p,domain:d}))}
+            style={{padding:"7px 12px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",
+              borderColor:form.domain===d?"var(--ac)":"var(--bd)",background:form.domain===d?"rgba(240,112,32,0.15)":"var(--bg)",color:form.domain===d?"var(--ac)":"var(--tx3)"}}>
+            {d}
+          </button>)}
+        </div>
+      </div>
+      <div className="fg"><label className="fl">達成レベル</label>
+        <div style={{display:"flex",gap:7}}>
+          {["できた","一部できた","難しかった","未実施"].map(lv=><button key={lv} onClick={()=>setForm(p=>({...p,level:lv}))}
+            style={{padding:"7px 11px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",flex:1,
+              borderColor:form.level===lv?({できた:"var(--gr2)",一部できた:"var(--am)",難しかった:"var(--ro)",未実施:"var(--tx3)"}[lv]||"var(--bd)"):"var(--bd)",
+              background:form.level===lv?({できた:"rgba(44,170,96,0.2)",一部できた:"rgba(224,168,40,0.2)",難しかった:"rgba(224,56,56,0.15)",未実施:"var(--bg3)"}[lv]||"var(--bg)"):"var(--bg)",
+              color:form.level===lv?({できた:"var(--gr2)",一部できた:"var(--am)",難しかった:"var(--ro)",未実施:"var(--tx3)"}[lv]||"var(--tx)"):"var(--tx3)"}}>
+            {lv}
+          </button>)}
+        </div>
+      </div>
+      <div className="fg"><label className="fl">支援目標（ISP短期目標）</label><input className="fi" placeholder="例：絵カードを見て3語文で話せる" value={form.goal} onChange={e=>setForm(p=>({...p,goal:e.target.value}))}/></div>
+      <div className="fg"><label className="fl">記録内容 <span style={{color:"var(--ro)"}}>*</span></label><textarea className="fta" placeholder="本日の様子・支援内容・気づきを記録してください" value={form.content} onChange={e=>setForm(p=>({...p,content:e.target.value}))} style={{minHeight:90}}/></div>
+      <div className="fg"><label className="fl">担当職員</label><input className="fi" value={form.staffName} onChange={e=>setForm(p=>({...p,staffName:e.target.value}))}/></div>
+      <button className="bsave" onClick={handleSave} disabled={!form.domain||!form.content}>保存する</button>
+    </>}
+  </div>;
+
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <div style={{fontSize:13,fontWeight:900,color:"var(--ac)"}}>🌱 発達段階記録 — {u.name}</div>
+      <button className="bsave" style={{maxWidth:130,padding:"8px 14px",fontSize:12}} onClick={()=>setMode("new")}>＋ 新規記録</button>
+    </div>
+    {/* 5領域サマリー */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8,marginBottom:16}}>
+      {DEV_DOMAINS.map(d=>{
+        const cnt=myRecs.filter(r=>r.domain===d).length;
+        const last=myRecs.find(r=>r.domain===d);
+        return <div key={d} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 12px",boxShadow:"var(--sh)"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",marginBottom:4}}>{d}</div>
+          <div style={{fontSize:20,fontWeight:900,color:"var(--ac)"}}>{cnt}<span style={{fontSize:11,fontWeight:400,color:"var(--tx3)"}}>件</span></div>
+          {last&&<div style={{fontSize:10,color:"var(--tx3)",marginTop:3}}>{last.level||"—"}</div>}
+        </div>;
+      })}
+    </div>
+    {myRecs.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:"var(--tx3)",fontSize:13}}>まだ記録がありません</div>}
+    {myRecs.map(r=><div key={r.id} className="dev-record-card">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{fontSize:12,fontWeight:900,color:"var(--ac)"}}>{r.domain}</span>
+          {r.level&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:8,fontWeight:700,background:r.level==="できた"?"rgba(44,170,96,0.2)":r.level==="一部できた"?"rgba(224,168,40,0.2)":"rgba(224,56,56,0.15)",color:r.level==="できた"?"var(--gr2)":r.level==="一部できた"?"var(--am)":"var(--ro)"}}>{r.level}</span>}
+        </div>
+        <div style={{fontSize:10,color:"var(--tx3)"}}>{r.date}</div>
+      </div>
+      {r.goal&&<div style={{fontSize:11,color:"var(--tl)",marginBottom:4}}>目標: {r.goal}</div>}
+      <div style={{fontSize:12,color:"var(--tx)",lineHeight:1.6}}>{r.content}</div>
+      <div style={{fontSize:10,color:"var(--tx3)",marginTop:5}}>{r.staffName}</div>
+    </div>)}
+  </div>;
+}
+
+// ==================== 保護者支援記録タブ（児童発達支援専用） ====================
+function ParentSupportTab({u, user, store}) {
+  const [mode, setMode] = useState("list");
+  const [form, setForm] = useState({date:todayISO(), type:"", content:"", nextAction:"", staffName:user.displayName||""});
+  const [saved, setSaved] = useState(false);
+  const myRecs = (store.parentSupportRecords||[]).filter(r=>r.userId===u.id).sort((a,b)=>b.date>a.date?1:-1);
+
+  const handleSave = () => {
+    if(!form.type||!form.content) return;
+    store.addParentSupportRecord({...form, id:genId(), userId:u.id, facilityId:u.facilityId});
+    setSaved(true);
+    setTimeout(()=>{setSaved(false);setMode("list");setForm(p=>({...p,type:"",content:"",nextAction:""}));},1500);
+  };
+
+  if(mode==="new") return <div>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+      <button className="bback" onClick={()=>setMode("list")}>← 戻る</button>
+      <div style={{fontSize:14,fontWeight:900}}>👨‍👩‍👧 保護者支援記録 入力</div>
+    </div>
+    {saved&&<div className="succ"><div className="si">✅</div><div className="st">保存しました</div></div>}
+    {!saved&&<>
+      <div className="fg"><label className="fl">日付</label><input className="fi" type="date" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))}/></div>
+      <div className="fg"><label className="fl">支援種別 <span style={{color:"var(--ro)"}}>*</span></label>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+          {PARENT_SUPPORT_TYPES.map(t=><button key={t} onClick={()=>setForm(p=>({...p,type:t}))}
+            style={{padding:"7px 12px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",
+              borderColor:form.type===t?"var(--tl)":"var(--bd)",background:form.type===t?"rgba(58,160,216,0.18)":"var(--bg)",color:form.type===t?"var(--tl)":"var(--tx3)"}}>
+            {t}
+          </button>)}
+        </div>
+      </div>
+      <div className="fg"><label className="fl">支援内容 <span style={{color:"var(--ro)"}}>*</span></label><textarea className="fta" placeholder="相談内容・対応内容・保護者の様子などを記録" value={form.content} onChange={e=>setForm(p=>({...p,content:e.target.value}))} style={{minHeight:90}}/></div>
+      <div className="fg"><label className="fl">次回の対応・フォロー</label><input className="fi" placeholder="例：来月の個別面談を設定予定" value={form.nextAction} onChange={e=>setForm(p=>({...p,nextAction:e.target.value}))}/></div>
+      <div className="fg"><label className="fl">担当職員</label><input className="fi" value={form.staffName} onChange={e=>setForm(p=>({...p,staffName:e.target.value}))}/></div>
+      <button className="bsave" onClick={handleSave} disabled={!form.type||!form.content}>保存する</button>
+    </>}
+  </div>;
+
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <div style={{fontSize:13,fontWeight:900,color:"var(--tl)"}}>👨‍👩‍👧 保護者支援記録 — {u.name}</div>
+      <button className="bsave" style={{maxWidth:130,padding:"8px 14px",fontSize:12}} onClick={()=>setMode("new")}>＋ 新規記録</button>
+    </div>
+    {/* 支援種別集計 */}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+      {PARENT_SUPPORT_TYPES.map(t=>{const cnt=myRecs.filter(r=>r.type===t).length;return cnt>0&&<div key={t} style={{padding:"4px 12px",borderRadius:10,background:"rgba(58,160,216,0.15)",border:"1px solid rgba(58,160,216,0.35)",fontSize:11,fontWeight:700,color:"var(--tl)"}}>{t}: {cnt}件</div>;})}
+    </div>
+    {myRecs.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:"var(--tx3)",fontSize:13}}>まだ記録がありません</div>}
+    {myRecs.map(r=><div key={r.id} className="ps-card">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+        <span style={{fontSize:12,padding:"2px 9px",borderRadius:9,fontWeight:700,background:"rgba(58,160,216,0.15)",color:"var(--tl)",border:"1px solid rgba(58,160,216,0.35)"}}>{r.type}</span>
+        <div style={{fontSize:10,color:"var(--tx3)"}}>{r.date}</div>
+      </div>
+      <div style={{fontSize:12,color:"var(--tx)",lineHeight:1.6,marginBottom:4}}>{r.content}</div>
+      {r.nextAction&&<div style={{fontSize:11,color:"var(--am)",background:"rgba(224,168,40,0.1)",borderRadius:7,padding:"4px 9px"}}>📌 {r.nextAction}</div>}
+      <div style={{fontSize:10,color:"var(--tx3)",marginTop:5}}>{r.staffName}</div>
+    </div>)}
+  </div>;
+}
+
+// ==================== 利用者個別 訪問記録タブ（保育所等訪問支援専用） ====================
+function UserVisitTab({u, user, store}) {
+  const [mode, setMode] = useState("list");
+  const [form, setForm] = useState({date:todayISO(), destId:"", visitType:"初回", duration:"", supportContent:"", schoolFeedback:"", advice:"", staffName:user.displayName||""});
+  const [saved, setSaved] = useState(false);
+  const myVisits = (store.visitRecords||[]).filter(r=>r.userId===u.id).sort((a,b)=>b.date>a.date?1:-1);
+  const facilityDests = (store.visitDests||[]).filter(d=>d.facilityId===u.facilityId);
+
+  const handleSave = () => {
+    if(!form.destId||!form.supportContent) return;
+    store.addVisitRecord({...form, id:genId(), userId:u.id, facilityId:u.facilityId});
+    setSaved(true);
+    setTimeout(()=>{setSaved(false);setMode("list");setForm(p=>({...p,destId:"",supportContent:"",schoolFeedback:"",advice:""}));},1500);
+  };
+
+  const destName = (id) => facilityDests.find(d=>d.id===id)?.name||id||"—";
+
+  if(mode==="new") return <div>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+      <button className="bback" onClick={()=>setMode("list")}>← 戻る</button>
+      <div style={{fontSize:14,fontWeight:900}}>🚌 訪問記録 入力</div>
+    </div>
+    {saved&&<div className="succ"><div className="si">✅</div><div className="st">保存しました</div></div>}
+    {!saved&&<>
+      <div className="fg"><label className="fl">訪問日</label><input className="fi" type="date" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))}/></div>
+      <div className="fg"><label className="fl">訪問先 <span style={{color:"var(--ro)"}}>*</span></label>
+        <select className="fi" value={form.destId} onChange={e=>setForm(p=>({...p,destId:e.target.value}))}>
+          <option value="">選択してください</option>
+          {facilityDests.map(d=><option key={d.id} value={d.id}>{d.name}（{d.type}）</option>)}
+        </select>
+        {facilityDests.length===0&&<div style={{fontSize:11,color:"var(--ro)",marginTop:4}}>訪問先が未登録です。「保育所等訪問支援」画面から登録してください。</div>}
+      </div>
+      <div className="fg"><label className="fl">訪問種別（報酬算定用）</label>
+        <div style={{display:"flex",gap:8}}>
+          {["初回","2回目以降"].map(t=><button key={t} onClick={()=>setForm(p=>({...p,visitType:t}))}
+            style={{padding:"8px 16px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",flex:1,
+              borderColor:form.visitType===t?"var(--gr2)":"var(--bd)",background:form.visitType===t?"rgba(44,170,96,0.18)":"var(--bg)",color:form.visitType===t?"var(--gr2)":"var(--tx3)"}}>
+            {t}
+          </button>)}
+        </div>
+      </div>
+      <div className="fg"><label className="fl">訪問時間（分）</label><input className="fi" type="number" placeholder="例: 90" value={form.duration} onChange={e=>setForm(p=>({...p,duration:e.target.value}))}/></div>
+      <div className="fg"><label className="fl">支援内容 <span style={{color:"var(--ro)"}}>*</span></label><textarea className="fta" placeholder="訪問で行った支援・助言内容を記録" value={form.supportContent} onChange={e=>setForm(p=>({...p,supportContent:e.target.value}))} style={{minHeight:80}}/></div>
+      <div className="fg"><label className="fl">学校・施設からのフィードバック</label><textarea className="fta" placeholder="担任・保育士からの意見・気づきなど" value={form.schoolFeedback} onChange={e=>setForm(p=>({...p,schoolFeedback:e.target.value}))} style={{minHeight:60}}/></div>
+      <div className="fg"><label className="fl">助言内容（学校・施設への提案）</label><textarea className="fta" placeholder="具体的な支援方法・環境調整の提案" value={form.advice} onChange={e=>setForm(p=>({...p,advice:e.target.value}))} style={{minHeight:60}}/></div>
+      <div className="fg"><label className="fl">担当職員</label><input className="fi" value={form.staffName} onChange={e=>setForm(p=>({...p,staffName:e.target.value}))}/></div>
+      <button className="bsave" onClick={handleSave} disabled={!form.destId||!form.supportContent}>保存する</button>
+    </>}
+  </div>;
+
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <div style={{fontSize:13,fontWeight:900,color:"var(--gr2)"}}>🚌 訪問記録 — {u.name}</div>
+      <button className="bsave" style={{maxWidth:130,padding:"8px 14px",fontSize:12,background:"var(--gr2)"}} onClick={()=>setMode("new")}>＋ 新規訪問</button>
+    </div>
+    <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 16px",boxShadow:"var(--sh)"}}>
+        <div style={{fontSize:22,fontWeight:900,color:"var(--gr2)"}}>{myVisits.length}<span style={{fontSize:11,color:"var(--tx3)",fontWeight:400}}>回</span></div>
+        <div style={{fontSize:10,color:"var(--tx3)"}}>総訪問回数</div>
+      </div>
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 16px",boxShadow:"var(--sh)"}}>
+        <div style={{fontSize:22,fontWeight:900,color:"var(--tl)"}}>{myVisits.filter(r=>r.visitType==="初回").length}<span style={{fontSize:11,color:"var(--tx3)",fontWeight:400}}>回</span></div>
+        <div style={{fontSize:10,color:"var(--tx3)"}}>初回</div>
+      </div>
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 16px",boxShadow:"var(--sh)"}}>
+        <div style={{fontSize:22,fontWeight:900,color:"var(--am)"}}>{myVisits.filter(r=>r.visitType==="2回目以降").length}<span style={{fontSize:11,color:"var(--tx3)",fontWeight:400}}>回</span></div>
+        <div style={{fontSize:10,color:"var(--tx3)"}}>2回目以降</div>
+      </div>
+    </div>
+    {myVisits.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:"var(--tx3)",fontSize:13}}>まだ訪問記録がありません</div>}
+    {myVisits.map(r=><div key={r.id} className="visit-card">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+        <div>
+          <span style={{fontSize:12,fontWeight:900,color:"var(--gr2)"}}>{destName(r.destId)}</span>
+          <span style={{marginLeft:8,fontSize:10,padding:"2px 7px",borderRadius:8,fontWeight:700,background:r.visitType==="初回"?"rgba(58,160,216,0.18)":"rgba(44,170,96,0.18)",color:r.visitType==="初回"?"var(--tl)":"var(--gr2)"}}>{r.visitType}</span>
+        </div>
+        <div style={{fontSize:10,color:"var(--tx3)"}}>{r.date}{r.duration&&` / ${r.duration}分`}</div>
+      </div>
+      <div style={{fontSize:12,color:"var(--tx)",lineHeight:1.6,marginBottom:4}}>{r.supportContent}</div>
+      {r.advice&&<div style={{fontSize:11,color:"var(--tl)",background:"rgba(58,160,216,0.08)",borderRadius:7,padding:"5px 9px",marginBottom:4}}>💡 助言: {r.advice}</div>}
+      {r.schoolFeedback&&<div style={{fontSize:11,color:"var(--am)",background:"rgba(224,168,40,0.08)",borderRadius:7,padding:"5px 9px"}}>🏫 施設FB: {r.schoolFeedback}</div>}
+      <div style={{fontSize:10,color:"var(--tx3)",marginTop:5}}>{r.staffName}</div>
+    </div>)}
   </div>;
 }
 
@@ -8027,6 +8593,119 @@ function BillingSummaryTab({user,store,facilityId,yearMonth,vm,setVm}){
 }
 
 // ─── マスタ管理タブ（管理者専用）───
+// ─── 児童発達支援 請求タブ ───
+function JidouBillingTab({user, store, facilityId, vm, setVm}) {
+  const master = REWARD_MASTER.jidouhattatsu;
+  const yearMonth = vm.y+"-"+String(vm.m).padStart(2,"0");
+  const users = store.dynUsers.filter(u=>u.facilityId===facilityId&&u.serviceType==="jidouhattatsu");
+
+  const rows = users.map(u=>{
+    const arrivals = store.recs.filter(r=>r.type==="user_in"&&r.userId===u.id&&r.time&&r.time.includes(vm.y+"/"+vm.m));
+    const serviceDays = arrivals.length;
+    const hasTransport = u.hasTransport;
+    const baseUnit = master.timeTypes[0].unitPrice;
+    const transportUnit = hasTransport ? master.addons.find(a=>a.id==="transport_both")?.unit||108 : 0;
+    const base = serviceDays * baseUnit;
+    const transport = serviceDays * transportUnit;
+    return {u, serviceDays, base, transport, total: base+transport};
+  });
+  const grandTotal = rows.reduce((s,r)=>s+r.total,0);
+
+  return <div>
+    <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
+      <div style={{fontSize:13,fontWeight:900,color:"var(--ac)"}}>🌱 児童発達支援 請求</div>
+      <select className="fsm" value={vm.y} onChange={e=>setVm(v=>({...v,y:+e.target.value}))}>
+        {Array.from({length:4},(_,i)=>2024+i).map(y=><option key={y} value={y}>{y}年</option>)}
+      </select>
+      <select className="fsm" value={vm.m} onChange={e=>setVm(v=>({...v,m:+e.target.value}))}>
+        {Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m}月</option>)}
+      </select>
+    </div>
+    {/* 報酬マスタ */}
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:16}}>
+      <div style={{fontSize:11,fontWeight:700,color:"var(--ac)",marginBottom:10,letterSpacing:1}}>📋 REWARD MASTER — 児童発達支援</div>
+      <table className="reward-table">
+        <thead><tr><th>種別</th><th>コード</th><th>単価（単位）</th></tr></thead>
+        <tbody>
+          {master.timeTypes.map(t=><tr key={t.key}><td>{t.label}</td><td style={{fontFamily:"'DM Mono',monospace"}}>{t.code}</td><td style={{fontWeight:700,color:"var(--ac)"}}>{t.unitPrice.toLocaleString()} 単位</td></tr>)}
+        </tbody>
+      </table>
+      <div style={{fontSize:10,color:"var(--tx3)",marginTop:6}}>主な加算: {master.addons.map(a=>`${a.name}(+${a.unit}単位)`).join(" / ")}</div>
+    </div>
+    {/* 月次集計 */}
+    {users.length===0&&<div style={{textAlign:"center",padding:"24px",color:"var(--tx3)"}}>児童発達支援の利用者がいません（利用者管理でサービス種別を「児発」に設定）</div>}
+    {users.length>0&&<>
+      <div style={{fontSize:12,fontWeight:900,color:"var(--tx)",marginBottom:10}}>💴 {vm.y}年{vm.m}月 児発 請求サマリー</div>
+      <div style={{overflowX:"auto"}}>
+        <table className="reward-table">
+          <thead><tr><th>利用者</th><th>利用日数</th><th>基本報酬</th><th>送迎加算</th><th>合計（単位）</th></tr></thead>
+          <tbody>
+            {rows.map(r=><tr key={r.u.id}>
+              <td style={{fontWeight:700}}>{r.u.name}</td>
+              <td>{r.serviceDays}日</td>
+              <td>{r.base.toLocaleString()}</td>
+              <td>{r.transport.toLocaleString()}</td>
+              <td style={{fontWeight:700,color:"var(--ac)"}}>{r.total.toLocaleString()}</td>
+            </tr>)}
+            <tr style={{fontWeight:900,background:"var(--bg3)"}}>
+              <td>合計</td><td>—</td><td colSpan={2}>—</td>
+              <td style={{color:"var(--ac)"}}>{grandTotal.toLocaleString()}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style={{fontSize:10,color:"var(--tx3)",marginTop:6}}>※ 地域区分・各加算は含まれません。国保連出力タブで最終確定してください。</div>
+    </>}
+  </div>;
+}
+
+// ─── 報酬マスタ 閲覧タブ ───
+function RewardMasterTab({facilityId}) {
+  const svcTypes = getFacilityServiceTypes(facilityId);
+  return <div>
+    <div style={{fontSize:12,color:"var(--tx3)",marginBottom:14,lineHeight:1.7}}>
+      報酬単価・加算をここで一元管理します。法改正時は <code style={{background:"var(--bg2)",padding:"1px 5px",borderRadius:4}}>REWARD_MASTER</code> を更新してください（コードへの直書き禁止）。
+    </div>
+    {svcTypes.map(st=>{
+      const m = REWARD_MASTER[st.id];
+      if(!m) return null;
+      return <div key={st.id} style={{background:"var(--wh)",border:"1.5px solid var(--bd)",borderRadius:12,padding:14,marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+          <span className={`svc-badge svc-${st.id}`}>{st.icon} {st.name}</span>
+          <span style={{fontSize:10,color:"var(--tx3)"}}>— {m.label}</span>
+        </div>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginBottom:6}}>基本報酬</div>
+        <table className="reward-table" style={{marginBottom:12}}>
+          <thead><tr><th>区分</th><th>サービスコード</th><th>単価（単位）</th></tr></thead>
+          <tbody>
+            {m.timeTypes.map(t=><tr key={t.key}>
+              <td>{t.label}</td>
+              <td style={{fontFamily:"'DM Mono',monospace",fontSize:11}}>{t.code}</td>
+              <td style={{fontWeight:700,color:st.color}}>{t.unitPrice.toLocaleString()} 単位</td>
+            </tr>)}
+          </tbody>
+        </table>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginBottom:6}}>主な加算</div>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+          {m.addons.map(a=><div key={a.id} style={{padding:"4px 11px",borderRadius:9,fontSize:11,fontWeight:700,background:"var(--bg3)",border:"1px solid var(--bd)",color:"var(--tx2)"}}>
+            {a.name} <span style={{color:st.color}}>+{a.unit}単位</span>
+          </div>)}
+        </div>
+      </div>;
+    })}
+    {/* 放デイも含めて表示 */}
+    {!svcTypes.some(s=>s.id==="houkago")&&<div style={{background:"var(--wh)",border:"1.5px solid var(--bd)",borderRadius:12,padding:14,marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}><span className="svc-badge svc-houkago">🏫 放課後等デイサービス</span></div>
+      <table className="reward-table">
+        <thead><tr><th>区分</th><th>コード</th><th>単価</th></tr></thead>
+        <tbody>
+          {REWARD_MASTER.houkago.timeTypes.map(t=><tr key={t.key}><td>{t.label}</td><td style={{fontFamily:"'DM Mono',monospace",fontSize:11}}>{t.code}</td><td style={{fontWeight:700,color:"#2070a0"}}>{t.unitPrice.toLocaleString()} 単位</td></tr>)}
+        </tbody>
+      </table>
+    </div>}
+  </div>;
+}
+
 function BillingMasterTab(){
   return <div>
     <div style={{fontSize:12,color:"var(--tx3)",marginBottom:14,lineHeight:1.7}}>
@@ -8063,6 +8742,281 @@ function BillingMasterTab(){
   </div>;
 }
 
+// ==================== 保育所等訪問支援 管理画面 ====================
+function VisitManagementScreen({user, store, onBack}) {
+  const [tab, setTab] = useState("record");  // record | dest | billing | report
+  const facilityId = user.selectedFacilityId||"f3";
+  const vm = useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()+1};})[0];
+
+  const tabs = [
+    {id:"record",  icon:"📝", label:"訪問記録一覧"},
+    {id:"dest",    icon:"🏫", label:"訪問先管理"},
+    {id:"billing", icon:"💴", label:"請求（訪問）"},
+    {id:"report",  icon:"📄", label:"訪問報告書"},
+  ];
+
+  return <div className="fl-wrap">
+    <div className="fl-hd">
+      <button className="bback" onClick={onBack}>← 戻る</button>
+      <div className="fl-title">🚌 保育所等訪問支援</div>
+    </div>
+    {/* 施設確認バナー */}
+    <div style={{background:"rgba(44,170,96,0.12)",border:"1.5px solid rgba(44,170,96,0.4)",borderRadius:11,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
+      <span style={{fontSize:18}}>🏢</span>
+      <div>
+        <div style={{fontSize:12,fontWeight:900,color:"var(--gr2)"}}>{FACILITIES.find(f=>f.id===facilityId)?.name}</div>
+        <div style={{fontSize:10,color:"var(--tx3)"}}>保育所等訪問支援（GO TOWN 1ST対応）</div>
+      </div>
+    </div>
+    {/* タブナビ */}
+    <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:16}}>
+      {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)}
+        style={{padding:"8px 14px",borderRadius:9,border:"2px solid",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,transition:"all .15s",
+          borderColor:tab===t.id?"var(--gr2)":"var(--bd)",
+          background:tab===t.id?"rgba(44,170,96,0.2)":"var(--bg)",
+          color:tab===t.id?"var(--gr2)":"var(--tx3)"}}>
+        {t.icon} {t.label}
+      </button>)}
+    </div>
+    {tab==="record"  && <VisitRecordListTab  user={user} store={store} facilityId={facilityId}/>}
+    {tab==="dest"    && <VisitDestTab        user={user} store={store} facilityId={facilityId}/>}
+    {tab==="billing" && <VisitBillingTab     user={user} store={store} facilityId={facilityId}/>}
+    {tab==="report"  && <VisitReportTab      user={user} store={store} facilityId={facilityId}/>}
+  </div>;
+}
+
+// ─── 訪問記録一覧 ───
+function VisitRecordListTab({user, store, facilityId}) {
+  const [filterUser, setFilterUser] = useState("");
+  const users = store.dynUsers.filter(u=>u.facilityId===facilityId&&u.serviceType==="hoikuvisit");
+  const allVisits = (store.visitRecords||[]).filter(r=>r.facilityId===facilityId).sort((a,b)=>b.date>a.date?1:-1);
+  const filtered = filterUser ? allVisits.filter(r=>r.userId===filterUser) : allVisits;
+  const destName = (id) => (store.visitDests||[]).find(d=>d.id===id)?.name||id||"—";
+
+  return <div>
+    <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
+      <select className="fsm" value={filterUser} onChange={e=>setFilterUser(e.target.value)}>
+        <option value="">全利用者</option>
+        {users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+      </select>
+      <div style={{fontSize:12,color:"var(--tx3)",marginLeft:"auto"}}>計 {filtered.length}件</div>
+    </div>
+    {users.length===0&&<div style={{background:"rgba(44,170,96,0.08)",border:"1.5px solid rgba(44,170,96,0.3)",borderRadius:11,padding:"16px",marginBottom:16}}>
+      <div style={{fontSize:13,fontWeight:700,color:"var(--gr2)",marginBottom:6}}>🚌 訪問支援対象利用者がいません</div>
+      <div style={{fontSize:12,color:"var(--tx3)"}}>利用者管理 → 利用者編集 → サービス種別を「保育所等訪問支援」に設定すると表示されます。</div>
+    </div>}
+    {filtered.length===0&&users.length>0&&<div style={{textAlign:"center",padding:"30px 0",color:"var(--tx3)"}}>訪問記録がありません</div>}
+    {filtered.map(r=>{
+      const u=store.dynUsers.find(x=>x.id===r.userId);
+      return <div key={r.id} className="visit-card">
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <span style={{fontSize:13,fontWeight:900,color:"var(--tx)"}}>{u?.name||"—"}</span>
+            <span style={{fontSize:10,padding:"2px 8px",borderRadius:8,fontWeight:700,background:r.visitType==="初回"?"rgba(58,160,216,0.18)":"rgba(44,170,96,0.18)",color:r.visitType==="初回"?"var(--tl)":"var(--gr2)"}}>{r.visitType}</span>
+          </div>
+          <div style={{fontSize:10,color:"var(--tx3)"}}>{r.date}{r.duration&&` / ${r.duration}分`}</div>
+        </div>
+        <div style={{fontSize:11,color:"var(--gr2)",marginBottom:4}}>🏫 {destName(r.destId)}</div>
+        <div style={{fontSize:12,color:"var(--tx)",lineHeight:1.5}}>{r.supportContent}</div>
+        {r.advice&&<div style={{fontSize:11,color:"var(--tl)",marginTop:5}}>💡 助言: {r.advice}</div>}
+        <div style={{fontSize:10,color:"var(--tx3)",marginTop:5}}>{r.staffName}</div>
+      </div>;
+    })}
+  </div>;
+}
+
+// ─── 訪問先管理 ───
+function VisitDestTab({user, store, facilityId}) {
+  const [mode, setMode] = useState("list");
+  const [form, setForm] = useState({name:"", type:"保育園", address:"", contactPerson:"", phone:"", note:""});
+  const [saved, setSaved] = useState(false);
+  const dests = (store.visitDests||[]).filter(d=>d.facilityId===facilityId);
+
+  const handleSave = () => {
+    if(!form.name) return;
+    store.addVisitDest({...form, id:genId(), facilityId});
+    setSaved(true);
+    setTimeout(()=>{setSaved(false);setMode("list");setForm({name:"",type:"保育園",address:"",contactPerson:"",phone:"",note:""});},1200);
+  };
+
+  if(mode==="new") return <div>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+      <button className="bback" onClick={()=>setMode("list")}>← 戻る</button>
+      <div style={{fontSize:14,fontWeight:900}}>🏫 訪問先 登録</div>
+    </div>
+    {saved&&<div className="succ"><div className="si">✅</div><div className="st">登録しました</div></div>}
+    {!saved&&<>
+      <div className="fg"><label className="fl">施設名 <span style={{color:"var(--ro)"}}>*</span></label><input className="fi" placeholder="ひかり保育園" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))}/></div>
+      <div className="fg"><label className="fl">種別</label>
+        <select className="fi" value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))}>
+          {VISIT_DEST_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+      <div className="fg"><label className="fl">住所</label><input className="fi" placeholder="静岡市〇〇1-2-3" value={form.address} onChange={e=>setForm(p=>({...p,address:e.target.value}))}/></div>
+      <div className="fg"><label className="fl">担当者名</label><input className="fi" placeholder="田中先生" value={form.contactPerson} onChange={e=>setForm(p=>({...p,contactPerson:e.target.value}))}/></div>
+      <div className="fg"><label className="fl">電話番号</label><input className="fi" placeholder="054-000-0000" value={form.phone} onChange={e=>setForm(p=>({...p,phone:e.target.value}))}/></div>
+      <div className="fg"><label className="fl">備考</label><textarea className="fta" value={form.note} onChange={e=>setForm(p=>({...p,note:e.target.value}))} style={{minHeight:50}}/></div>
+      <button className="bsave" onClick={handleSave} disabled={!form.name}>登録する</button>
+    </>}
+  </div>;
+
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <div style={{fontSize:13,fontWeight:900}}>🏫 訪問先一覧 ({dests.length}件)</div>
+      <button className="bsave" style={{maxWidth:120,padding:"8px 12px",fontSize:12}} onClick={()=>setMode("new")}>＋ 登録</button>
+    </div>
+    {dests.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:"var(--tx3)"}}>訪問先が登録されていません</div>}
+    {dests.map(d=><div key={d.id} className="visit-dest-card">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div>
+          <div style={{fontSize:14,fontWeight:900,color:"var(--tx)"}}>{d.name}</div>
+          <div style={{fontSize:11,color:"var(--gr2)",marginTop:2}}>{d.type}</div>
+        </div>
+        <button onClick={()=>store.delVisitDest(d.id)}
+          style={{padding:"3px 9px",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.3)",color:"var(--ro)"}}>削除</button>
+      </div>
+      {d.address&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:5}}>📍 {d.address}</div>}
+      {d.contactPerson&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>👤 {d.contactPerson} {d.phone&&`/ ${d.phone}`}</div>}
+      {d.note&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>{d.note}</div>}
+    </div>)}
+  </div>;
+}
+
+// ─── 訪問支援 請求タブ ───
+function VisitBillingTab({user, store, facilityId}) {
+  const [vm, setVm] = useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()+1};});
+  const master = REWARD_MASTER.hoikuvisit;
+  const users = store.dynUsers.filter(u=>u.facilityId===facilityId&&u.serviceType==="hoikuvisit");
+  const yearMonth = vm.y+"-"+String(vm.m).padStart(2,"0");
+
+  const rows = users.map(u=>{
+    const visits = (store.visitRecords||[]).filter(r=>r.userId===u.id&&r.date&&r.date.startsWith(yearMonth));
+    const initial = visits.filter(r=>r.visitType==="初回");
+    const subsequent = visits.filter(r=>r.visitType==="2回目以降");
+    const initMaster = master.timeTypes.find(t=>t.key==="初回");
+    const subMaster = master.timeTypes.find(t=>t.key==="2回目以降");
+    const total = (initial.length*(initMaster?.unitPrice||794)) + (subsequent.length*(subMaster?.unitPrice||686));
+    return {u, visits, initial, subsequent, total};
+  });
+
+  const grandTotal = rows.reduce((s,r)=>s+r.total,0);
+
+  return <div>
+    <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
+      <select className="fsm" value={vm.y} onChange={e=>setVm(v=>({...v,y:+e.target.value}))}>
+        {Array.from({length:4},(_,i)=>2024+i).map(y=><option key={y} value={y}>{y}年</option>)}
+      </select>
+      <select className="fsm" value={vm.m} onChange={e=>setVm(v=>({...v,m:+e.target.value}))}>
+        {Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m}月</option>)}
+      </select>
+    </div>
+    {/* 報酬マスタ表示 */}
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:16}}>
+      <div style={{fontSize:11,fontWeight:700,color:"var(--gr2)",marginBottom:10,letterSpacing:1}}>📋 REWARD MASTER — 保育所等訪問支援</div>
+      <table className="reward-table">
+        <thead><tr><th>種別</th><th>サービスコード</th><th>単価（単位）</th></tr></thead>
+        <tbody>
+          {master.timeTypes.map(t=><tr key={t.key}>
+            <td>{t.label}</td><td style={{fontFamily:"'DM Mono',monospace"}}>{t.code}</td><td style={{fontWeight:700,color:"var(--gr2)"}}>{t.unitPrice.toLocaleString()} 単位</td>
+          </tr>)}
+        </tbody>
+      </table>
+      <div style={{fontSize:10,color:"var(--tx3)"}}>加算: {master.addons.map(a=>a.name).join(" / ")}</div>
+    </div>
+    {/* 月次集計 */}
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:14}}>
+      <div style={{fontSize:12,fontWeight:900,color:"var(--tx)",marginBottom:10}}>💴 {vm.y}年{vm.m}月 請求サマリー</div>
+      {rows.length===0&&<div style={{textAlign:"center",color:"var(--tx3)",padding:"16px 0"}}>訪問支援対象利用者がいません</div>}
+      <table className="reward-table">
+        <thead><tr><th>利用者</th><th>初回</th><th>2回目以降</th><th>合計（単位）</th></tr></thead>
+        <tbody>
+          {rows.map(r=><tr key={r.u.id}>
+            <td style={{fontWeight:700}}>{r.u.name}</td>
+            <td>{r.initial.length}回</td>
+            <td>{r.subsequent.length}回</td>
+            <td style={{fontWeight:700,color:"var(--gr2)"}}>{r.total.toLocaleString()}</td>
+          </tr>)}
+          {rows.length>0&&<tr style={{fontWeight:900,background:"var(--bg3)"}}>
+            <td>合計</td><td colSpan={2}>{rows.reduce((s,r)=>s+r.visits.length,0)}回</td>
+            <td style={{color:"var(--gr2)"}}>{grandTotal.toLocaleString()}</td>
+          </tr>}
+        </tbody>
+      </table>
+    </div>
+    <div style={{fontSize:10,color:"var(--tx3)"}}>※ 地域区分乗算・加算は含まれません。国保連請求時に反映してください。</div>
+  </div>;
+}
+
+// ─── 訪問報告書タブ ───
+function VisitReportTab({user, store, facilityId}) {
+  const [selUserId, setSelUserId] = useState("");
+  const users = store.dynUsers.filter(u=>u.facilityId===facilityId&&u.serviceType==="hoikuvisit");
+  const selUser2 = users.find(u=>u.id===selUserId);
+  const visits = selUserId ? (store.visitRecords||[]).filter(r=>r.userId===selUserId).sort((a,b)=>b.date>a.date?1:-1) : [];
+  const destName = (id) => (store.visitDests||[]).find(d=>d.id===id)?.name||id||"—";
+
+  const printReport = () => {
+    if(!selUser2||visits.length===0) return;
+    const rows = visits.map(r=>`
+      <tr>
+        <td>${r.date}</td>
+        <td>${destName(r.destId)}</td>
+        <td>${r.visitType}</td>
+        <td>${r.duration||"—"}分</td>
+        <td style="font-size:11px;">${r.supportContent||""}</td>
+        <td style="font-size:11px;">${r.advice||""}</td>
+        <td style="font-size:11px;">${r.schoolFeedback||""}</td>
+        <td>${r.staffName||""}</td>
+      </tr>`).join("");
+    const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>訪問報告書</title>
+    <style>body{font-family:'Yu Gothic',sans-serif;padding:20px;font-size:12px;}
+    h2{font-size:16px;margin-bottom:8px;}
+    table{width:100%;border-collapse:collapse;}
+    th,td{border:1px solid #aaa;padding:6px;text-align:left;vertical-align:top;}
+    th{background:#f0f0f0;font-weight:700;font-size:11px;}
+    </style></head><body>
+    <div style="text-align:center;margin-bottom:16px;">
+      <h2>保育所等訪問支援 訪問報告書</h2>
+      <div>${FACILITIES.find(f=>f.id===facilityId)?.name} ／ 対象児：${selUser2.name}（${calcAge(selUser2.dob)}歳）</div>
+    </div>
+    <table>
+      <thead><tr><th>訪問日</th><th>訪問先</th><th>種別</th><th>時間</th><th>支援内容</th><th>助言内容</th><th>施設FB</th><th>担当</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="margin-top:20px;font-size:10px;color:#666;">計${visits.length}回訪問</div>
+    </body></html>`;
+    printHTML(html, `訪問報告書_${selUser2.name}`);
+  };
+
+  return <div>
+    <div style={{marginBottom:14}}>
+      <label className="fl">対象利用者を選択</label>
+      <select className="fi" value={selUserId} onChange={e=>setSelUserId(e.target.value)}>
+        <option value="">選択してください</option>
+        {users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+      </select>
+    </div>
+    {selUserId&&visits.length===0&&<div style={{textAlign:"center",padding:"24px",color:"var(--tx3)"}}>訪問記録がありません</div>}
+    {selUserId&&visits.length>0&&<>
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:13,fontWeight:900,marginBottom:8}}>{selUser2?.name} ─ {visits.length}件の訪問記録</div>
+        {visits.slice(0,3).map(r=><div key={r.id} className="visit-report">
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:700,marginBottom:4}}>
+            <span>{r.date} / {destName(r.destId)}</span><span style={{color:"var(--gr2)"}}>{r.visitType}</span>
+          </div>
+          <div style={{fontSize:11,color:"var(--tx2)"}}>{r.supportContent?.slice(0,60)}{r.supportContent?.length>60?"…":""}</div>
+        </div>)}
+        {visits.length>3&&<div style={{fontSize:11,color:"var(--tx3)",textAlign:"center",marginTop:4}}>他 {visits.length-3} 件</div>}
+      </div>
+      <button className="bsave" onClick={printReport}>🖨️ 訪問報告書 印刷</button>
+    </>}
+    {!selUserId&&<div style={{background:"rgba(44,170,96,0.08)",border:"1px solid rgba(44,170,96,0.3)",borderRadius:11,padding:"20px",textAlign:"center",color:"var(--tx3)"}}>
+      <div style={{fontSize:28,marginBottom:8}}>📄</div>
+      <div style={{fontSize:13}}>利用者を選択すると訪問報告書を印刷できます</div>
+    </div>}
+  </div>;
+}
+
 // ─── メイン KokuhoScreen ───
 function KokuhoScreen({user,store,onBack}){
   const [vm,setVm]=useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()+1};});
@@ -8071,13 +9025,21 @@ function KokuhoScreen({user,store,onBack}){
   const isAdmin=user.role==="admin";
   const yearMonth=vm.y+"-"+String(vm.m).padStart(2,"0");
 
+  // 施設で利用可能なサービス種別を取得し、種別別の請求タブを動的生成
+  const facilityServiceTypes = getFacilityServiceTypes(facilityId);
+  const hasJidou   = facilityServiceTypes.some(s=>s.id==="jidouhattatsu");
+  const hasVisit   = facilityServiceTypes.some(s=>s.id==="hoikuvisit");
+
   const tabs=[
     {id:"check",   icon:"🔍",label:"請求前チェック"},
     {id:"summary", icon:"💴",label:"月次サマリー"},
+    ...(hasJidou?[{id:"jidou_billing",icon:"🌱",label:"児発 請求"}]:[]),
+    ...(hasVisit?[{id:"visit_billing",icon:"🚌",label:"訪問 請求"}]:[]),
     {id:"output",  icon:"📤",label:"国保連出力"},
     {id:"addons",  icon:"⚙️",label:"加算設定"},
     {id:"staff",   icon:"👥",label:"職員体制"},
     {id:"facility",icon:"🏢",label:"事業所設定"},
+    {id:"reward_master",icon:"📊",label:"報酬マスタ"},
     ...(isAdmin?[{id:"master",icon:"📋",label:"マスタ管理"}]:[]),
   ];
 
@@ -8113,13 +9075,16 @@ function KokuhoScreen({user,store,onBack}){
       </button>)}
     </div>
     {/* コンテンツ */}
-    {tab==="check"   &&<BillingCheckTab    user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
-    {tab==="summary" &&<BillingSummaryTab  user={user} store={store} facilityId={facilityId} yearMonth={yearMonth} vm={vm} setVm={setVm}/>}
-    {tab==="output"  &&<KokuhoOutputTab    user={user} store={store} facilityId={facilityId} yearMonth={yearMonth} vm={vm}/>}
-    {tab==="addons"  &&<BillingAddonsTab   user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
-    {tab==="staff"   &&<BillingStaffTab    user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
-    {tab==="facility"&&<BillingFacilityTab user={user} store={store} facilityId={facilityId}/>}
-    {tab==="master"  &&<BillingMasterTab/>}
+    {tab==="check"        &&<BillingCheckTab    user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
+    {tab==="summary"      &&<BillingSummaryTab  user={user} store={store} facilityId={facilityId} yearMonth={yearMonth} vm={vm} setVm={setVm}/>}
+    {tab==="jidou_billing"&&<JidouBillingTab    user={user} store={store} facilityId={facilityId} vm={vm} setVm={setVm}/>}
+    {tab==="visit_billing"&&<VisitBillingTab    user={user} store={store} facilityId={facilityId}/>}
+    {tab==="output"       &&<KokuhoOutputTab    user={user} store={store} facilityId={facilityId} yearMonth={yearMonth} vm={vm}/>}
+    {tab==="addons"       &&<BillingAddonsTab   user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
+    {tab==="staff"        &&<BillingStaffTab    user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
+    {tab==="facility"     &&<BillingFacilityTab user={user} store={store} facilityId={facilityId}/>}
+    {tab==="reward_master"&&<RewardMasterTab    facilityId={facilityId}/>}
+    {tab==="master"       &&<BillingMasterTab/>}
   </div>;
 }
 
@@ -8127,12 +9092,22 @@ function KokuhoScreen({user,store,onBack}){
 // ==================== EDIT MODAL ====================
 function EditModal({rec,user,store,onClose}){
   const [temp,setTemp]=useState(rec.temp||"");const [note,setNote]=useState(rec.note||"");const [reason,setReason]=useState("");
+  const handleDelete=()=>{
+    const name=rec.staffName||rec.userName||"この記録";
+    if(!window.confirm(`「${name}」の記録を削除しますか？\nこの操作は取り消せません。`)) return;
+    store.delRec(rec.id);
+    onClose();
+  };
   return <div className="ov" onClick={e=>e.target===e.currentTarget&&onClose()}><div className="md">
     <div className="mdtit">📝 記録を修正</div>
     <div className="fg"><label className="fl">対象</label><p style={{color:"var(--g2)",fontSize:12}}>{rec.staffName||rec.userName} — {rec.time}</p></div>
     {rec.temp&&rec.temp!=="-"&&<div className="fg"><label className="fl">体温 (℃)</label><input className="fi" type="number" step="0.1" value={temp} onChange={e=>setTemp(e.target.value)}/></div>}
     <div className="fg"><label className="fl">備考</label><textarea className="fta" value={note} onChange={e=>setNote(e.target.value)} style={{minHeight:52}}/></div>
     <div className="fg"><label className="fl">修正理由 <span style={{color:"var(--ro)"}}>*</span></label><textarea className="fta" placeholder="修正理由を入力してください" value={reason} onChange={e=>setReason(e.target.value)} style={{minHeight:52}}/></div>
+    {/* 削除ボタン（記録が誤って登録された場合などに使用） */}
+    <div style={{borderTop:"1px solid var(--bd)",marginTop:12,paddingTop:12}}>
+      <button onClick={handleDelete} style={{width:"100%",padding:"9px",background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.3)",borderRadius:8,color:"var(--ro)",fontWeight:700,fontSize:13,cursor:"pointer"}}>🗑️ この記録を削除する</button>
+    </div>
     <div className="mda"><button className="bcancel" onClick={onClose}>キャンセル</button><button className="bconf" disabled={!reason} onClick={()=>{store.updRec(rec.id,{temp,note},user.displayName,reason);onClose();}}>保存</button></div>
   </div></div>;
 }
@@ -8655,42 +9630,83 @@ function ispEndDate(period) {
 // 利用者ごとの全期限アラートをまとめて返す
 function getUserAlerts(u, store) {
   const alerts = [];
-  // 受給者証
-  const fs = store.facesheets.find(f=>f.userId===u.id);
-  const jExpiry = (fs?.jukyushaExpiry) || u.jukyushaExpiry;
-  if(jExpiry) {
-    const st = expiryStatus(jExpiry);
-    if(st && st!=="ok") alerts.push({type:"受給者証",date:jExpiry,status:st,tab:"facesheet"});
-  }
-  // 個別支援計画（最新）
-  const latestIsp = store.isps.filter(x=>x.userId===u.id).sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
-  if(latestIsp && latestIsp.status==="実施中") {
-    const end = ispEndDate(latestIsp.period);
-    if(end) {
-      const st = expiryStatus(end);
-      if(st && st!=="ok") alerts.push({type:"個別支援計画",date:end,status:st,tab:"isp"});
+  const svcType = getUserServiceType(u);
+  const rules = svcType.alertRules || [];
+
+  // ─── 共通：受給者証 ───
+  if(rules.includes("jukyusha")) {
+    const fs = store.facesheets.find(f=>f.userId===u.id);
+    const jExpiry = (fs?.jukyushaExpiry) || u.jukyushaExpiry;
+    if(jExpiry) {
+      const st = expiryStatus(jExpiry);
+      if(st && st!=="ok") alerts.push({type:"受給者証",date:jExpiry,status:st,tab:"facesheet"});
     }
   }
-  // アセスメント（最後の実施から半年以上経過）
-  const lastAssessment = store.assessments.filter(a=>a.userId===u.id).sort((a,b)=>b.date>a.date?1:-1)[0];
-  if(lastAssessment) {
-    const last = new Date(lastAssessment.date);
-    const sixMonthsLater = new Date(last); sixMonthsLater.setMonth(sixMonthsLater.getMonth()+6);
-    const st = expiryStatus(sixMonthsLater.toISOString().slice(0,10));
-    if(st && st!=="ok") alerts.push({type:"アセスメント更新",date:sixMonthsLater.toISOString().slice(0,10),status:st,tab:"assessment"});
-  } else {
-    alerts.push({type:"アセスメント",date:null,status:"expired",tab:"assessment",msg:"未実施"});
+
+  // ─── 共通：個別支援計画 ───
+  if(rules.includes("isp")) {
+    const latestIsp = store.isps.filter(x=>x.userId===u.id).sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+    if(latestIsp && latestIsp.status==="実施中") {
+      const end = ispEndDate(latestIsp.period);
+      if(end) { const st=expiryStatus(end); if(st&&st!=="ok") alerts.push({type:"個別支援計画",date:end,status:st,tab:"isp"}); }
+    } else if(!latestIsp) {
+      alerts.push({type:"個別支援計画",date:null,status:"expired",tab:"isp",msg:"未作成"});
+    }
   }
-  // モニタリング（最後の実施から半年以上）
-  const lastMon = store.monitorings.filter(m=>m.userId===u.id).sort((a,b)=>b.date>a.date?1:-1)[0];
-  if(lastMon) {
-    const last = new Date(lastMon.date);
-    const sixMonthsLater = new Date(last); sixMonthsLater.setMonth(sixMonthsLater.getMonth()+6);
-    const st = expiryStatus(sixMonthsLater.toISOString().slice(0,10));
-    if(st && st!=="ok") alerts.push({type:"モニタリング更新",date:sixMonthsLater.toISOString().slice(0,10),status:st,tab:"monitoring"});
-  } else {
-    alerts.push({type:"モニタリング",date:null,status:"expired",tab:"monitoring",msg:"未実施"});
+
+  // ─── 共通：アセスメント ───
+  if(rules.includes("assessment")) {
+    const lastAssessment = store.assessments.filter(a=>a.userId===u.id).sort((a,b)=>b.date>a.date?1:-1)[0];
+    if(lastAssessment) {
+      const sixM=new Date(lastAssessment.date); sixM.setMonth(sixM.getMonth()+6);
+      const st=expiryStatus(sixM.toISOString().slice(0,10));
+      if(st&&st!=="ok") alerts.push({type:"アセスメント更新",date:sixM.toISOString().slice(0,10),status:st,tab:"assessment"});
+    } else {
+      alerts.push({type:"アセスメント",date:null,status:"expired",tab:"assessment",msg:"未実施"});
+    }
   }
+
+  // ─── 共通：モニタリング ───
+  if(rules.includes("monitoring")) {
+    const lastMon = store.monitorings.filter(m=>m.userId===u.id).sort((a,b)=>b.date>a.date?1:-1)[0];
+    if(lastMon) {
+      const sixM=new Date(lastMon.date); sixM.setMonth(sixM.getMonth()+6);
+      const st=expiryStatus(sixM.toISOString().slice(0,10));
+      if(st&&st!=="ok") alerts.push({type:"モニタリング更新",date:sixM.toISOString().slice(0,10),status:st,tab:"monitoring"});
+    } else {
+      alerts.push({type:"モニタリング",date:null,status:"expired",tab:"monitoring",msg:"未実施"});
+    }
+  }
+
+  // ─── 児発専用：発達段階記録（3ヶ月以上未記録はアラート） ───
+  if(rules.includes("dev_record")) {
+    const lastDev = (store.devRecords||[]).filter(r=>r.userId===u.id).sort((a,b)=>b.date>a.date?1:-1)[0];
+    if(lastDev) {
+      const threeM=new Date(lastDev.date); threeM.setMonth(threeM.getMonth()+3);
+      const st=expiryStatus(threeM.toISOString().slice(0,10));
+      if(st&&st!=="ok") alerts.push({type:"発達段階記録",date:threeM.toISOString().slice(0,10),status:st,tab:"dev_record"});
+    } else {
+      alerts.push({type:"発達段階記録",date:null,status:"urgent",tab:"dev_record",msg:"未記録（児発必須）"});
+    }
+  }
+
+  // ─── 児発専用：保護者支援記録（3ヶ月未記録はアラート） ───
+  if(rules.includes("parent_support")) {
+    const lastPS = (store.parentSupportRecords||[]).filter(r=>r.userId===u.id).sort((a,b)=>b.date>a.date?1:-1)[0];
+    if(!lastPS) {
+      alerts.push({type:"保護者支援記録",date:null,status:"warn",tab:"parent_support",msg:"未記録"});
+    }
+  }
+
+  // ─── 保育所等訪問支援専用：訪問記録（当月なければアラート） ───
+  if(rules.includes("visit_record")) {
+    const thisMonth = new Date().toISOString().slice(0,7);
+    const thisMonthVisits = (store.visitRecords||[]).filter(r=>r.userId===u.id&&(r.date||"").startsWith(thisMonth));
+    if(thisMonthVisits.length===0) {
+      alerts.push({type:"訪問記録",date:null,status:"warn",tab:"visit_record",msg:"当月訪問なし"});
+    }
+  }
+
   return alerts;
 }
 
@@ -10979,6 +11995,13 @@ function ScheduleScreen({ user, store, onBack }) {
   const [selDate, setSelDate] = useState(todayISO());
   const [showAddModal, setShowAddModal] = useState(false); // 生徒追加モーダル
   const [addChecked, setAddChecked] = useState([]); // 追加選択中の生徒ID
+  // 一括登録モーダル用state
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkUserId, setBulkUserId] = useState("");
+  const [bulkDays, setBulkDays] = useState([]);
+  const [bulkStatus, setBulkStatus] = useState("来所予定");
+  const [bulkTo, setBulkTo] = useState(false);
+  const [bulkFrom, setBulkFrom] = useState(false);
 
   const isAdmin = user.role === "admin";
   const isMgr = user.role === "manager" || user.role === "admin";
@@ -11263,7 +12286,8 @@ function ScheduleScreen({ user, store, onBack }) {
       <div className="fl-hd">
         <button className="bback" onClick={onBack}>← 戻る</button>
         <div className="fl-title">📅 生徒予定表</div>
-        <button className="bexp" style={{marginLeft:"auto",background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={printSchedule}>🖨️ 印刷</button>
+        {isMgr&&<button onClick={()=>{setBulkUserId(users.length>0?users[0].id:"");setBulkDays([]);setBulkStatus("来所予定");setBulkTo(false);setBulkFrom(false);setShowBulkModal(true);}} style={{marginLeft:"auto",padding:"7px 13px",borderRadius:16,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--tl)",color:"#fff",border:"none",boxShadow:"var(--sh)"}}>📅 一括登録</button>}
+        <button className="bexp" style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={printSchedule}>🖨️ 印刷</button>
       </div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
         {isAdmin&&<select className="fsm" value={selFac} onChange={e=>setSelFac(e.target.value)}>{facOptions.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select>}
@@ -11282,6 +12306,137 @@ function ScheduleScreen({ user, store, onBack }) {
         : viewMode==="calendar" ? <CalendarView /> : <TableView />
       }
       <EditModal />
+
+      {/* ==================== 一括登録モーダル ==================== */}
+      {showBulkModal&&(()=>{
+        const fw2 = new Date(vm.y, vm.m-1, 1).getDay();
+        const toggleDay = (d) => setBulkDays(p=>p.includes(d)?p.filter(x=>x!==d):[...p,d]);
+        const applyPattern = (pat) => {
+          setBulkDays(dayList.filter(d=>{
+            if(isWe(d)) return false;
+            const dow=getDow(d);
+            if(pat==="all") return true;
+            if(pat==="mwf") return dow===1||dow===3||dow===5;
+            if(pat==="tt")  return dow===2||dow===4;
+            if(pat==="mon") return dow===1;
+            if(pat==="tue") return dow===2;
+            if(pat==="wed") return dow===3;
+            if(pat==="thu") return dow===4;
+            if(pat==="fri") return dow===5;
+            return false;
+          }));
+        };
+        const confirmBulk = () => {
+          if(!bulkUserId||bulkDays.length===0) return;
+          bulkDays.forEach(d=>setSchedule(bulkUserId,d,bulkStatus,bulkTo,bulkFrom));
+          setShowBulkModal(false);
+        };
+        const patterns=[
+          {k:"all",l:"毎日（平日）"},{k:"mwf",l:"月・水・金"},
+          {k:"tt",l:"火・木"},{k:"mon",l:"毎週月"},
+          {k:"tue",l:"毎週火"},{k:"wed",l:"毎週水"},
+          {k:"thu",l:"毎週木"},{k:"fri",l:"毎週金"},
+        ];
+        return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"flex-end"}} onClick={()=>setShowBulkModal(false)}>
+          <div style={{background:"var(--wh)",borderRadius:"18px 18px 0 0",padding:"20px 16px 32px",width:"100%",maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+
+            {/* ヘッダー */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontSize:15,fontWeight:900}}>📅 今月の利用日を一括登録</div>
+              <button onClick={()=>setShowBulkModal(false)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"var(--tx3)"}}>×</button>
+            </div>
+            <div style={{fontSize:11,color:"var(--tx3)",marginBottom:14}}>{vm.y}年{vm.m}月 — カレンダーで来所日をまとめてチェックして登録できます</div>
+
+            {/* ① 生徒選択 */}
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:6}}>① 生徒を選択</div>
+              <select value={bulkUserId} onChange={e=>setBulkUserId(e.target.value)} className="fi" style={{fontSize:13}}>
+                <option value="">-- 生徒を選んでください --</option>
+                {users.map(u=><option key={u.id} value={u.id}>{u.name}{selFac==="all"?" ("+FACILITIES.find(f=>f.id===u.facilityId)?.name+")":""}</option>)}
+              </select>
+            </div>
+
+            {/* ② ステータス */}
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:6}}>② 登録する状態</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {["来所予定","来所","欠席","休所"].map(s=>{
+                  const v=SCHEDULE_STATUS[s];
+                  return <button key={s} onClick={()=>setBulkStatus(s)} style={{padding:"7px 12px",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:bulkStatus===s?v.bg:"var(--bg)",color:bulkStatus===s?v.color:"var(--tx3)",border:"2px solid "+(bulkStatus===s?v.color:"var(--bd)")}}>
+                    {v.label}
+                  </button>;
+                })}
+              </div>
+            </div>
+
+            {/* ③ 日付選択 */}
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:6}}>③ 日付を選択</div>
+              {/* クイック選択 */}
+              <div style={{fontSize:10,color:"var(--tx3)",marginBottom:5}}>クイック選択：</div>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
+                {patterns.map(p=>(
+                  <button key={p.k} onClick={()=>applyPattern(p.k)} style={{padding:"5px 10px",borderRadius:14,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg2)",color:"var(--tl)",border:"1.5px solid var(--tl)"}}>
+                    {p.l}
+                  </button>
+                ))}
+                <button onClick={()=>setBulkDays([])} style={{padding:"5px 10px",borderRadius:14,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",color:"var(--tx3)",border:"1.5px solid var(--bd)",fontWeight:700}}>
+                  クリア
+                </button>
+              </div>
+              {/* カレンダーグリッド */}
+              <div style={{background:"var(--bg2)",borderRadius:12,padding:10}}>
+                <div style={{textAlign:"center",fontSize:13,fontWeight:900,marginBottom:8}}>{vm.y}年 {vm.m}月</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:4}}>
+                  {["日","月","火","水","木","金","土"].map((d,i)=>(
+                    <div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:i===0?"var(--ro)":i===6?"var(--tl)":"var(--tx3)",padding:"2px 0"}}>{d}</div>
+                  ))}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
+                  {Array.from({length:fw2}).map((_,i)=><div key={"e"+i}/>)}
+                  {dayList.map(d=>{
+                    const we=isWe(d); const sel=bulkDays.includes(d); const dow=getDow(d);
+                    const isTd=getDateStr(d)===todayISO();
+                    return <div key={d} onClick={()=>!we&&toggleDay(d)} style={{
+                      aspectRatio:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+                      borderRadius:7,border:"2px solid "+(sel?"var(--tl)":we?"transparent":"var(--bd)"),
+                      background:sel?"rgba(58,160,216,0.25)":we?"rgba(0,0,0,0.04)":isTd?"rgba(58,160,216,0.08)":"var(--wh)",
+                      cursor:we?"default":"pointer",opacity:we?0.35:1,
+                      transition:"all .1s",
+                    }}>
+                      <span style={{fontSize:12,fontWeight:900,color:sel?"var(--tl)":dow===0?"var(--ro)":dow===6?"#2196F3":"var(--tx)"}}>{d}</span>
+                      {sel&&<span style={{fontSize:7,color:"var(--tl)",lineHeight:1}}>✓</span>}
+                    </div>;
+                  })}
+                </div>
+              </div>
+              <div style={{marginTop:8,fontSize:12,fontWeight:700,color:bulkDays.length>0?"var(--tl)":"var(--tx3)",textAlign:"center"}}>
+                {bulkDays.length>0?`✅ ${bulkDays.length}日選択中`:"日付をタップして選択（土日は除外）"}
+              </div>
+            </div>
+
+            {/* ④ 送迎 */}
+            <div style={{marginBottom:18}}>
+              <div style={{fontSize:11,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:6}}>④ 送迎設定（任意）</div>
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={()=>setBulkTo(!bulkTo)} style={{flex:1,padding:"9px",borderRadius:9,background:bulkTo?"rgba(58,160,216,0.2)":"var(--bg)",color:bulkTo?"var(--tl)":"var(--tx3)",border:"2px solid "+(bulkTo?"var(--tl)":"var(--bd)"),fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🚌 迎（来所）</button>
+                <button onClick={()=>setBulkFrom(!bulkFrom)} style={{flex:1,padding:"9px",borderRadius:9,background:bulkFrom?"rgba(44,170,96,0.2)":"var(--bg)",color:bulkFrom?"var(--gr)":"var(--tx3)",border:"2px solid "+(bulkFrom?"var(--gr)":"var(--bd)"),fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🚌 送（帰り）</button>
+              </div>
+            </div>
+
+            {/* 確定ボタン */}
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setShowBulkModal(false)} style={{flex:1,padding:"13px",borderRadius:10,border:"1.5px solid var(--bd)",background:"var(--bg)",fontFamily:"'Noto Sans JP',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",color:"var(--tx)"}}>キャンセル</button>
+              <button onClick={confirmBulk} disabled={!bulkUserId||bulkDays.length===0}
+                style={{flex:2,padding:"13px",borderRadius:10,border:"none",fontFamily:"'Noto Sans JP',sans-serif",fontWeight:700,fontSize:13,
+                  background:bulkUserId&&bulkDays.length>0?"var(--tl)":"var(--bd)",
+                  color:"#fff",cursor:bulkUserId&&bulkDays.length>0?"pointer":"default"}}>
+                {bulkDays.length>0&&bulkUserId?`✅ ${bulkDays.length}日分を一括登録する`:"生徒と日付を選んでください"}
+              </button>
+            </div>
+          </div>
+        </div>;
+      })()}
     </div>
   );
 }
@@ -11291,6 +12446,10 @@ function Sidebar({user,screen,onNav,onLogout,unreadCount,open,onClose,onChangeFa
   const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
   const [facOpen,setFacOpen]=useState(false);
   const roleLabel={staff:"支援員",specialist:"専門職員",cdsm:"児発管責任者",manager:"管理者",part_qual:"パート(指導員)",part_noqual:"パート",consultant:"相談支援員",admin:"本部管理者"}[user.role]||user.role;
+
+  // 現在の施設が保育所等訪問支援を持つか判定
+  const facSvcTypes = getFacilityServiceTypes(user.selectedFacilityId||"f1");
+  const hasVisitNav = facSvcTypes.some(s=>s.id==="hoikuvisit");
 
   const nav=[
     {id:"home",icon:"🏠",label:"ダッシュボード"},
@@ -11305,6 +12464,7 @@ function Sidebar({user,screen,onNav,onLogout,unreadCount,open,onClose,onChangeFa
     {id:"messages",icon:"💬",label:"保護者連絡",badge:unreadCount>0?unreadCount:null},
     {id:"daily",icon:"📓",label:"業務日報"},
     {id:"isp",icon:"📝",label:"個別支援計画"},
+    ...(hasVisitNav?[{id:"visit",icon:"🚌",label:"保育所等訪問支援"}]:[]),
     {sec:"管理"},
     {id:"schedule",icon:"📅",label:"生徒予定表"},
     {id:"users",icon:"👤",label:"利用者管理"},
@@ -11314,7 +12474,7 @@ function Sidebar({user,screen,onNav,onLogout,unreadCount,open,onClose,onChangeFa
     ...(isMgr?[
       {sec:"管理者専用"},
       {id:"attendance",icon:"📋",label:"出欠管理"},
-      {id:"transport",icon:"🚌",label:"送迎管理"},
+      {id:"transport",icon:"🚗",label:"送迎管理"},
       {id:"kokuho",icon:"💴",label:"国保連請求"},
       {id:"staffmgmt",icon:"👥",label:"スタッフ管理"},
       {id:"admin",icon:"📊",label:"管理画面"},
@@ -11330,7 +12490,7 @@ function Sidebar({user,screen,onNav,onLogout,unreadCount,open,onClose,onChangeFa
       {/* ロゴ */}
       <div className="sb-brand">
         <div className="sb-logo">GO GROUP</div>
-        <div className="sb-logo-sub">放課後等デイサービス管理システム</div>
+        <div className="sb-logo-sub">{facSvcTypes.map(s=>s.short).join(" / ")} 管理システム</div>
       </div>
       {/* 施設切替 */}
       <div style={{margin:"10px 12px 4px",position:"relative"}}>
@@ -11374,6 +12534,13 @@ function Sidebar({user,screen,onNav,onLogout,unreadCount,open,onClose,onChangeFa
           </div>
           <button className="sb-logout" onClick={onLogout}>退出</button>
         </div>
+        {/* Produce By バッジ */}
+        <div style={{margin:"8px 12px 4px",display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,padding:"7px 10px"}}>
+          <span style={{fontSize:9,color:"rgba(255,255,255,0.4)",letterSpacing:1,fontWeight:500,whiteSpace:"nowrap"}}>Produce By</span>
+          <div style={{background:"#fff",borderRadius:6,padding:"2px 6px",display:"flex",alignItems:"center"}}>
+            <img src="/bells-logo.jpg" alt="株式会社BELLSインターナショナル" style={{height:24,width:"auto",display:"block"}}/>
+          </div>
+        </div>
       </div>
     </div>
   </>;
@@ -11407,7 +12574,7 @@ export default function App(){
     daily:"業務日報",paidleave:"有給管理",users:"利用者管理",
     shift:"シフト管理",kintai:"勤務実績",attendance:"出欠管理",transport:"送迎管理",
     kokuho:"国保連請求",staffmgmt:"スタッフ管理",admin:"管理画面",audit:"監査モード",
-    isp:"個別支援計画",
+    isp:"個別支援計画",visit:"保育所等訪問支援",
   };
 
   const render=()=>{switch(screen){
@@ -11432,6 +12599,7 @@ export default function App(){
     case "admin":return <AdminScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
     case "audit":return <AuditScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
     case "isp":return <IspScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
+    case "visit":return <VisitManagementScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
     default:return <HomeScreen user={user} onNav={setScreen} store={store}/>;
   }};
 
