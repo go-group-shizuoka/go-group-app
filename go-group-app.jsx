@@ -6516,24 +6516,32 @@ function SoudanGenanTab({u, user, store}) {
       if (data.success && data.data) {
         setOcrResult(data.data);
         setForm({
-          specialistName: data.data.specialistName || "",
-          specialistOrg:  data.data.specialistOrg  || "",
-          planPeriodStart: data.data.planPeriodStart || "",
-          planPeriodEnd:   data.data.planPeriodEnd   || "",
-          userNeeds:       data.data.userNeeds        || "",
-          parentNeeds:     data.data.parentNeeds      || "",
-          longTermGoal:    data.data.longTermGoal     || "",
-          shortTermGoal:   data.data.shortTermGoal    || "",
-          supportPolicy:   data.data.supportPolicy    || "",
-          specialistComment: data.data.specialistComment || "",
-          nextMonitoringDate: data.data.nextMonitoringDate || "",
+          specialistName:     data.data.specialistName     || "",
+          specialistOrg:      data.data.specialistOrg      || "",
+          guardianName:       data.data.guardianName        || "",
+          jukyushaNo:         data.data.jukyushaNo          || "",
+          maxBurden:          data.data.maxBurden           || "",
+          planCreatedDate:    data.data.planCreatedDate     || "",
+          monitoringInterval: data.data.monitoringInterval  || "",
+          planPeriodStart:    data.data.planPeriodStart     || "",
+          planPeriodEnd:      data.data.planPeriodEnd       || "",
+          userNeeds:          data.data.userNeeds           || "",
+          parentNeeds:        data.data.parentNeeds         || "",
+          longTermGoal:       data.data.longTermGoal        || "",
+          shortTermGoal:      data.data.shortTermGoal       || "",
+          supportPolicy:      data.data.supportPolicy       || "",
+          specialistComment:  data.data.specialistComment   || "",
+          nextMonitoringDate: data.data.nextMonitoringDate  || "",
+          priorityItems:      data.data.priorityItems       || [],
         });
         setMode("result");
       } else {
         setOcrError(data.error || "OCR解析に失敗しました。手動で入力してください。");
-        setForm({ specialistName:"", specialistOrg:"", planPeriodStart:"", planPeriodEnd:"",
+        setForm({ specialistName:"", specialistOrg:"", guardianName:"", jukyushaNo:"",
+          maxBurden:"", planCreatedDate:"", monitoringInterval:"",
+          planPeriodStart:"", planPeriodEnd:"",
           userNeeds:"", parentNeeds:"", longTermGoal:"", shortTermGoal:"",
-          supportPolicy:"", specialistComment:"", nextMonitoringDate:"" });
+          supportPolicy:"", specialistComment:"", nextMonitoringDate:"", priorityItems:[] });
         setMode("result");
       }
     } catch(e) {
@@ -6547,12 +6555,23 @@ function SoudanGenanTab({u, user, store}) {
     const doc = {
       id, facilityId: u.facilityId, userId: u.id,
       receivedDate: new Date().toISOString().slice(0,10),
-      specialistName: form.specialistName, specialistOrg: form.specialistOrg,
-      planPeriodStart: form.planPeriodStart, planPeriodEnd: form.planPeriodEnd,
-      userNeeds: form.userNeeds, parentNeeds: form.parentNeeds,
-      longTermGoal: form.longTermGoal, shortTermGoal: form.shortTermGoal,
-      supportPolicy: form.supportPolicy, specialistComment: form.specialistComment,
+      specialistName:     form.specialistName,
+      specialistOrg:      form.specialistOrg,
+      guardianName:       form.guardianName,
+      jukyushaNo:         form.jukyushaNo,
+      maxBurden:          form.maxBurden ? parseInt(form.maxBurden) : null,
+      planCreatedDate:    form.planCreatedDate,
+      monitoringInterval: form.monitoringInterval,
+      planPeriodStart:    form.planPeriodStart,
+      planPeriodEnd:      form.planPeriodEnd,
+      userNeeds:          form.userNeeds,
+      parentNeeds:        form.parentNeeds,
+      longTermGoal:       form.longTermGoal,
+      shortTermGoal:      form.shortTermGoal,
+      supportPolicy:      form.supportPolicy,
+      specialistComment:  form.specialistComment,
       nextMonitoringDate: form.nextMonitoringDate,
+      priorityItems:      form.priorityItems || [],   // ← 優先課題テーブル
       status: "受領済み", imagePreview: preview, ocrData: ocrResult,
       createdBy: user.displayName
     };
@@ -6645,19 +6664,24 @@ function SoudanGenanTab({u, user, store}) {
 
       <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:16}}>
         {/* 事業所・専門員 */}
-        <div style={{fontSize:11,fontWeight:900,color:"var(--pu)",marginBottom:8,letterSpacing:1}}>相談支援事業所</div>
+        <div style={{fontSize:11,fontWeight:900,color:"var(--pu)",marginBottom:8,letterSpacing:1}}>📋 基本情報</div>
         {[
-          {label:"相談支援専門員名",key:"specialistName"},
+          {label:"相談支援専門員名（計画作成担当者）",key:"specialistName"},
           {label:"相談支援事業所名",key:"specialistOrg"},
-        ].map(({label,key})=>(
+          {label:"保護者氏名",key:"guardianName"},
+          {label:"通所受給者証番号",key:"jukyushaNo"},
+          {label:"利用者負担上限額（円）",key:"maxBurden",type:"number"},
+          {label:"計画作成日",key:"planCreatedDate",type:"date"},
+          {label:"モニタリング期間",key:"monitoringInterval"},
+        ].map(({label,key,type="text"})=>(
           <div key={key} style={{marginBottom:10}}>
             <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>{label}</label>
-            <input className="fi" value={form[key]||""} onChange={e=>upd(key,e.target.value)} placeholder={label}/>
+            <input className="fi" type={type} value={form[key]||""} onChange={e=>upd(key,e.target.value)} placeholder={label}/>
           </div>
         ))}
 
         {/* 計画期間 */}
-        <div style={{fontSize:11,fontWeight:900,color:"var(--pu)",margin:"12px 0 8px",letterSpacing:1}}>計画期間</div>
+        <div style={{fontSize:11,fontWeight:900,color:"var(--pu)",margin:"12px 0 8px",letterSpacing:1}}>📅 計画期間</div>
         <div style={{display:"flex",gap:8,marginBottom:10}}>
           <div style={{flex:1}}>
             <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>開始日</label>
@@ -6670,27 +6694,51 @@ function SoudanGenanTab({u, user, store}) {
         </div>
 
         {/* ニーズ・目標 */}
-        <div style={{fontSize:11,fontWeight:900,color:"var(--pu)",margin:"12px 0 8px",letterSpacing:1}}>ニーズ・目標</div>
+        <div style={{fontSize:11,fontWeight:900,color:"var(--pu)",margin:"12px 0 8px",letterSpacing:1}}>🎯 意向・目標</div>
         {[
           {label:"本人の意向・ニーズ",key:"userNeeds",multi:true},
           {label:"保護者の意向・ニーズ",key:"parentNeeds",multi:true},
+          {label:"総合的な援助の方針",key:"supportPolicy",multi:true},
           {label:"長期目標",key:"longTermGoal",multi:true},
           {label:"短期目標",key:"shortTermGoal",multi:true},
-          {label:"支援方針・総合的な援助方針",key:"supportPolicy",multi:true},
           {label:"相談支援専門員コメント",key:"specialistComment",multi:true},
         ].map(({label,key,multi})=>(
           <div key={key} style={{marginBottom:10}}>
             <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>{label}</label>
-            {multi
-              ? <textarea className="fta" style={{minHeight:60}} value={form[key]||""} onChange={e=>upd(key,e.target.value)} placeholder={label}/>
-              : <input className="fi" value={form[key]||""} onChange={e=>upd(key,e.target.value)} placeholder={label}/>
-            }
+            <textarea className="fta" style={{minHeight:56}} value={form[key]||""} onChange={e=>upd(key,e.target.value)} placeholder={label}/>
           </div>
         ))}
         <div style={{marginBottom:10}}>
           <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>次回モニタリング予定日</label>
           <input className="fi" type="date" value={form.nextMonitoringDate||""} onChange={e=>upd("nextMonitoringDate",e.target.value)}/>
         </div>
+
+        {/* 優先課題テーブル */}
+        {(form.priorityItems||[]).length>0&&<>
+          <div style={{fontSize:11,fontWeight:900,color:"var(--pu)",margin:"14px 0 8px",letterSpacing:1}}>📊 優先課題・支援目標（{form.priorityItems.length}件）</div>
+          {(form.priorityItems||[]).map((item,idx)=>(
+            <div key={idx} style={{background:"rgba(144,72,216,0.05)",border:"1px solid rgba(144,72,216,0.2)",borderRadius:10,padding:12,marginBottom:10}}>
+              <div style={{fontSize:11,fontWeight:900,color:"var(--pu)",marginBottom:8}}>優先順位 {item.priority||idx+1}</div>
+              {[
+                {label:"解決すべき課題",val:item.issue},
+                {label:"支援目標",val:item.supportGoal},
+                {label:"達成時期",val:item.achievementPeriod},
+                {label:"サービス種別・内容・量",val:item.serviceType},
+                {label:"提供事業者",val:item.provider},
+                {label:"本人の役割",val:item.personRole},
+                {label:"評価時期",val:item.evaluationPeriod},
+              ].filter(x=>x.val).map(({label,val})=>(
+                <div key={label} style={{marginBottom:6}}>
+                  <div style={{fontSize:9,fontWeight:700,color:"var(--tx3)",marginBottom:2}}>{label}</div>
+                  <div style={{fontSize:11,color:"var(--tx)",lineHeight:1.6}}>{val}</div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </>}
+        {(form.priorityItems||[]).length===0&&ocrResult&&<div style={{marginTop:12,padding:"8px 12px",background:"rgba(224,168,40,0.1)",borderRadius:8,fontSize:11,color:"#8a6200"}}>
+          ⚠️ 優先課題テーブルが読み取れませんでした。別ページを撮影して追加登録してください。
+        </div>}
       </div>
       <button className="bsave" style={{marginTop:14,width:"100%"}} onClick={handleSave}>💾 保存する</button>
     </div>
@@ -6704,17 +6752,24 @@ function SoudanGenanTab({u, user, store}) {
         <div style={{fontSize:13,fontWeight:700}}>📑 相談支援原案 詳細</div>
       </div>
       <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:16}}>
+        {/* 基本情報 */}
         <div style={{marginBottom:12,paddingBottom:12,borderBottom:"1px solid var(--bg2)"}}>
-          <div style={{fontSize:12,fontWeight:900,color:"var(--pu)",marginBottom:4}}>{selDoc.specialistOrg||"相談支援事業所"}</div>
+          <div style={{fontSize:13,fontWeight:900,color:"var(--pu)",marginBottom:4}}>{selDoc.specialistOrg||"相談支援事業所"}</div>
           <div style={{fontSize:11,color:"var(--tx2)"}}>担当: {selDoc.specialistName||"—"} ／ 受領日: {selDoc.receivedDate}</div>
-          <div style={{fontSize:11,color:"var(--tx2)",marginTop:2}}>計画期間: {selDoc.planPeriodStart||"—"} 〜 {selDoc.planPeriodEnd||"—"}</div>
+          {selDoc.planCreatedDate&&<div style={{fontSize:11,color:"var(--tx2)",marginTop:1}}>計画作成日: {selDoc.planCreatedDate}</div>}
+          <div style={{fontSize:11,color:"var(--tx2)",marginTop:1}}>計画期間: {selDoc.planPeriodStart||"—"} 〜 {selDoc.planPeriodEnd||"—"}</div>
+          {selDoc.monitoringInterval&&<div style={{fontSize:11,color:"var(--tx2)",marginTop:1}}>モニタリング: {selDoc.monitoringInterval}</div>}
+          {selDoc.maxBurden&&<div style={{fontSize:11,color:"var(--tx2)",marginTop:1}}>負担上限額: {selDoc.maxBurden.toLocaleString()}円</div>}
+          {selDoc.jukyushaNo&&<div style={{fontSize:11,color:"var(--tx2)",marginTop:1}}>受給者証番号: {selDoc.jukyushaNo}</div>}
         </div>
+
+        {/* 意向・目標 */}
         {[
           {label:"本人の意向・ニーズ",val:selDoc.userNeeds},
           {label:"保護者の意向・ニーズ",val:selDoc.parentNeeds},
+          {label:"総合的な援助の方針",val:selDoc.supportPolicy},
           {label:"長期目標",val:selDoc.longTermGoal},
           {label:"短期目標",val:selDoc.shortTermGoal},
-          {label:"支援方針",val:selDoc.supportPolicy},
           {label:"専門員コメント",val:selDoc.specialistComment},
           {label:"次回モニタリング予定日",val:selDoc.nextMonitoringDate},
         ].filter(x=>x.val).map(({label,val})=>(
@@ -6723,6 +6778,36 @@ function SoudanGenanTab({u, user, store}) {
             <div style={{fontSize:12,color:"var(--tx)",lineHeight:1.7,background:"var(--bg)",borderRadius:7,padding:"8px 10px"}}>{val}</div>
           </div>
         ))}
+
+        {/* 優先課題テーブル */}
+        {(selDoc.priorityItems||[]).length>0&&<>
+          <div style={{fontSize:11,fontWeight:900,color:"var(--pu)",margin:"14px 0 8px",letterSpacing:1,paddingTop:12,borderTop:"1px solid var(--bg2)"}}>
+            📊 優先課題・支援目標
+          </div>
+          {selDoc.priorityItems.map((item,idx)=>(
+            <div key={idx} style={{background:"rgba(144,72,216,0.05)",border:"1.5px solid rgba(144,72,216,0.2)",borderRadius:10,padding:12,marginBottom:10}}>
+              <div style={{fontSize:12,fontWeight:900,color:"var(--pu)",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                <span style={{background:"var(--pu)",color:"#fff",borderRadius:"50%",width:20,height:20,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11}}>{item.priority||idx+1}</span>
+                {item.issue}
+              </div>
+              <div style={{display:"grid",gap:6}}>
+                {[
+                  {label:"支援目標",val:item.supportGoal},
+                  {label:"サービス種別・内容・量",val:item.serviceType},
+                  {label:"提供事業者",val:item.provider},
+                  {label:"達成時期",val:item.achievementPeriod},
+                  {label:"本人の役割",val:item.personRole},
+                  {label:"評価時期",val:item.evaluationPeriod},
+                ].filter(x=>x.val).map(({label,val})=>(
+                  <div key={label} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                    <span style={{fontSize:9,fontWeight:700,color:"var(--tx3)",minWidth:100,flexShrink:0,paddingTop:2}}>{label}</span>
+                    <span style={{fontSize:11,color:"var(--tx)",lineHeight:1.6,flex:1}}>{val}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </>}
       </div>
     </div>
   );

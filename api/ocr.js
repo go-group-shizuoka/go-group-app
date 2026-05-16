@@ -41,25 +41,44 @@ export default async function handler(req, res) {
 
 必ずJSONのみを返してください。説明文は不要です。`,
 
-    soudan: `この相談支援計画書（個別支援計画原案）の画像を解析して、以下の項目をJSONで抽出してください。
-読み取れない項目は null としてください。
+    soudan: `この障害児支援利用計画（相談支援計画書）の画像を解析して、以下の項目をJSONで抽出してください。
+読み取れない項目は null としてください。日付はYYYY-MM-DD形式で返してください。
+和暦（令和・平成）は西暦に変換してください（令和7年=2025年、令和8年=2026年）。
 
 {
-  "userName": "利用者氏名",
-  "specialistName": "相談支援専門員名",
-  "specialistOrg": "相談支援事業所名",
-  "planPeriodStart": "計画期間開始日（YYYY-MM-DD）",
-  "planPeriodEnd": "計画期間終了日（YYYY-MM-DD）",
-  "userNeeds": "本人の意向・ニーズ（原文そのまま）",
-  "parentNeeds": "保護者の意向・ニーズ（原文そのまま）",
+  "userName": "利用者氏名（ふりがなは除く）",
+  "guardianName": "保護者氏名",
+  "specialistName": "計画作成担当者名（相談支援専門員名）",
+  "specialistOrg": "相談支援事業者名（相談支援事業所名）",
+  "jukyushaNo": "通所受給者証番号",
+  "maxBurden": "利用者負担上限額（数字のみ、例: 37200）",
+  "planCreatedDate": "計画作成日（YYYY-MM-DD）",
+  "monitoringInterval": "モニタリング期間（例: 6ヶ月ごと）",
+  "planPeriodStart": "計画期間開始日（YYYY-MM-DD、不明ならnull）",
+  "planPeriodEnd": "計画期間終了日（YYYY-MM-DD、不明ならnull）",
+  "userNeeds": "本人の意向・ニーズ（「本人：」以降の原文そのまま）",
+  "parentNeeds": "保護者の意向・ニーズ（「母親：」「父：」以降の原文そのまま）",
+  "supportPolicy": "総合的な援助の方針（原文そのまま）",
   "longTermGoal": "長期目標（原文そのまま）",
   "shortTermGoal": "短期目標（原文そのまま）",
-  "supportPolicy": "支援方針・総合的な援助方針",
-  "specialistComment": "相談支援専門員のコメント・所見",
-  "nextMonitoringDate": "次回モニタリング予定日（YYYY-MM-DD）"
+  "specialistComment": "相談支援専門員のコメント・所見（あれば）",
+  "nextMonitoringDate": "次回モニタリング予定日（YYYY-MM-DD、不明ならnull）",
+  "priorityItems": [
+    {
+      "priority": 1,
+      "issue": "解決すべき課題（本人が求めている生活）の原文",
+      "supportGoal": "支援目標の原文",
+      "achievementPeriod": "達成時期（例: 1年）",
+      "serviceType": "サービス種別・内容・量（例: 児童発達支援 月23日）",
+      "provider": "提供事業者名・担当者名・電話番号",
+      "personRole": "課題解決のための本人の役割",
+      "evaluationPeriod": "評価時期（例: 6ヶ月）"
+    }
+  ]
 }
 
-必ずJSONのみを返してください。説明文は不要です。`
+priorityItemsは表の行数分（優先順位1、2、3…）すべて配列で返してください。
+必ずJSONのみを返してください。説明文は不要です。`,
   };
 
   const prompt = prompts[mode] || prompts.jukyusha;
@@ -74,7 +93,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: "claude-opus-4-5",
-        max_tokens: 1024,
+        max_tokens: 2048,
         messages: [{
           role: "user",
           content: [
