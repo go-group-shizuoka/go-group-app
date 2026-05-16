@@ -5344,6 +5344,7 @@ function UserManagement({user,store,onBack}){
       {k:"isp_draft",l:"個別支援計画（原案）",ic:"📄"},
       {k:"isp",l:"個別支援計画",ic:"📝"},
       {k:"monitoring",l:"モニタリング",ic:"🔍"},
+      {k:"timeline",l:"タイムライン",ic:"📅"},
       {k:"jukyusha",l:"受給者証",ic:"🪪"},
       {k:"soudan_genan",l:"相談支援原案",ic:"📑"},
       ...(isJidou?[
@@ -5395,6 +5396,8 @@ function UserManagement({user,store,onBack}){
         {hubTab==="dev_record"&&<DevRecordTab u={u} user={user} store={store}/>}
         {/* ===== 保護者支援記録（児発のみ） ===== */}
         {hubTab==="parent_support"&&<ParentSupportTab u={u} user={user} store={store}/>}
+        {/* ===== タイムライン ===== */}
+        {hubTab==="timeline"&&<TimelineTab u={u} user={user} store={store}/>}
         {/* ===== 受給者証OCR ===== */}
         {hubTab==="jukyusha"&&<JukyushaTab u={u} user={user} store={store}/>}
         {/* ===== 相談支援原案OCR ===== */}
@@ -6175,6 +6178,313 @@ function JukyushaTab({u, user, store}) {
   );
 
   return null;
+}
+
+// ==================== ④ 利用者タイムライン統合 ====================
+function TimelineTab({u, user, store}) {
+  const [filter, setFilter] = useState("all");   // all | attend | msg | isp | record | doc
+  const [expandId, setExpandId] = useState(null); // 詳細展開中のアイテムID
+
+  // ── 全記録を「タイムラインアイテム」に正規化 ──
+  const items = [];
+
+  // 1. 入退室記録（user_in / user_out）
+  (store.recs||[]).filter(r=>r.userId===u.id&&(r.type==="user_in"||r.type==="user_out")).forEach(r=>{
+    const isIn = r.type==="user_in";
+    items.push({
+      id: r.id||("rec_"+r.time),
+      type: "attend",
+      date: r.time?.slice(0,10)||"",
+      time: r.time?.slice(11,16)||"",
+      icon: isIn?"🏫":"🏠",
+      color: isIn?"var(--tl)":"var(--gr2)",
+      label: isIn?"登園・到着":"退室・降園",
+      title: isIn?`${r.time?.slice(11,16)} 到着`:`${r.time?.slice(11,16)} 退室`,
+      detail: [
+        r.temp?`🌡 体温: ${r.temp}℃`:"",
+        r.note?`📝 ${r.note}`:"",
+        r.staffName?`👤 確認: ${r.staffName}`:"",
+      ].filter(Boolean).join("  ／  ") || null,
+      raw: r,
+    });
+  });
+
+  // 2. サービス提供記録（活動記録）
+  (store.recs||[]).filter(r=>r.userId===u.id&&r.type==="service").forEach(r=>{
+    items.push({
+      id: "svc_"+(r.id||r.time),
+      type: "record",
+      date: r.time?.slice(0,10)||r.date||"",
+      time: r.time?.slice(11,16)||"",
+      icon: "📝",
+      color: "var(--ac)",
+      label: "活動記録",
+      title: r.activities||"活動記録",
+      detail: [
+        r.comment?`💬 ${r.comment}`:"",
+        r.staffName?`👤 ${r.staffName}`:"",
+      ].filter(Boolean).join("  ／  ")||null,
+      raw: r,
+    });
+  });
+
+  // 3. 保護者メッセージ（施設→保護者のみ）
+  (store.msgs||[]).filter(m=>m.userId===u.id&&m.from&&m.from!=="保護者").forEach(m=>{
+    items.push({
+      id: "msg_"+(m.id||m.time),
+      type: "msg",
+      date: m.time?.slice(0,10)||"",
+      time: m.time?.slice(11,16)||"",
+      icon: m.isUrgent?"🚨":"💬",
+      color: m.isUrgent?"var(--ro)":"#8b5cf6",
+      label: m.isUrgent?"緊急連絡":"保護者連絡",
+      title: m.body?.slice(0,40)+(m.body?.length>40?"…":""),
+      detail: [
+        `送信者: ${m.from}`,
+        m.parentRead?`✅ 既読 ${m.parentReadAt||""}`:"📭 未確認",
+        m.isBroadcast?"📢 一斉送信":"",
+      ].filter(Boolean).join("  ／  "),
+      raw: m,
+    });
+  });
+
+  // 4. 個別支援計画
+  (store.isps||[]).filter(i=>i.userId===u.id).forEach(i=>{
+    items.push({
+      id: "isp_"+(i.id||i.createdAt),
+      type: "isp",
+      date: i.createdAt?.slice(0,10)||i.startDate||"",
+      time: "",
+      icon: "📝",
+      color: "var(--tl)",
+      label: "個別支援計画",
+      title: `個別支援計画 (${i.startDate||""}〜${i.endDate||""})`,
+      detail: [
+        i.longTermGoal?`🎯 長期: ${i.longTermGoal.slice(0,40)}`:"",
+        i.shortTermGoal?`🎯 短期: ${i.shortTermGoal.slice(0,40)}`:"",
+        `進捗: ${i.progress||0}%`,
+      ].filter(Boolean).join("  ／  ")||null,
+      raw: i,
+    });
+  });
+
+  // 5. モニタリング
+  (store.monitorings||[]).filter(m=>m.userId===u.id).forEach(m=>{
+    items.push({
+      id: "mon_"+(m.id||m.date),
+      type: "isp",
+      date: m.date||"",
+      time: "",
+      icon: "🔍",
+      color: "var(--pu)",
+      label: "モニタリング",
+      title: `モニタリング (${m.date})`,
+      detail: [
+        m.achievementRate?`達成率: ${m.achievementRate}%`:"",
+        m.overall?`総評: ${m.overall.slice(0,40)}`:"",
+        m.nextPlanDate?`次回: ${m.nextPlanDate}`:"",
+      ].filter(Boolean).join("  ／  ")||null,
+      raw: m,
+    });
+  });
+
+  // 6. 発達段階記録
+  (store.devRecords||[]).filter(r=>r.userId===u.id).forEach(r=>{
+    items.push({
+      id: "dev_"+(r.id||r.date),
+      type: "record",
+      date: r.date||"",
+      time: "",
+      icon: "🌱",
+      color: "var(--gr2)",
+      label: "発達段階記録",
+      title: `[${r.domain||""}] ${r.level||""} — ${r.goal||""}`,
+      detail: r.content?r.content.slice(0,80)+(r.content.length>80?"…":""):null,
+      raw: r,
+    });
+  });
+
+  // 7. 保護者支援記録
+  (store.parentSupportRecords||[]).filter(r=>r.userId===u.id).forEach(r=>{
+    items.push({
+      id: "psr_"+(r.id||r.date),
+      type: "record",
+      date: r.date||"",
+      time: "",
+      icon: "👨‍👩‍👧",
+      color: "var(--am)",
+      label: "保護者支援記録",
+      title: `保護者支援 — ${r.supportType||r.theme||""}`,
+      detail: r.content?r.content.slice(0,80)+(r.content.length>80?"…":""):null,
+      raw: r,
+    });
+  });
+
+  // 8. 受給者証スキャン
+  (store.jukyushaDocs||[]).filter(d=>d.userId===u.id).forEach(d=>{
+    items.push({
+      id: "jd_"+(d.id||d.scanDate),
+      type: "doc",
+      date: d.scanDate||"",
+      time: "",
+      icon: "🪪",
+      color: "var(--tl)",
+      label: "受給者証",
+      title: `受給者証 ${d.status==="有効"?"✅ 有効":"📁 旧"} (有効期限: ${d.expiryDate||"—"})`,
+      detail: [
+        d.jukyushaNo?`番号: ${d.jukyushaNo}`:"",
+        d.city?`自治体: ${d.city}`:"",
+        d.serviceAmount?`支給量: ${d.serviceAmount}`:"",
+      ].filter(Boolean).join("  ／  ")||null,
+      raw: d,
+    });
+  });
+
+  // 9. 相談支援原案
+  (store.soudanGenans||[]).filter(d=>d.userId===u.id).forEach(d=>{
+    items.push({
+      id: "sg_"+(d.id||d.receivedDate),
+      type: "doc",
+      date: d.receivedDate||"",
+      time: "",
+      icon: "📑",
+      color: "var(--pu)",
+      label: "相談支援原案",
+      title: `相談支援原案 — ${d.specialistOrg||"相談支援事業所"}`,
+      detail: [
+        d.longTermGoal?`🎯 長期: ${d.longTermGoal.slice(0,40)}`:"",
+        d.planPeriodEnd?`計画終了: ${d.planPeriodEnd}`:"",
+      ].filter(Boolean).join("  ／  ")||null,
+      raw: d,
+    });
+  });
+
+  // ── ソート・フィルター ──
+  const filtered = items
+    .filter(it=>it.date) // 日付なしは除外
+    .filter(it=>filter==="all"||it.type===filter)
+    .sort((a,b)=>{
+      const da = (a.date+a.time).replace(/-/g,"").replace(/:/g,"");
+      const db = (b.date+b.time).replace(/-/g,"").replace(/:/g,"");
+      return db>da?1:-1;
+    });
+
+  // ── 日付でグループ化 ──
+  const groups = [];
+  let lastDate = null;
+  filtered.forEach(it=>{
+    if(it.date!==lastDate){ groups.push({date:it.date,items:[]}); lastDate=it.date; }
+    groups[groups.length-1].items.push(it);
+  });
+
+  // タイプラベル
+  const FILTERS = [
+    {id:"all",    label:"すべて"},
+    {id:"attend", label:"🏫 入退室"},
+    {id:"msg",    label:"💬 連絡"},
+    {id:"isp",    label:"📝 計画"},
+    {id:"record", label:"🌱 記録"},
+    {id:"doc",    label:"📄 書類"},
+  ];
+
+  const typeCount = (t)=>items.filter(it=>it.date&&(t==="all"||it.type===t)).length;
+
+  return (
+    <div>
+      {/* ヘッダー */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>📅 タイムライン</div>
+        <div style={{fontSize:11,color:"var(--tx3)"}}>{filtered.length}件の記録</div>
+      </div>
+
+      {/* フィルター */}
+      <div style={{display:"flex",gap:5,marginBottom:14,overflowX:"auto",paddingBottom:4,scrollbarWidth:"none"}}>
+        {FILTERS.map(f=>(
+          <button key={f.id} onClick={()=>setFilter(f.id)}
+            style={{padding:"5px 11px",borderRadius:20,fontSize:11,cursor:"pointer",fontWeight:700,fontFamily:"'Noto Sans JP',sans-serif",whiteSpace:"nowrap",
+              background:filter===f.id?"var(--tl)":"var(--wh)",
+              color:filter===f.id?"#fff":"var(--tx3)",
+              border:`1.5px solid ${filter===f.id?"var(--tl)":"var(--bd)"}`,
+              flexShrink:0}}>
+            {f.label} <span style={{fontSize:10,opacity:.8}}>({typeCount(f.id)})</span>
+          </button>
+        ))}
+      </div>
+
+      {/* 空っぽ */}
+      {groups.length===0&&(
+        <div style={{textAlign:"center",padding:"40px 16px",color:"var(--tx3)"}}>
+          <div style={{fontSize:32,marginBottom:8}}>📭</div>
+          <div style={{fontSize:13}}>記録がありません</div>
+          <div style={{fontSize:11,marginTop:4,color:"var(--tx3)"}}>入退室・活動・連絡などが自動で表示されます</div>
+        </div>
+      )}
+
+      {/* タイムライン本体 */}
+      {groups.map(({date,items:gitems})=>(
+        <div key={date} style={{marginBottom:16}}>
+          {/* 日付ヘッダー */}
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+            <div style={{fontSize:11,fontWeight:900,color:"var(--tl)",background:"rgba(58,160,216,0.1)",padding:"3px 10px",borderRadius:20,border:"1px solid rgba(58,160,216,0.25)"}}>
+              {date} {["日","月","火","水","木","金","土"][new Date(date).getDay()]}
+            </div>
+            <div style={{flex:1,height:1,background:"var(--bd)"}}/>
+            <div style={{fontSize:10,color:"var(--tx3)"}}>{gitems.length}件</div>
+          </div>
+
+          {/* その日のアイテム */}
+          <div style={{paddingLeft:8}}>
+            {gitems.map(it=>{
+              const isExpanded = expandId===it.id;
+              return (
+                <div key={it.id} className="timeline-item" style={{marginBottom:8}}>
+                  {/* ドット＋縦線 */}
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0,width:36}}>
+                    <div style={{width:32,height:32,borderRadius:"50%",background:it.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0,boxShadow:"0 2px 6px rgba(0,0,0,0.12)"}}>
+                      {it.icon}
+                    </div>
+                    <div style={{flex:1,width:2,background:"var(--bg2)",minHeight:4,marginTop:2}}/>
+                  </div>
+
+                  {/* カード */}
+                  <div style={{flex:1,background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 12px",marginBottom:0,cursor:"pointer",transition:"box-shadow .15s"}}
+                    onClick={()=>setExpandId(isExpanded?null:it.id)}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
+                          <span style={{fontSize:9,fontWeight:700,padding:"1px 6px",borderRadius:6,background:`${it.color}22`,color:it.color,border:`1px solid ${it.color}44`,flexShrink:0}}>
+                            {it.label}
+                          </span>
+                          {it.time&&<span style={{fontSize:10,color:"var(--tx3)",fontFamily:"'DM Mono',monospace"}}>{it.time}</span>}
+                        </div>
+                        <div style={{fontSize:12,fontWeight:700,color:"var(--tx)",lineHeight:1.4,overflow:"hidden",whiteSpace:isExpanded?"normal":"nowrap",textOverflow:isExpanded?"clip":"ellipsis"}}>
+                          {it.title}
+                        </div>
+                      </div>
+                      <div style={{fontSize:12,color:"var(--tx3)",flexShrink:0,marginTop:2}}>{isExpanded?"▲":"▼"}</div>
+                    </div>
+
+                    {/* 詳細（展開時） */}
+                    {isExpanded&&it.detail&&(
+                      <div style={{marginTop:8,fontSize:11,color:"var(--tx2)",lineHeight:1.7,background:"var(--bg)",borderRadius:7,padding:"8px 10px",whiteSpace:"pre-wrap"}}>
+                        {it.detail}
+                      </div>
+                    )}
+                    {/* 写真（展開時） */}
+                    {isExpanded&&it.raw?.photoData&&(
+                      <img src={it.raw.photoData} alt="添付画像"
+                        style={{marginTop:8,maxWidth:"100%",maxHeight:200,borderRadius:8,border:"1px solid var(--bd)",display:"block",cursor:"pointer"}}
+                        onClick={e=>{e.stopPropagation();window.open(it.raw.photoData);}}/>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ==================== ② 相談支援原案OCRタブ ====================
