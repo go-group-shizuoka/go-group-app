@@ -10302,7 +10302,7 @@ function StaffManagement({user, store, onBack}){
     const fac = FACILITIES.find(f=>f.id===s.facilityId);
     const isChecked = checked.includes(s.id);
     return <div onClick={bulkMode?()=>toggleCheck(s.id):undefined}
-      style={{background:"var(--wh)",border:`1.5px solid ${bulkMode&&isChecked?"var(--ro)":"var(--bd)"}`,borderRadius:12,padding:14,boxShadow:"var(--sh)",transition:"all .15s",opacity:s.active===false?.6:1,cursor:bulkMode?"pointer":"default",background:bulkMode&&isChecked?"rgba(224,56,56,0.08)":"var(--wh)"}}>
+      style={{background:bulkMode&&isChecked?"rgba(224,56,56,0.08)":"var(--wh)",border:`1.5px solid ${bulkMode&&isChecked?"var(--ro)":"var(--bd)"}`,borderRadius:12,padding:14,boxShadow:"var(--sh)",transition:"all .15s",opacity:s.active===false?.6:1,cursor:bulkMode?"pointer":"default"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:9}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           {/* 一括削除モード時はチェックボックス表示 */}
