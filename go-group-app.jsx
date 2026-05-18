@@ -3461,23 +3461,43 @@ function TimePicker({value, onChange, label=""}){
 function Cam({cap,onCap}){return <div className={`cam ${cap?"cp":""}`} onClick={onCap}><div className="ci2">{cap?"✅":"📷"}</div><div className="ct2">{cap?"撮影済み（再撮影）":"タップして撮影"}</div></div>;}
 function FlowWrap({title,onBack,children}){return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">{title}</div></div><div className="fc">{children}</div></div>;}
 function LoginScreen({onLogin, store}){
-  const [un,setUn]=useState(""); const [pw,setPw]=useState(""); const [fac,setFac]=useState("f1"); const [err,setErr]=useState("");
-  const go=()=>{
-    // 1) 固定アカウント（デモ・管理者）で検索
+  const [un,setUn]=useState(""); const [pw,setPw]=useState(""); const [fac,setFac]=useState("f1"); const [err,setErr]=useState(""); const [loading,setLoading]=useState(false);
+  const go=async()=>{
+    if(loading) return;
+    setErr(""); setLoading(true);
+    try{
+      // ① サーバーサイド認証（api/auth → staff_accounts DB・PBKDF2ハッシュ照合）
+      const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:un,password:pw})});
+      if(r.ok){
+        const d=await r.json();
+        if(d.success&&d.user){
+          const u=d.user;
+          onLogin({...u,selectedFacilityId:u.selected_facility_id||u.facility_id||fac});
+          setLoading(false); return;
+        }
+      }
+      // 401以外のサーバーエラーや接続失敗はフォールバックへ
+      if(r.status===401){ setErr("IDまたはパスワードが正しくありません"); setLoading(false); return; }
+    }catch(e){ /* ネットワーク断等 → フォールバックへ継続 */ }
+
+    // ② フォールバック: ACCOUNTS定数（段階移行中・ネット断時の緊急用）
     let a=ACCOUNTS.find(x=>x.username===un&&x.password===pw);
-    // 2) なければdynStaff（スタッフ管理で登録した職員）で検索
+    // ③ dynStaff（スタッフ管理で登録した職員）で検索
     if(!a && store){
       const ds=(store.dynStaff||[]).find(s=>s.loginId&&s.loginId===un&&s.loginPassword===pw&&s.active!==false);
-      if(ds) a={id:ds.id,username:ds.loginId,password:ds.loginPassword,role:ds.role||"staff",staffId:ds.id,facilityId:ds.facilityId,displayName:ds.name};
+      if(ds) a={id:ds.id,username:ds.loginId,role:ds.role||"staff",staffId:ds.id,facilityId:ds.facilityId,displayName:ds.name};
     }
-    if(!a){setErr("IDまたはパスワードが正しくありません");return;}
+    if(!a){setErr("IDまたはパスワードが正しくありません"); setLoading(false); return;}
     onLogin({...a,selectedFacilityId:a.facilityId||fac});
+    setLoading(false);
   };
   return <div className="lw"><div className="lc"><div className="brand">GO <span>GROUP</span></div><div className="bsub">勤怠・検温・利用記録システム</div>
     <div className="fg"><label className="fl">スタッフID</label><input className="fi" placeholder="homestaff / homemgr / admin" value={un} onChange={e=>{setUn(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()}/></div>
     <div className="fg"><label className="fl">パスワード</label><input className="fi" type="password" placeholder="pass" value={pw} onChange={e=>{setPw(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()}/></div>
     {un==="admin"&&<div className="fg"><label className="fl">操作する施設</label><select className="fi" value={fac} onChange={e=>setFac(e.target.value)}>{FACILITIES.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select></div>}
-    <button className="bpri" onClick={go}>ログイン</button>
+    <button className="bpri" onClick={go} disabled={loading} style={{opacity:loading?0.7:1}}>
+      {loading?"⏳ 認証中...":"ログイン"}
+    </button>
     {err&&<p className="err">{err}</p>}
     <p className="hint">デモID: homestaff / homemgr / admin</p>
     {/* Produce By バッジ */}
@@ -21720,6 +21740,11 @@ function Sidebar({user,screen,onNav,onLogout,unreadCount,open,onClose,onChangeFa
   </>;
 }
 
+// ==================== セッションタイムアウト定数 ====================
+const SESSION_TIMEOUT_MIN = 60;   // 自動ログアウトまでの時間（分）
+const SESSION_WARN_MIN    = 55;   // 警告を出す時間（分）
+const SESSION_KEY = 'gogroup_last_activity';
+
 // ==================== APP ROOT ====================
 export default function App(){
   const [user,setUser]=useState(()=>{
@@ -21727,15 +21752,55 @@ export default function App(){
   });
   const [screen,setScreen]=useState("home");
   const [sbOpen,setSbOpen]=useState(false);
+  const [sessionWarn,setSessionWarn]=useState(false); // 55分警告モーダル
   const store=useStore();
 
   const logout=()=>{
     localStorage.removeItem('gogroup_user');
-    setUser(null);setScreen("home");
+    localStorage.removeItem(SESSION_KEY);
+    setUser(null);setScreen("home");setSessionWarn(false);
   };
 
+  // ─── セッションタイムアウト監視 ───
+  useEffect(()=>{
+    if(!user) return;
+
+    // アクティビティ更新（クリック・キー・スクロール・タッチ）
+    const updateActivity=()=>{ try{localStorage.setItem(SESSION_KEY,Date.now().toString());}catch(e){} };
+    const events=["click","keydown","mousemove","touchstart","scroll"];
+    events.forEach(ev=>document.addEventListener(ev,updateActivity,{passive:true}));
+    updateActivity(); // 初期化
+
+    // 1分ごとにセッション期限をチェック
+    const timer=setInterval(()=>{
+      try{
+        const last=parseInt(localStorage.getItem(SESSION_KEY)||"0",10);
+        const idleMin=(Date.now()-last)/60000;
+        if(idleMin>=SESSION_TIMEOUT_MIN){
+          // 60分経過 → 自動ログアウト
+          clearInterval(timer);
+          alert("セッションがタイムアウトしました。\n再度ログインしてください。");
+          logout();
+        } else if(idleMin>=SESSION_WARN_MIN){
+          // 55分経過 → 警告表示
+          setSessionWarn(true);
+        } else {
+          setSessionWarn(false);
+        }
+      }catch(e){}
+    },60000); // 1分ごと
+
+    return ()=>{
+      events.forEach(ev=>document.removeEventListener(ev,updateActivity));
+      clearInterval(timer);
+    };
+  },[user]); // eslint-disable-line
+
   if(!user)return <><style>{CSS}</style><div className="app"><LoginScreen store={store} onLogin={u=>{
-    try{localStorage.setItem('gogroup_user',JSON.stringify(u));}catch(e){}
+    try{
+      localStorage.setItem('gogroup_user',JSON.stringify(u));
+      localStorage.setItem(SESSION_KEY,Date.now().toString());
+    }catch(e){}
     setUser(u);setScreen("home");
   }}/></div></>;
 
@@ -21900,6 +21965,23 @@ export default function App(){
       </div>
       {/* グローバルトースト */}
       <Toast msg={store.toastMsg} type={store.toastType}/>
+      {/* セッションタイムアウト警告モーダル */}
+      {sessionWarn&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{background:"#1e1e2a",border:"2px solid #e0a828",borderRadius:16,padding:"28px 32px",maxWidth:340,width:"90%",textAlign:"center",boxShadow:"0 8px 32px rgba(0,0,0,0.8)"}}>
+          <div style={{fontSize:40,marginBottom:12}}>⏰</div>
+          <div style={{fontSize:16,fontWeight:700,color:"#e0a828",marginBottom:8}}>セッションまもなく終了</div>
+          <div style={{fontSize:13,color:"#ccc",marginBottom:20,lineHeight:1.7}}>
+            操作がない状態が続いています。<br/>
+            あと約<strong style={{color:"#fff"}}>{SESSION_TIMEOUT_MIN-SESSION_WARN_MIN}分</strong>で自動的にログアウトします。
+          </div>
+          <button onClick={()=>{
+            try{localStorage.setItem(SESSION_KEY,Date.now().toString());}catch(e){}
+            setSessionWarn(false);
+          }} style={{width:"100%",padding:"12px",borderRadius:10,background:"#e0a828",color:"#000",border:"none",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+            ✅ ログインを継続する
+          </button>
+        </div>
+      </div>}
     </div>
   </>;
 }
