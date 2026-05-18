@@ -48,9 +48,19 @@ const sb = {
   }
 };
 
-// Supabaseへの保存ヘルパー
+// ネットワークエラー通知コールバック（App起動後に登録される）
+let _sbErrCb = null;
+
+// Supabaseへの保存ヘルパー（成功:true / 失敗:false を返す）
 async function sbSave(table, data) {
-  try { await sb.from(table).upsert(data); } catch(e) { console.error("Save error:", e); }
+  try {
+    await sb.from(table).upsert(data);
+    return true;
+  } catch(e) {
+    console.error("Save error [" + table + "]:", e);
+    _sbErrCb?.("保存に失敗しました。通信状況を確認して、もう一度お試しください。", "error");
+    return false;
+  }
 }
 async function sbLoad(table) {
   try {
@@ -60,6 +70,7 @@ async function sbLoad(table) {
     return Array.isArray(r) ? r.filter(row => !row.is_deleted) : r;
   } catch(e) { console.error("Load error:", e); return []; }
 }
+// Supabase削除ヘルパー（成功:true / 失敗:false を返す）
 async function sbDelete(table, id) {
   // ① 論理削除を試みる（is_deleted カラムがあるテーブルのみ有効）
   try {
@@ -75,11 +86,17 @@ async function sbDelete(table, id) {
       headers: hUpsert,
       body: JSON.stringify({id, is_deleted: true, deleted_at: now})
     });
-    if (r.ok) return; // 論理削除成功
+    if (r.ok) return true; // 論理削除成功
     // is_deleted カラムがない場合は物理削除にフォールバック
     const hDel = {"apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY};
-    await fetch(SUPABASE_URL + "/rest/v1/" + table + "?id=eq." + encodeURIComponent(id), {method:"DELETE", headers:hDel});
-  } catch(e) { console.error("SB delete error:", e); }
+    const r2 = await fetch(SUPABASE_URL + "/rest/v1/" + table + "?id=eq." + encodeURIComponent(id), {method:"DELETE", headers:hDel});
+    if (!r2.ok) throw new Error("HTTP " + r2.status);
+    return true;
+  } catch(e) {
+    console.error("SB delete error [" + table + "]:", e);
+    _sbErrCb?.("削除に失敗しました。管理者に確認してください。", "error");
+    return false;
+  }
 }
 
 
@@ -2040,6 +2057,7 @@ select.fi option{background:var(--bg2);color:var(--tx);}
 }
 /* ===== トーストアニメーション ===== */
 @keyframes toastIn{from{opacity:0;transform:translate(-50%,16px);}to{opacity:1;transform:translate(-50%,0);}}
+@keyframes spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
 /* ===== アラートカード ===== */
 .alert-row{display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:10px;margin-bottom:7px;cursor:pointer;transition:transform .12s,opacity .12s;-webkit-tap-highlight-color:transparent;}
 .alert-row:active{transform:scale(0.98);opacity:.85;}
@@ -2589,14 +2607,15 @@ function useStore() {
     const ISP_BILLING_STAT = ["finalized","parent_consented","manager_confirmed"];
 
     // ── Step1: 実績レコード（recs）から来所日数・送迎日数を集計 ──
+    // facility_id（スネークケース）にも対応（Supabase raw rowフォールバック）
     const monthRecs = recs.filter(r=>
-      r.facilityId===facilityId &&
+      (r.facilityId||r.facility_id)===facilityId &&
       recYM(r)===yearMonth &&
       r.type==="service"
     );
     // ── Step2: 確定日報からも補完（実績レコードにない日を拾う） ──
     const confirmedReps = dailyReports.filter(r=>
-      r.facilityId===facilityId &&
+      (r.facilityId||r.facility_id)===facilityId &&
       r.date.startsWith(yearMonth) &&
       (r.status==="確認済"||r.status==="確定")
     );
@@ -2610,7 +2629,7 @@ function useStore() {
     // Step1: 実績レコード（type==="service"）から集計
     monthRecs.forEach(r=>{
       ensure(r.userId, r.userName||"");
-      const d=(r.time||"").slice(0,10);
+      const d=parseRecTime(r.time||"").date; // スラッシュ/ISO両形式を正規化
       if(d) attendMap[r.userId].days.add(d);
       if(r.transport==="あり") attendMap[r.userId].transportDays++;
       if(r.ispId&&!attendMap[r.userId].ispId) attendMap[r.userId].ispId=r.ispId;
@@ -2619,13 +2638,13 @@ function useStore() {
     // Step2: 来所記録（type==="user_in"）からも補完
     // サービス記録がなくても来所記録があれば来所日としてカウント
     recs.filter(r=>
-      r.facilityId===facilityId &&
+      (r.facilityId||r.facility_id)===facilityId && // snake_case fallback
       recYM(r)===yearMonth &&
       r.type==="user_in" &&
       r.userId
     ).forEach(r=>{
       ensure(r.userId, r.userName||"");
-      const d=(r.time||"").slice(0,10);
+      const d=parseRecTime(r.time||"").date; // スラッシュ/ISO両形式を正規化
       if(d) attendMap[r.userId].days.add(d);
       if(r.transport==="あり"&&!attendMap[r.userId].days.has(d+"_tr")) {
         // 送迎フラグを重複カウントしないよう管理
@@ -2636,7 +2655,7 @@ function useStore() {
 
     // Step3: 出欠管理（att）から補完
     // 出席管理で「出席」になっている日もカウント（来所記録なくても）
-    const facilityUsers=dynUsers.filter(u=>u.facilityId===facilityId&&u.active!==false);
+    const facilityUsers=dynUsers.filter(u=>(u.facilityId||u.facility_id)===facilityId&&u.active!==false);
     const daysInM=(yr,mn)=>new Date(yr,mn,0).getDate();
     facilityUsers.forEach(u=>{
       for(let d=1;d<=daysInM(y,m);d++){
@@ -2952,9 +2971,9 @@ function useStore() {
     sbLoad("isps").then(d=>{ if(d?.length) setIsps(p=>{ const ids=d.map(x=>x.id); return [...p.filter(x=>!ids.includes(x.id)),...d.map(x=>x.data||x)]; }); });
     sbLoad("paid_leave_reqs").then(d=>{ if(d?.length) setPaidLeaveReqs(d.map(x=>x.data||x)); });
     sbLoad("qual_docs").then(d=>{ if(d?.length) setQualDocs(d.map(x=>x.data||x)); });
-    sbLoad("att_data").then(d=>{ if(d?.length){ const map={}; d.forEach(a=>{ const r=a.data||a; if(!map[r.userId]) map[r.userId]={}; map[r.userId][r.date]=r.status; }); setAtt2(p=>({...p,...map})); }});
+    sbLoad("att_data").then(d=>{ if(d?.length){ const map={}; d.forEach(a=>{ const r=a.data||{}; const uid=r.userId||a.user_id; const dt=r.date||a.att_date; const st=r.status||a.status; if(uid&&dt){ if(!map[uid]) map[uid]={}; map[uid][dt]=st; } }); setAtt2(p=>({...p,...map})); }});
     sbLoad("transport_data").then(d=>{ if(d?.length) setTrData(d.map(x=>x.data||x)); });
-    sbLoad("kokuho_data").then(d=>{ if(d?.length) setKokuho(p=>{ const ids=d.map(x=>x.id); return [...p.filter(x=>!ids.includes(x.id)),...d.map(x=>x.data||x)]; }); });
+    sbLoad("kokuho_data").then(d=>{ if(d?.length) setKokuho(p=>{ const ids=d.map(x=>x.id); return [...p.filter(x=>!ids.includes(x.id)),...d.map(x=>{ const row=x.data||{}; return { ...x, ...row, serviceDays:   row.serviceDays   ?? x.service_days   ?? 0, transportDays: row.transportDays ?? x.transport_days ?? 0, facilityId:    row.facilityId    || x.facility_id    || null, userId:        row.userId        || x.user_id        || null, userName:      row.userName      || x.user_name      || "", status:        row.status        || x.billing_status || "未請求", year:          row.year          ?? x.year           ?? null, month:         row.month         ?? x.month          ?? null, }; })]; }); });
     sbLoad("isp_drafts").then(d=>{ if(d?.length) setIspDrafts(d.map(x=>x.data||x)); });
     sbLoad("isp_records").then(d=>{ if(d?.length) setIspRecords(d.map(x=>x.data||x)); });
     sbLoad("monitoring_notes").then(d=>{ if(d?.length) setMonitoringNotes(d.map(x=>x.data||x)); });
@@ -3839,6 +3858,7 @@ function RecordListScreen({user,store,onBack}){
   const [editReason,setEditReason]=useState("");
   const [editSaving,setEditSaving]=useState(false); // 保存連打防止
   const [confirmDel,setConfirmDel]=useState(null);
+  const [deleting,setDeleting]=useState(false); // 削除二重クリック防止
 
   const facilityId=user.selectedFacilityId;
   const isMgr=user.role==="manager"||user.role==="admin";
@@ -3886,11 +3906,20 @@ function RecordListScreen({user,store,onBack}){
     store.showToast("✅ 実績を修正しました");
   };
 
-  // 削除
+  // 削除（deletingフラグで二重クリック防止・エラー時もフラグ解除）
   const doDelete=(id)=>{
-    store.delRec(id);
-    setConfirmDel(null);
-    store.showToast("削除しました","warn");
+    if(deleting) return;
+    setDeleting(true);
+    try {
+      store.delRec(id);
+      setConfirmDel(null);
+      store.showToast("削除しました","warn");
+    } catch(e) {
+      console.error("doDelete error:", e);
+      store.showToast("削除に失敗しました。管理者に確認してください。","error");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   // 日付でグループ化
@@ -4096,9 +4125,9 @@ function RecordListScreen({user,store,onBack}){
             style={{flex:1,padding:"10px",borderRadius:9,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx3)"}}>
             キャンセル
           </button>
-          <button onClick={()=>doDelete(confirmDel.id)}
-            style={{flex:1,padding:"10px",borderRadius:9,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--ro)",border:"none",color:"#fff"}}>
-            削除する
+          <button onClick={()=>doDelete(confirmDel.id)} disabled={deleting}
+            style={{flex:1,padding:"10px",borderRadius:9,fontWeight:700,fontSize:13,cursor:deleting?"not-allowed":"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--ro)",border:"none",color:"#fff",opacity:deleting?0.6:1}}>
+            {deleting?"削除中…":"削除する"}
           </button>
         </div>
       </div>
@@ -13893,6 +13922,18 @@ function HomeScreen({user,onNav,store}){
   if(ispSoonNames.length>0){
     todoItems.push({level:"info",icon:"📄",title:"ISP 期限間近（30日以内）",names:ispSoonNames,screen:"users"});
   }
+  // W5: 受給者証 期限アラート（期限切れ・30日以内・60日以内）
+  const myJkDocs=(store.jukyushaDocs||[]).filter(d=>{
+    const u=myUsers.find(u=>u.id===d.userId);
+    return u&&d.status==="有効"&&d.expiryDate;
+  });
+  const getName2=d=>myUsers.find(u=>u.id===d.userId)?.name||"不明";
+  const jkExpired=myJkDocs.filter(d=>new Date(d.expiryDate)<now2);
+  const jk30=myJkDocs.filter(d=>{const diff=Math.ceil((new Date(d.expiryDate)-now2)/(86400000));return diff>=0&&diff<=30;});
+  const jk60=myJkDocs.filter(d=>{const diff=Math.ceil((new Date(d.expiryDate)-now2)/(86400000));return diff>30&&diff<=60;});
+  if(jkExpired.length>0) todoItems.push({level:"danger",icon:"📋",title:"受給者証 期限切れ",names:jkExpired.map(getName2),screen:"users"});
+  if(jk30.length>0)      todoItems.push({level:"warn",  icon:"📋",title:"受給者証 30日以内に期限切れ",names:jk30.map(getName2),screen:"users"});
+  if(jk60.length>0)      todoItems.push({level:"info",  icon:"📋",title:"受給者証 60日以内に期限切れ",names:jk60.map(getName2),screen:"users"});
   // 管理者・施設長のみ: 職員書類アラート
   if(isMgr){
     const sdToday=new Date();
@@ -14051,7 +14092,26 @@ function HomeScreen({user,onNav,store}){
 
     <hr className="dash-divider"/>
 
-    {/* ===== クイックアクション ===== */}
+    {/* ===== W6: よく使う操作（最優先・スタッフ導線） ===== */}
+    <div className="dash-title">⚡ よく使う操作</div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+      {[
+        {id:"user_arrive", icon:"🌟", label:"来所記録"},
+        {id:"service",     icon:"📋", label:"サービス記録"},
+        {id:"transport",   icon:"🚌", label:"送迎"},
+        {id:"daily",       icon:"📓", label:"日報"},
+        {id:"parent_connect",icon:"📢",label:"欠席・連絡"},
+        {id:"messages",    icon:"💬", label:"保護者連絡"},
+      ].map(c=>(
+        <div key={c.id} onClick={()=>onNav(c.id)}
+          style={{background:"var(--wh)",border:"1.5px solid var(--bd)",borderRadius:12,padding:"12px 6px",textAlign:"center",cursor:"pointer",minHeight:70,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,userSelect:"none",WebkitTapHighlightColor:"transparent",transition:"background 0.15s"}}>
+          <div style={{fontSize:22}}>{c.icon}</div>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",lineHeight:1.2}}>{c.label}</div>
+        </div>
+      ))}
+    </div>
+
+    {/* ===== クイックアクション（全機能） ===== */}
     <div className="dash-title">Quick Actions</div>
     <div className="hg">
       {quickCards.map(c=>(
@@ -20462,17 +20522,20 @@ function ReturnsManagementScreen({user, store, onNav, onBack}){
 
 // チェック種別の日本語ラベル
 const CHECK_TYPE_LABELS = {
-  no_record_for_planned: "予定あり実績なし",
-  missing_time:          "開始・終了時刻 未入力",
-  absent_billed:         "欠席なのに請求対象",
-  short_service_time:    "利用時間が短すぎる（30分未満）",
-  transport_incomplete:  "送迎実績 未完了",
-  missing_memo:          "理由メモ 未入力",
-  duplicate_record:      "同一日に重複実績",
-  missing_service_type:  "サービス種別 未設定",
-  no_isp_for_addon:      "加算根拠（ISP）未作成",
-  jukyusha_expired:      "受給者証 有効期限切れ",
-  all_ok:                "全項目チェック済み",
+  no_record_for_planned:  "予定はありますが、実績記録がありません",
+  no_planned_for_record:  "実績はありますが、予定が登録されていません",
+  missing_time:           "開始・終了時刻が未入力です",
+  absent_billed:          "欠席日が請求日数に含まれている可能性があります",
+  short_service_time:     "利用時間が30分未満です",
+  transport_incomplete:   "送迎記録が未完了です",
+  missing_memo:           "キャンセル・遅刻・早退の理由メモが未入力です",
+  duplicate_record:       "同じ日に実績が重複して登録されています",
+  missing_service_type:   "サービス種別が未設定です",
+  missing_service_days:   "サービス提供日数が未入力です",
+  no_isp_for_addon:       "加算の根拠となる個別支援計画（ISP）が見つかりません",
+  jukyusha_expired:       "受給者証の有効期限が切れています",
+  all_ok:                 "全項目チェック済み — 問題なし",
+  unknown_error:          "不明なエラーが発生しました",
 };
 
 // ステータス表示定義
@@ -20758,11 +20821,18 @@ function BillingCheckScreen({user, store, onNav, onBack}){
       }
     </>}
 
-    {/* チェック未実行 */}
-    {checks.length===0&&<div style={{textAlign:"center",padding:"48px 20px",color:"var(--tx3)",fontSize:13,background:"var(--wh)",borderRadius:12,border:"1px solid var(--bd)"}}>
-      <div style={{fontSize:32,marginBottom:10}}>🔍</div>
-      「チェック実行」を押すと10項目を自動チェックします
-    </div>}
+    {/* チェック未実行 / 実行中 */}
+    {checks.length===0&&(running
+      ?<div style={{textAlign:"center",padding:"48px 20px",color:"var(--tl)",fontSize:13,background:"var(--wh)",borderRadius:12,border:"1px solid var(--bd)"}}>
+        <div style={{fontSize:36,marginBottom:12,animation:"spin 1.2s linear infinite",display:"inline-block"}}>⏳</div>
+        <div style={{fontWeight:700,marginBottom:4}}>チェック中です…</div>
+        <div style={{color:"var(--tx3)"}}>利用者データを10項目チェックしています。しばらくお待ちください。</div>
+      </div>
+      :<div style={{textAlign:"center",padding:"48px 20px",color:"var(--tx3)",fontSize:13,background:"var(--wh)",borderRadius:12,border:"1px solid var(--bd)"}}>
+        <div style={{fontSize:32,marginBottom:10}}>🔍</div>
+        「チェック実行」を押すと10項目を自動チェックします
+      </div>
+    )}
 
     {/* ── 利用者ごとの結果カード ── */}
     {Object.entries(userResults)
@@ -21850,6 +21920,9 @@ export default function App(){
   const [sbOpen,setSbOpen]=useState(false);
   const [sessionWarn,setSessionWarn]=useState(false); // 55分警告モーダル
   const store=useStore();
+
+  // ネットワークエラーをトーストで通知できるよう、モジュール変数に登録
+  useEffect(()=>{ _sbErrCb=(m,t)=>store.showToast(m,t); },[]);
 
   const logout=()=>{
     localStorage.removeItem('gogroup_user');
