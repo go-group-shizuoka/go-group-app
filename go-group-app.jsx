@@ -82,6 +82,8 @@ const ACCOUNTS = [
   { id: "a7", username: "town1mgr", password: "town1", role: "manager", staffId: "s9", facilityId: "f3", displayName: "小林 恵（GO TOWN 1ST）" },
   { id: "a8", username: "town2mgr", password: "town2", role: "manager", staffId: "s12", facilityId: "f4", displayName: "松本 浩二（GO TOWN 2ND）" },
   { id: "a9", username: "admin", password: "bells", role: "admin", staffId: null, facilityId: null, displayName: "本部管理者" },
+  // 保護者テスト用アカウント（利用者Aの保護者）
+  { id: "a10", username: "parent1", password: "parent", role: "parent", childId: "u1", childName: "利用者 A", facilityId: "f1", selectedFacilityId: "f1", displayName: "利用者A 保護者" },
 ];
 const ACTIVITY_TYPES = ["個別支援","集団療育","運動療育","言語療育","学習支援","リハビリ","外出支援","イベント","制作活動","その他"];
 const SERVICE_ITEMS = ["着替え支援","排泄支援","食事支援","水分補給","服薬確認","健康観察","個別療育","集団活動","運動・体操","学習支援","創作活動","外出・散歩","コミュニケーション支援","その他"];
@@ -2163,7 +2165,7 @@ function useStore() {
   // Supabaseからデータ読み込み
   const loadFromSupabase = async (setRecs, setMsgs, setDailyReports, setDynUsers, setDynStaff) => {
     try {
-      const [recs, msgs, reports, users, staff, svcRecs, claims, locks, auditLogsDb, spPlans, pContacts, stAtt, ispLogs, billItems, addItems, kintaiCorr, tpLogs, anncs, anncReads, survs, survResps, absRpts, staffDocsDb, staffDocAuditDb, staffDocNotifsDb, staffDocRequestsDb] = await Promise.all([
+      const [recs, msgs, reports, users, staff, svcRecs, claims, locks, auditLogsDb, spPlans, pContacts, stAtt, ispLogs, billItems, addItems, kintaiCorr, tpLogs, anncs, anncReads, survs, survResps, absRpts, staffDocsDb, staffDocAuditDb, staffDocNotifsDb, staffDocRequestsDb, photoAlbumsDb] = await Promise.all([
         sbLoad("records"),
         sbLoad("messages"),
         sbLoad("daily_reports"),
@@ -2190,6 +2192,7 @@ function useStore() {
         sbLoad("staff_doc_audit_log"),
         sbLoad("staff_doc_notifications"),
         sbLoad("staff_doc_update_requests"),
+        sbLoad("photo_albums"),
       ]);
       if(pContacts&&pContacts.length>0) setParentContacts(pContacts.map(r=>({...r,...(r.data||{})})));
       if(stAtt&&stAtt.length>0) setStaffAttendance(stAtt.map(r=>({...r,...(r.data||{})})));
@@ -2221,6 +2224,12 @@ function useStore() {
         adminCheckedBy:r.admin_checked_by, adminCheckedAt:r.admin_checked_at,
       })));
       if(staffDocAuditDb&&staffDocAuditDb.length>0) setStaffDocAuditLogs(staffDocAuditDb);
+      if(photoAlbumsDb&&photoAlbumsDb.length>0) setPhotoAlbums(photoAlbumsDb.map(r=>({
+        ...r,...(r.data||{}),
+        facilityId:r.facility_id, takenDate:r.taken_date, isShared:r.is_shared||false,
+        sharedAt:r.shared_at, createdBy:r.created_by, createdAt:r.created_at,
+        childIds:typeof r.child_ids==="string"?JSON.parse(r.child_ids||"[]"):(r.child_ids||[]),
+      })));
       if(staffDocNotifsDb&&staffDocNotifsDb.length>0) setStaffDocNotifs(staffDocNotifsDb.map(r=>({
         ...r, staffId:r.staff_id, staffDocId:r.staff_doc_id,
         notifType:r.notif_type, isRead:r.is_read||false, readAt:r.read_at,
@@ -3071,6 +3080,26 @@ function useStore() {
     sbSave("absence_reports", {id:r.id,child_id:r.childId,child_name:r.childName||null,facility_id:r.facilityId,absence_date:r.absenceDate,reason:r.reason||null,contact_method:r.contactMethod||null,status:r.status||"受付",staff_note:r.staffNote||null,data:r});
   };
 
+  // ─── 写真アルバム ───
+  const [photoAlbums, setPhotoAlbums] = useState([]);
+  const savePhotoAlbum = album => {
+    setPhotoAlbums(p=>{ const ex=p.find(x=>x.id===album.id); return ex?p.map(x=>x.id===album.id?{...x,...album}:x):[...p,album]; });
+    sbSave("photo_albums",{
+      id:album.id, facility_id:album.facilityId, title:album.title||null,
+      description:album.description||null, taken_date:album.takenDate||null,
+      child_ids:JSON.stringify(album.childIds||[]),
+      photo_count:album.photos?.length||0,
+      is_shared:album.isShared||false, shared_at:album.sharedAt||null,
+      created_by:album.createdBy||null,
+      created_at:album.createdAt||new Date().toISOString(),
+      data:album,
+    });
+  };
+  const delPhotoAlbum = id => {
+    setPhotoAlbums(p=>p.filter(x=>x.id!==id));
+    sbDelete("photo_albums",id);
+  };
+
   // ─── 送迎ログ（リアルタイム乗降記録）───
   const [transportLogs, setTransportLogs] = useState([]);
   const saveTransportLog = log => {
@@ -3262,7 +3291,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum};
 }
 
 
@@ -12916,6 +12945,7 @@ function HomeScreen({user,onNav,store}){
     {id:"kintai_dash",   icon:"⏱",title:"勤怠ダッシュボード",desc:"出勤・36協定・修正申請",cls:"c8"},
     {id:"activity_ai",   icon:"🤖",title:"AI活動記録",      desc:"AI文章自動生成",        cls:"c6"},
     {id:"parent_contacts",icon:"💬",title:"保護者連絡",     desc:"通知・メッセージ管理",  cls:"c5"},
+    {id:"photo_album",   icon:"📸",title:"写真アルバム",    desc:"活動写真・保護者共有",  cls:"c3"},
     // 管理者・マネージャーのみ表示
     ...(isMgr?[
       {id:"billing_mgmt",   icon:"💴",title:"請求管理",       desc:"加算・集計・CSV出力",  cls:"c1"},
@@ -14320,6 +14350,7 @@ function ParentContactsScreen({user, store, onBack}){
   const [editId,setEditId]=useState(null);
   const [form,setForm]=useState({parent_name:"",line_user_id:"",phone:"",email:"",notification_enabled:true});
   const [sendConfirm,setSendConfirm]=useState(null); // {userId, message} 誤送信防止確認
+  const [lineSending,setLineSending]=useState(false);
 
   const getContact=uid=>(store.parentContacts||[]).find(c=>c.child_id===uid)||{child_id:uid,notification_enabled:true};
 
@@ -14429,8 +14460,24 @@ function ParentContactsScreen({user, store, onBack}){
         <div style={{fontSize:11,color:"var(--ro)",marginBottom:14}}>⚠️ 送信後の取り消しはできません。内容を確認してください。</div>
         <div style={{display:"flex",gap:10}}>
           <button style={{flex:1,padding:"12px",borderRadius:10,border:"none",background:"var(--tl)",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}
-            onClick={()=>{store.showToast("通知を送信しました（開発中：実際のLINE送信はPhase2で実装）","success");setSendConfirm(null);}}>
-            ✅ 送信する
+            onClick={async()=>{
+              setLineSending(true);
+              const u=myUsers.find(x=>x.id===sendConfirm.userId);
+              const contact=getContact(sendConfirm.userId);
+              const lineId=u?.lineUserId||contact?.line_user_id;
+              if(lineId){
+                try{
+                  await fetch("/api/line-push",{method:"POST",headers:{"Content-Type":"application/json"},
+                    body:JSON.stringify({lineUserId:lineId,message:sendConfirm.message})});
+                  store.showToast("LINE通知を送信しました","success");
+                }catch(e){store.showToast("LINE送信エラー。アプリ内通知のみ送信しました","warn");}
+              } else {
+                store.showToast("通知を記録しました（LINE未登録のためアプリ内のみ）","success");
+              }
+              store.addMsg({id:genId(),userId:sendConfirm.userId,userName:u?.name||"",facilityId,from:user.displayName,body:sendConfirm.message,time:nowStr(),read:true,parentRead:false,parentReadAt:null,replies:[],isBroadcast:false,isUrgent:false});
+              setLineSending(false);setSendConfirm(null);
+            }}>
+            {lineSending?"送信中...":"✅ 送信する"}
           </button>
           <button style={{flex:1,padding:"12px",borderRadius:10,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}
             onClick={()=>setSendConfirm(null)}>キャンセル</button>
@@ -16406,6 +16453,285 @@ function StaffDocumentScreen({user, store, onBack}){
   </div>;
 }
 
+// ==================== 写真アルバム ====================
+// 活動写真を保護者に共有するアルバム機能
+
+function PhotoAlbumScreen({user, store, onBack}){
+  const facilityId=user.selectedFacilityId;
+  const [mode,setMode]=useState("list"); // list|create|view
+  const [viewAlbum,setViewAlbum]=useState(null);
+  const [form,setForm]=useState({title:"",description:"",takenDate:todayISO(),childIds:[],photos:[],isShared:false});
+  const [saving,setSaving]=useState(false);
+  const fileRef=useRef();
+
+  const myAlbums=(store.photoAlbums||[]).filter(a=>a.facilityId===facilityId||user.role==="admin")
+    .sort((a,b)=>(b.takenDate||b.createdAt||"")>(a.takenDate||a.createdAt||"")?1:-1);
+  const myUsers=store.dynUsers.filter(u=>(user.role==="admin"||u.facilityId===facilityId)&&u.active!==false);
+
+  const addPhotos=e=>{
+    const files=Array.from(e.target.files||[]);
+    files.forEach(file=>{
+      const reader=new FileReader();
+      reader.onload=ev=>{
+        setForm(p=>({...p,photos:[...p.photos,{id:genId(),url:ev.target.result,name:file.name,size:file.size}]}));
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removePhoto=id=>setForm(p=>({...p,photos:p.photos.filter(ph=>ph.id!==id)}));
+  const toggleChild=cid=>setForm(p=>({...p,childIds:p.childIds.includes(cid)?p.childIds.filter(x=>x!==cid):[...p.childIds,cid]}));
+
+  const saveAlbum=()=>{
+    if(!form.title.trim()){store.showToast("タイトルを入力してください","error");return;}
+    if(form.photos.length===0){store.showToast("写真を1枚以上追加してください","error");return;}
+    setSaving(true);
+    const album={id:genId(),facilityId,...form,createdBy:user.displayName,createdAt:new Date().toISOString(),sharedAt:form.isShared?new Date().toISOString():null};
+    store.savePhotoAlbum(album);
+    store.showToast("アルバムを保存しました","success");
+    setSaving(false);
+    setMode("list");
+    setForm({title:"",description:"",takenDate:todayISO(),childIds:[],photos:[],isShared:false});
+  };
+
+  const toggleShare=album=>{
+    const updated={...album,isShared:!album.isShared,sharedAt:!album.isShared?new Date().toISOString():null};
+    store.savePhotoAlbum(updated);
+    store.showToast(updated.isShared?"保護者に公開しました":"非公開にしました");
+  };
+
+  const doDelete=album=>{
+    if(!window.confirm(`「${album.title}」を削除しますか？\nこの操作は取り消せません。`))return;
+    store.delPhotoAlbum(album.id);
+    store.showToast("アルバムを削除しました","warn");
+    if(viewAlbum?.id===album.id)setViewAlbum(null);
+    setMode("list");
+  };
+
+  // ── 新規作成フォーム ──
+  if(mode==="create") return(
+    <div className="fl-wrap">
+      <div className="fl-hd">
+        <button className="bback" onClick={()=>setMode("list")}>← 戻る</button>
+        <div className="fl-title">📸 新規アルバム作成</div>
+      </div>
+      <div className="slbl">タイトル</div>
+      <input className="fi" value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} placeholder="例：水遊び活動 / 工作の時間"/>
+      <div className="slbl">活動日</div>
+      <input type="date" className="fi" value={form.takenDate} onChange={e=>setForm(p=>({...p,takenDate:e.target.value}))}/>
+      <div className="slbl">説明（任意）</div>
+      <textarea className="fta" rows={2} value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} placeholder="活動の内容・コメント"/>
+
+      <div className="slbl">対象児童（任意）</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>
+        {myUsers.map(u=>{
+          const sel=form.childIds.includes(u.id);
+          return <button key={u.id} onClick={()=>toggleChild(u.id)}
+            style={{padding:"5px 12px",borderRadius:20,border:`1.5px solid ${sel?"var(--tl)":"var(--bd)"}`,background:sel?"rgba(58,160,216,0.1)":"var(--wh)",color:sel?"var(--tl)":"var(--tx2)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+            {u.name}
+          </button>;
+        })}
+      </div>
+
+      <div className="slbl">写真追加</div>
+      <input ref={fileRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={addPhotos}/>
+      <button style={{width:"100%",padding:"14px",border:"2px dashed var(--bd)",borderRadius:12,background:"var(--bg2)",color:"var(--tl)",fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:14,fontFamily:"'Noto Sans JP',sans-serif"}}
+        onClick={()=>fileRef.current?.click()}>
+        📷 写真を選択（複数可）
+      </button>
+      {form.photos.length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+        {form.photos.map(ph=>(
+          <div key={ph.id} style={{position:"relative",aspectRatio:"1",borderRadius:10,overflow:"hidden",background:"#000"}}>
+            <img src={ph.url} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>
+            <button onClick={()=>removePhoto(ph.id)} style={{position:"absolute",top:4,right:4,width:22,height:22,borderRadius:"50%",background:"rgba(0,0,0,0.6)",border:"none",color:"#fff",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+          </div>
+        ))}
+      </div>}
+
+      <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"var(--tx2)",cursor:"pointer",marginBottom:16}}>
+        <input type="checkbox" checked={form.isShared} onChange={e=>setForm(p=>({...p,isShared:e.target.checked}))}/>
+        保護者に公開する（作成時から共有）
+      </label>
+      <button className="bsave" style={{width:"100%"}} onClick={saveAlbum} disabled={saving}>
+        {saving?"保存中...":"💾 アルバムを保存"}
+      </button>
+    </div>
+  );
+
+  // ── アルバム詳細 ──
+  if(mode==="view"&&viewAlbum) return(
+    <div className="fl-wrap">
+      <div className="fl-hd">
+        <button className="bback" onClick={()=>setMode("list")}>← 戻る</button>
+        <div className="fl-title">{viewAlbum.title}</div>
+      </div>
+      <div style={{fontSize:12,color:"var(--tx3)",marginBottom:4}}>{viewAlbum.takenDate} · {viewAlbum.photos?.length||0}枚</div>
+      {viewAlbum.description&&<div style={{fontSize:13,color:"var(--tx2)",marginBottom:12,background:"var(--bg2)",borderRadius:8,padding:"10px"}}>{viewAlbum.description}</div>}
+      {(viewAlbum.childIds||[]).length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+        {viewAlbum.childIds.map(cid=>{
+          const c=myUsers.find(u=>u.id===cid);
+          return c?<span key={cid} style={{padding:"2px 10px",borderRadius:20,background:"rgba(58,160,216,0.1)",color:"var(--tl)",fontSize:11,fontWeight:700}}>{c.name}</span>:null;
+        })}
+      </div>}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:16}}>
+        {(viewAlbum.photos||[]).map(ph=>(
+          <div key={ph.id} style={{aspectRatio:"1",borderRadius:10,overflow:"hidden",background:"#000",cursor:"pointer"}}
+            onClick={()=>{const w=window.open("","_blank");if(!w)return;w.document.write(`<html><body style="margin:0;background:#000"><img src="${ph.url}" style="max-width:100vw;max-height:100vh;object-fit:contain"/></body></html>`);w.document.close();}}>
+            <img src={ph.url} style={{width:"100%",height:"100%",objectFit:"cover"}} alt={ph.name||""}/>
+          </div>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>toggleShare(viewAlbum)} style={{flex:1,padding:"10px",borderRadius:10,border:`1.5px solid ${viewAlbum.isShared?"var(--ro)":"var(--gr)"}`,background:viewAlbum.isShared?"rgba(224,56,56,0.07)":"rgba(44,170,96,0.07)",color:viewAlbum.isShared?"var(--ro)":"var(--gr)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+          {viewAlbum.isShared?"🔒 非公開にする":"📢 保護者に公開"}
+        </button>
+        <button onClick={()=>doDelete(viewAlbum)} style={{padding:"10px 14px",borderRadius:10,border:"1.5px solid rgba(224,56,56,0.3)",background:"rgba(224,56,56,0.07)",color:"var(--ro)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🗑️</button>
+      </div>
+    </div>
+  );
+
+  // ── 一覧 ──
+  return(
+    <div className="fl-wrap">
+      <div className="fl-hd">
+        <button className="bback" onClick={onBack}>← 戻る</button>
+        <div className="fl-title">📸 写真アルバム</div>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:12,color:"var(--tx3)"}}>{myAlbums.length}件のアルバム</div>
+        <button className="bsave" style={{padding:"8px 14px",fontSize:12}} onClick={()=>setMode("create")}>＋ 新規作成</button>
+      </div>
+      {myAlbums.length===0&&<div style={{textAlign:"center",padding:"60px 0",color:"var(--tx3)"}}>
+        <div style={{fontSize:48,marginBottom:12}}>📸</div>
+        <div>アルバムがありません<br/><span style={{fontSize:12}}>「＋ 新規作成」から活動写真を追加できます</span></div>
+      </div>}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+        {myAlbums.map(album=>(
+          <div key={album.id} style={{background:"var(--wh)",border:"1.5px solid var(--bd)",borderRadius:12,overflow:"hidden",cursor:"pointer"}} onClick={()=>{setViewAlbum(album);setMode("view");}}>
+            <div style={{aspectRatio:"16/9",background:"#1e293b",overflow:"hidden",position:"relative"}}>
+              {album.photos?.[0]?.url
+                ?<img src={album.photos[0].url} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>
+                :<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:"#64748b",fontSize:28}}>📷</div>}
+              {album.isShared&&<div style={{position:"absolute",top:6,right:6,background:"rgba(44,170,96,0.9)",color:"#fff",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>📢 公開中</div>}
+              {album.photos?.length>1&&<div style={{position:"absolute",bottom:6,right:6,background:"rgba(0,0,0,0.6)",color:"#fff",borderRadius:20,padding:"2px 8px",fontSize:10}}>+{album.photos.length-1}</div>}
+            </div>
+            <div style={{padding:"10px"}}>
+              <div style={{fontWeight:700,fontSize:13,color:"var(--tx)",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{album.title}</div>
+              <div style={{fontSize:11,color:"var(--tx3)"}}>{album.takenDate} · {album.photos?.length||0}枚</div>
+              {(album.childIds||[]).length>0&&<div style={{fontSize:10,color:"var(--tl)",marginTop:2}}>{(album.childIds||[]).length}名</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ==================== 保護者ポータル ====================
+// role="parent" でログインした保護者が自分の子のメッセージ・お知らせを閲覧
+
+function ParentPortalScreen({user, store, onBack}){
+  const [tab,setTab]=useState("messages"); // messages|announcements|absence
+  const today=todayISO();
+
+  // 保護者に紐づく子供の特定（userのchildIdフィールドから）
+  const childId=user.childId||null;
+  const childName=user.childName||user.displayName||"お子様";
+  const facilityId=user.facilityId||user.selectedFacilityId;
+
+  // 自分の子のメッセージ
+  const myMsgs=(store.msgs||[]).filter(m=>m.userId===childId).sort((a,b)=>a.time>b.time?1:-1);
+  // お知らせ
+  const myAnns=(store.announcements||[]).filter(a=>a.facilityId===facilityId&&
+    (a.targetIds?.length===0||a.targetIds?.includes(childId))).sort((a,b)=>b.id>a.id?1:-1);
+  // 欠席連絡フォーム
+  const [absDate,setAbsDate]=useState(today);
+  const [absReason,setAbsReason]=useState("");
+  const [absSent,setAbsSent]=useState(false);
+
+  const submitAbsence=()=>{
+    if(!absReason.trim()){alert("欠席理由を入力してください");return;}
+    store.saveAbsenceReport({id:genId(),childId,childName,facilityId,absenceDate:absDate,reason:absReason,contactMethod:"ポータル",status:"受付",createdAt:new Date().toISOString()});
+    setAbsSent(true);setAbsReason("");
+    store.showToast("欠席連絡を送信しました","success");
+  };
+
+  return(
+    <div className="fl-wrap">
+      <div className="fl-hd">
+        <div className="fl-title">👪 保護者ポータル</div>
+      </div>
+      <div style={{background:"rgba(58,160,216,0.07)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"var(--tl)"}}>
+        こんにちは！ <strong>{childName}</strong> さんの保護者の方へ
+      </div>
+
+      <div style={{display:"flex",gap:6,marginBottom:14}}>
+        {[{id:"messages",label:"連絡帳"},{id:"announcements",label:"お知らせ"},{id:"absence",label:"欠席連絡"}].map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)}
+            style={{flex:1,padding:"8px 4px",borderRadius:9,border:`2px solid ${tab===t.id?"var(--tl)":"var(--bd)"}`,background:tab===t.id?"rgba(58,160,216,0.1)":"var(--wh)",color:tab===t.id?"var(--tl)":"var(--tx2)",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 連絡帳 */}
+      {tab==="messages"&&<div>
+        {myMsgs.length===0
+          ?<div style={{textAlign:"center",padding:"40px 0",color:"var(--tx3)"}}>メッセージはありません</div>
+          :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {myMsgs.map(m=>{
+              const isStaff=m.from!=="保護者"&&!m.from?.includes("保護者");
+              return(
+                <div key={m.id} style={{display:"flex",justifyContent:isStaff?"flex-start":"flex-end"}}>
+                  <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:isStaff?"4px 14px 14px 14px":"14px 4px 14px 14px",background:isStaff?"var(--wh)":"rgba(58,160,216,0.15)",border:`1px solid ${isStaff?"var(--bd)":"rgba(58,160,216,0.3)"}`,fontSize:13}}>
+                    {isStaff&&<div style={{fontSize:10,color:"var(--tl)",fontWeight:700,marginBottom:4}}>{m.from}</div>}
+                    {m.body&&<div style={{lineHeight:1.6}}>{m.body}</div>}
+                    {m.photoData&&<img src={m.photoData} style={{maxWidth:200,borderRadius:8,marginTop:6}} alt="添付写真"/>}
+                    <div style={{fontSize:10,color:"var(--tx3)",marginTop:4,textAlign:"right"}}>{m.time}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        }
+      </div>}
+
+      {/* お知らせ */}
+      {tab==="announcements"&&<div>
+        {myAnns.length===0
+          ?<div style={{textAlign:"center",padding:"40px 0",color:"var(--tx3)"}}>お知らせはありません</div>
+          :myAnns.map(a=>(
+            <div key={a.id} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"14px",marginBottom:10}}>
+              {a.isUrgent&&<div style={{fontSize:11,color:"var(--ro)",fontWeight:700,marginBottom:4}}>🚨 緊急連絡</div>}
+              <div style={{fontWeight:700,fontSize:14,marginBottom:6}}>{a.title}</div>
+              <div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.7,marginBottom:8}}>{a.body}</div>
+              <div style={{fontSize:11,color:"var(--tx3)"}}>{a.category} · {a.createdAt}</div>
+            </div>
+          ))
+        }
+      </div>}
+
+      {/* 欠席連絡 */}
+      {tab==="absence"&&<div>
+        {absSent&&<div style={{background:"rgba(44,170,96,0.1)",border:"1px solid var(--gr)",borderRadius:10,padding:"12px",marginBottom:12,fontSize:13,color:"var(--gr)",fontWeight:700}}>✅ 欠席連絡を送信しました</div>}
+        <div className="slbl">欠席日</div>
+        <input type="date" className="fi" value={absDate} onChange={e=>setAbsDate(e.target.value)} min={today}/>
+        <div className="slbl">欠席理由</div>
+        <textarea className="fta" rows={3} value={absReason} onChange={e=>setAbsReason(e.target.value)} placeholder="例：発熱のため / 通院のため"/>
+        <button className="bsave" style={{width:"100%",marginTop:8}} onClick={submitAbsence}>📨 欠席を連絡する</button>
+        <div style={{marginTop:24,fontWeight:700,fontSize:13,marginBottom:10}}>欠席連絡の履歴</div>
+        {(store.absenceReports||[]).filter(r=>r.childId===childId).sort((a,b)=>b.absenceDate>a.absenceDate?1:-1).slice(0,10).map(r=>(
+          <div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid var(--bg)",fontSize:12}}>
+            <span>{r.absenceDate}</span>
+            <span style={{color:"var(--tx2)"}}>{r.reason}</span>
+            <span style={{padding:"2px 8px",borderRadius:20,fontSize:11,fontWeight:700,background:r.status==="確認済"?"rgba(44,170,96,0.1)":"var(--bg2)",color:r.status==="確認済"?"var(--gr)":"var(--tx3)"}}>{r.status}</span>
+          </div>
+        ))}
+      </div>}
+    </div>
+  );
+}
+
 // ==================== 保護者連絡強化 ====================
 // お知らせ管理・既読確認・アンケート・欠席連絡受付
 
@@ -16680,9 +17006,16 @@ function ParentConnectScreen({user, store, onNav, onBack}) {
                   <span style={{fontSize:11,color:"var(--tx3)"}}>{ann.createdAt}</span>
                 </div>
                 <div style={{fontWeight:700,fontSize:13,marginBottom:4}}>{ann.title}</div>
-                <div style={{fontSize:11,color:"var(--tx3)",display:"flex",justifyContent:"space-between"}}>
-                  <span>{ann.body.slice(0,40)}{ann.body.length>40?"…":""}</span>
-                  <span style={{color:readCnt>=target?"var(--gr)":"var(--ac)",fontWeight:700}}>既読 {readCnt}/{target}</span>
+                <div style={{fontSize:11,color:"var(--tx3)",marginBottom:6}}>{ann.body.slice(0,50)}{ann.body.length>50?"…":""}</div>
+                {/* 既読率プログレスバー */}
+                <div style={{marginTop:4}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:readCnt>=target?"var(--gr)":"var(--ac)",fontWeight:700,marginBottom:3}}>
+                    <span>既読 {readCnt}/{target}名</span>
+                    <span>{target>0?Math.round(readCnt/target*100):0}%</span>
+                  </div>
+                  <div style={{height:5,background:"var(--bg)",borderRadius:10,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${target>0?Math.round(readCnt/target*100):0}%`,background:readCnt>=target?"var(--gr)":"var(--tl)",borderRadius:10,transition:"width 0.4s"}}/>
+                  </div>
                 </div>
               </div>;
             })
@@ -20357,10 +20690,12 @@ export default function App(){
     management_dash:"経営ダッシュボード",
     audit_mode:"監査ログ",
     staff_documents:"職員書類管理",
+    photo_album:"写真アルバム",
+    parent_portal:"保護者ポータル",
   };
 
   const render=()=>{switch(screen){
-    case "home":return <HomeScreen user={user} onNav={setScreen} store={store}/>;
+    case "home":return user.role==="parent"?<ParentPortalScreen user={user} store={store} onBack={()=>{}}/>:<HomeScreen user={user} onNav={setScreen} store={store}/>;
     case "clock_in":return <StaffClockIn user={user} onBack={()=>setScreen("home")} store={store}/>;
     case "clock_out":return <StaffClockOut user={user} onBack={()=>setScreen("home")} store={store}/>;
     case "user_arrive":return <UserArrive user={user} onBack={()=>setScreen("home")} store={store}/>;
@@ -20399,6 +20734,8 @@ export default function App(){
     case "activity_ai":return <ActivityAIScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
     case "management_dash":return <ManagementDashboardScreen user={user} store={store} onNav={setScreen} onBack={()=>setScreen("home")}/>;
     case "audit_mode":return <AuditModeScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
+    case "photo_album":return <PhotoAlbumScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
+    case "parent_portal":return <ParentPortalScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
     default:return <HomeScreen user={user} onNav={setScreen} store={store}/>;
   }};
 
