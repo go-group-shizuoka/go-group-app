@@ -7414,57 +7414,77 @@ function jukyushaStatus(expiryDate) {
 
 // ==================== ① 受給者証OCRタブ ====================
 function JukyushaTab({u, user, store}) {
-  const [mode, setMode] = useState("list"); // list | scan | result | edit
+  const [mode, setMode] = useState("list"); // list | scan | result
   const [scanning, setScanning] = useState(false);
-  const [preview, setPreview] = useState(null);
+  // 写真は最大3枚。各要素: { previewUrl: string, base64: string }
+  const [photos, setPhotos] = useState([]);
   const [ocrResult, setOcrResult] = useState(null);
   const [ocrError, setOcrError] = useState("");
   const [form, setForm] = useState({});
-  const fileRef = useRef(null);
+  const fileRef  = useRef(null); // 写真1（OCR用）
+  const fileRef2 = useRef(null); // 写真2
+  const fileRef3 = useRef(null); // 写真3
 
   const myDocs = (store.jukyushaDocs||[]).filter(d=>d.userId===u.id).sort((a,b)=>b.scanDate>a.scanDate?1:-1);
 
-  // ファイル選択 → OCR実行
-  const handleFile = async (file) => {
+  // ファイル選択 → slot=0のみOCR実行、slot=1,2は写真追加のみ
+  const handleFile = async (file, slot=0) => {
     if (!file) return;
     if (!checkFileSize(file)) return; // 5MB上限チェック
-    setOcrError("");
-    setPreview(URL.createObjectURL(file));
-    setScanning(true);
-    setMode("scan");
-    try {
-      const base64 = await fileToBase64(file);
-      const res = await fetch("/api/ocr", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ imageBase64: base64, mediaType: file.type, mode: "jukyusha" })
-      });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setOcrResult(data.data);
-        setForm({
-          name: data.data.name || u.name || "",
-          nameKana: data.data.nameKana || "",
-          jukyushaNo: data.data.jukyushaNo || "",
-          city: data.data.city || "",
-          expiryDate: data.data.expiryDate || "",
-          serviceType: data.data.serviceType || "",
-          serviceAmount: data.data.serviceAmount || "",
-          maxBurden: data.data.maxBurden || "",
-          startDate: data.data.startDate || "",
+    const previewUrl = URL.createObjectURL(file);
+    const base64 = await fileToBase64(file);
+
+    if (slot === 0) {
+      // 写真1: OCR実行
+      setOcrError("");
+      setPhotos([{previewUrl, base64}]);
+      setScanning(true);
+      setMode("scan");
+      try {
+        const res = await fetch("/api/ocr", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ imageBase64: base64, mediaType: file.type, mode: "jukyusha" })
         });
+        const data = await res.json();
+        if (data.success && data.data) {
+          setOcrResult(data.data);
+          setForm({
+            name: data.data.name || u.name || "",
+            nameKana: data.data.nameKana || "",
+            jukyushaNo: data.data.jukyushaNo || "",
+            city: data.data.city || "",
+            expiryDate: data.data.expiryDate || "",
+            serviceType: data.data.serviceType || "",
+            serviceAmount: data.data.serviceAmount || "",
+            maxBurden: data.data.maxBurden || "",
+            startDate: data.data.startDate || "",
+          });
+          setMode("result");
+        } else {
+          setOcrError(data.error || "OCRの解析に失敗しました。手動で入力してください。");
+          setForm({ name: u.name || "", jukyushaNo: u.jukyushaNo || "", city: u.jukyushaCity || "", expiryDate: u.jukyushaExpiry || "" });
+          setMode("result");
+        }
+      } catch(e) {
+        setOcrError("通信エラー: " + e.message);
         setMode("result");
-      } else {
-        setOcrError(data.error || "OCRの解析に失敗しました。手動で入力してください。");
-        setForm({ name: u.name || "", jukyushaNo: u.jukyushaNo || "", city: u.jukyushaCity || "", expiryDate: u.jukyushaExpiry || "" });
-        setMode("result");
+      } finally {
+        setScanning(false);
       }
-    } catch(e) {
-      setOcrError("通信エラー: " + e.message);
-      setMode("result");
-    } finally {
-      setScanning(false);
+    } else {
+      // 写真2・3: OCRなし、そのまま追加（最大3枚）
+      setPhotos(p => {
+        const arr = [...p];
+        arr[slot] = {previewUrl, base64};
+        return arr.slice(0, 3);
+      });
     }
+  };
+
+  // 写真を1枚削除（slotを詰める）
+  const removePhoto = (idx) => {
+    setPhotos(p => p.filter((_,i)=>i!==idx));
   };
 
   // 保存
@@ -7478,7 +7498,9 @@ function JukyushaTab({u, user, store}) {
       serviceType: form.serviceType, serviceAmount: form.serviceAmount,
       maxBurden: form.maxBurden ? parseInt(form.maxBurden) : null,
       startDate: form.startDate, status: "有効",
-      imagePreview: preview, ocrData: ocrResult,
+      imagePreview: photos[0]?.base64 || null,        // 後方互換（1枚目）
+      imagePreviews: photos.map(p=>p.base64),         // 全写真（最大3枚）
+      ocrData: ocrResult,
       createdBy: user.displayName
     };
     // 旧受給者証を「旧」に変更
@@ -7486,8 +7508,8 @@ function JukyushaTab({u, user, store}) {
     store.addJukyushaDoc(doc);
     // 利用者の受給者証情報も更新
     store.updUser2(u.id, { jukyushaNo: form.jukyushaNo, jukyushaCity: form.city, jukyushaExpiry: form.expiryDate });
-    store.showToast("✅ 受給者証を保存しました");
-    setMode("list"); setPreview(null); setOcrResult(null);
+    store.showToast("✅ 受給者証を保存しました（" + photos.length + "枚）");
+    setMode("list"); setPhotos([]); setOcrResult(null);
   };
 
   const upd = (k,v) => setForm(p=>({...p,[k]:v}));
@@ -7501,7 +7523,7 @@ function JukyushaTab({u, user, store}) {
           📷 受給者証を撮影・読取
         </button>
         <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}}
-          onChange={e=>handleFile(e.target.files[0])}/>
+          onChange={e=>{ handleFile(e.target.files[0], 0); e.target.value=""; }}/>
       </div>
 
       {/* APIキー未設定の場合の案内 */}
@@ -7520,6 +7542,8 @@ function JukyushaTab({u, user, store}) {
 
       {myDocs.map(doc => {
         const st = jukyushaStatus(doc.expiryDate);
+        // imagePreviews（新）または imagePreview（旧）から写真リストを取得
+        const docPhotos = doc.imagePreviews?.length > 0 ? doc.imagePreviews : (doc.imagePreview ? [doc.imagePreview] : []);
         return (
           <div key={doc.id} className={`jukyusha-card ${st==="expired"?"expired":st==="warn"?"expiring":""}`}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
@@ -7527,6 +7551,7 @@ function JukyushaTab({u, user, store}) {
                 <div style={{fontSize:12,fontWeight:900,color:"var(--tx)",marginBottom:2}}>
                   {doc.status==="有効"?"✅ 現行受給者証":doc.status==="旧"?"📁 旧受給者証":"📄"}
                   <span style={{marginLeft:6,fontSize:10,color:"var(--tx3)"}}>{doc.scanDate}</span>
+                  {docPhotos.length > 0 && <span style={{marginLeft:6,fontSize:10,color:"var(--tx3)"}}>📷{docPhotos.length}枚</span>}
                 </div>
                 <div style={{fontSize:11,color:"var(--tx2)"}}>受給者証番号: <strong>{doc.jukyushaNo||"—"}</strong></div>
               </div>
@@ -7538,6 +7563,16 @@ function JukyushaTab({u, user, store}) {
             <div className="ocr-result-row"><span className="ocr-result-label">自治体</span><span className="ocr-result-val">{doc.city||"—"}</span></div>
             <div className="ocr-result-row"><span className="ocr-result-label">支給量</span><span className="ocr-result-val">{doc.serviceAmount||"—"}</span></div>
             <div className="ocr-result-row" style={{borderBottom:"none"}}><span className="ocr-result-label">負担上限月額</span><span className="ocr-result-val">{doc.maxBurden!=null?doc.maxBurden+"円":"—"}</span></div>
+            {/* 写真サムネイル表示（最大3枚） */}
+            {docPhotos.length > 0 && (
+              <div style={{display:"flex",gap:6,marginTop:10,overflowX:"auto"}}>
+                {docPhotos.map((img, i) => (
+                  <img key={i} src={img} onClick={()=>window.open(img)}
+                    style={{height:64,width:86,objectFit:"cover",borderRadius:7,border:"1px solid var(--bd)",cursor:"pointer",flexShrink:0}}
+                    alt={"受給者証写真"+(i+1)}/>
+                ))}
+              </div>
+            )}
             <div style={{marginTop:8,display:"flex",gap:8}}>
               <button onClick={()=>{if(!window.confirm("この受給者証を削除しますか？\nこの操作は取り消せません。"))return;store.delJukyushaDoc(doc.id);}} style={{padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:700,border:"1px solid rgba(224,56,56,0.4)",background:"rgba(224,56,56,0.08)",color:"var(--ro)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>削除</button>
             </div>
@@ -7553,7 +7588,7 @@ function JukyushaTab({u, user, store}) {
       <div style={{fontSize:40,marginBottom:16}}>🔍</div>
       <div style={{fontSize:15,fontWeight:700,color:"var(--tx)",marginBottom:8}}>OCR解析中...</div>
       <div style={{fontSize:12,color:"var(--tx3)"}}>Claude AIが受給者証を読み取っています</div>
-      {preview && <img src={preview} className="ocr-preview" alt="preview"/>}
+      {photos[0] && <img src={photos[0].previewUrl} className="ocr-preview" alt="preview"/>}
     </div>
   );
 
@@ -7561,10 +7596,73 @@ function JukyushaTab({u, user, store}) {
   if (mode === "result") return (
     <div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
-        <button className="bback" onClick={()=>{setMode("list");setPreview(null);}} style={{padding:"6px 12px",fontSize:12}}>← 戻る</button>
+        <button className="bback" onClick={()=>{setMode("list");setPhotos([]);}} style={{padding:"6px 12px",fontSize:12}}>← 戻る</button>
         <div style={{fontSize:13,fontWeight:700}}>📋 読み取り結果を確認</div>
       </div>
-      {preview && <img src={preview} className="ocr-preview" alt="撮影画像"/>}
+
+      {/* ===== 写真グリッド（最大3枚） ===== */}
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginBottom:8}}>
+          📷 受給者証の写真（最大3枚まで登録できます）
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+          {[0,1,2].map(i => {
+            const hasPhoto = !!photos[i];
+            const canAdd   = !hasPhoto && i <= photos.length; // 次の枠のみ追加可
+            return (
+              <div key={i} style={{
+                position:"relative", aspectRatio:"4/3", borderRadius:9,
+                border: hasPhoto ? "none" : "1.5px dashed var(--bd)",
+                background: hasPhoto ? "transparent" : "var(--bg)",
+                display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+                overflow:"hidden",
+              }}>
+                {hasPhoto ? (
+                  <>
+                    <img src={photos[i].previewUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} alt={"写真"+(i+1)}/>
+                    {/* 削除ボタン */}
+                    <button onClick={()=>removePhoto(i)} style={{
+                      position:"absolute",top:4,right:4,width:22,height:22,borderRadius:"50%",
+                      background:"rgba(0,0,0,0.6)",color:"#fff",border:"none",cursor:"pointer",
+                      fontSize:12,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",
+                      fontFamily:"'Noto Sans JP',sans-serif"
+                    }}>×</button>
+                    <div style={{position:"absolute",bottom:4,left:6,fontSize:10,fontWeight:700,color:"#fff",textShadow:"0 1px 3px rgba(0,0,0,0.8)"}}>写真{i+1}</div>
+                  </>
+                ) : canAdd ? (
+                  // 追加ボタン（次の枠のみ表示）
+                  <button onClick={()=>{
+                    if(i===1) fileRef2.current?.click();
+                    else if(i===2) fileRef3.current?.click();
+                  }} style={{
+                    display:"flex",flexDirection:"column",alignItems:"center",gap:4,
+                    background:"none",border:"none",cursor:"pointer",color:"var(--tl)",padding:8,
+                    fontFamily:"'Noto Sans JP',sans-serif"
+                  }}>
+                    <span style={{fontSize:22}}>＋</span>
+                    <span style={{fontSize:10,fontWeight:700}}>写真{i+1}を追加</span>
+                  </button>
+                ) : (
+                  // まだ追加できない枠（前の写真がない）
+                  <div style={{textAlign:"center",color:"var(--tx3)"}}>
+                    <div style={{fontSize:18,marginBottom:2}}>📷</div>
+                    <div style={{fontSize:9}}>写真{i+1}</div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {/* 非表示 file input（写真2・3用） */}
+        <input ref={fileRef2} type="file" accept="image/*" capture="environment" style={{display:"none"}}
+          onChange={e=>{ handleFile(e.target.files[0], 1); e.target.value=""; }}/>
+        <input ref={fileRef3} type="file" accept="image/*" capture="environment" style={{display:"none"}}
+          onChange={e=>{ handleFile(e.target.files[0], 2); e.target.value=""; }}/>
+        <div style={{fontSize:10,color:"var(--tx3)",marginTop:6}}>
+          ※ 市町によって複数枚必要な場合は写真2・3に追加してください（写真1のみOCR読取対象）
+        </div>
+      </div>
+
       {ocrError && <div style={{background:"rgba(224,168,40,0.15)",border:"1px solid rgba(224,168,40,0.4)",borderRadius:9,padding:"10px 12px",fontSize:12,color:"#8a6200",marginBottom:12}}>⚠️ {ocrError}<br/>内容を手動で入力してください。</div>}
       {ocrResult && <div style={{background:"rgba(44,170,96,0.1)",border:"1px solid rgba(44,170,96,0.3)",borderRadius:9,padding:"8px 12px",fontSize:11,color:"var(--gr2)",marginBottom:12}}>✅ AIが自動読み取りしました。内容を確認して保存してください。</div>}
 
@@ -7582,7 +7680,9 @@ function JukyushaTab({u, user, store}) {
           </div>
         ))}
       </div>
-      <button className="bsave" style={{marginTop:14,width:"100%"}} onClick={handleSave}>💾 保存する</button>
+      <button className="bsave" style={{marginTop:14,width:"100%"}} onClick={handleSave}>
+        💾 保存する（写真{photos.length}枚）
+      </button>
     </div>
   );
 
