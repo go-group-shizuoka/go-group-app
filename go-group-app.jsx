@@ -7318,6 +7318,31 @@ function fileToBase64(file) {
   });
 }
 
+// ファイル → Supabase Storage にアップロードしてURLを返す
+// bucket: "daily-photos" | "album-photos" | "staff-documents" | "child-documents"
+// folder: サブフォルダ名（施設IDやスタッフIDなど）
+// 失敗時は null を返す（呼び出し元でbase64フォールバック処理）
+async function uploadToStorage(file, bucket, folder) {
+  try {
+    const base64 = await fileToBase64(file);
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        imageBase64: base64,
+        mediaType: file.type,
+        bucket,
+        folder,
+      }),
+    });
+    const data = await res.json();
+    if (data.success && data.url) return { url: data.url, path: data.path, size: data.size };
+    return null;
+  } catch(e) {
+    return null; // ネットワーク断等 → 呼び出し元でフォールバック
+  }
+}
+
 // 期限ステータス判定
 function jukyushaStatus(expiryDate) {
   if (!expiryDate) return "unknown";
@@ -8296,14 +8321,20 @@ function UserVisitTab({u, user, store}) {
   const myVisits = (store.visitRecords||[]).filter(r=>r.userId===u.id).sort((a,b)=>b.date>a.date?1:-1);
   const facilityDests = (store.visitDests||[]).filter(d=>d.facilityId===u.facilityId);
 
-  // 写真選択（カメラ or ファイル）
-  const handlePhoto = e => {
+  // 写真選択（カメラ or ファイル）→ Storage アップロード（失敗時はdata URLフォールバック）
+  const handlePhoto = async e => {
     const file = e.target.files?.[0];
     if(!file) return;
     if(!checkFileSize(file)) return; // 5MB上限チェック
-    const reader = new FileReader();
-    reader.onload = ev => setPhotoData(ev.target.result);
-    reader.readAsDataURL(file);
+    const uploaded = await uploadToStorage(file, "daily-photos", "visits");
+    if(uploaded?.url){
+      setPhotoData(uploaded.url); // Storage URL
+    } else {
+      // フォールバック: data URL
+      const reader = new FileReader();
+      reader.onload = ev => setPhotoData(ev.target.result);
+      reader.readAsDataURL(file);
+    }
   };
 
   // 編集開始：既存レコードをフォームに読み込む
@@ -16650,6 +16681,8 @@ function StaffDocUploadModal({user, store, filteredStaff, onClose}){
   const [selType, setSelType] = useState("employment_contract");
   const [imgB64, setImgB64] = useState("");
   const [imgUrl, setImgUrl] = useState("");
+  const [imgFileRef, setImgFileRef] = useState(null); // Storageアップロード用にFileオブジェクトを保持
+  const [imgFileType, setImgFileType] = useState("image/jpeg");
   const [fileName, setFileName] = useState("");
   const [ocrResult, setOcrResult] = useState(null);
   const [memo, setMemo] = useState("");
@@ -16663,6 +16696,8 @@ function StaffDocUploadModal({user, store, filteredStaff, onClose}){
     const file = e.target.files?.[0];
     if(!file) return;
     setFileName(file.name);
+    setImgFileRef(file);           // Storage用にFileオブジェクト保持
+    setImgFileType(file.type||"image/jpeg");
     const reader = new FileReader();
     reader.onload = ev => {
       const url = ev.target.result;
@@ -16698,16 +16733,22 @@ function StaffDocUploadModal({user, store, filteredStaff, onClose}){
     }catch(e){setError("OCR処理エラー: "+e.message);setStep("preview");}
   };
 
-  const save = () => {
+  const save = async () => {
     if(!selStaff){setError("職員を選択してください");return;}
     setStep("saving");
+    // Storage アップロード（失敗時はdata URLフォールバック）
+    let fileUrl = imgUrl; // デフォルト: base64 data URL
+    if(imgFileRef) {
+      const uploaded = await uploadToStorage(imgFileRef, "staff-documents", selStaff);
+      if(uploaded?.url) fileUrl = uploaded.url;
+    }
     const now = new Date().toISOString();
     const docId = genId();
     const doc = {
       id:docId, staffId:selStaff,
       facilityId:staffInfo?.facilityId||user.selectedFacilityId,
       documentType:selType,
-      fileUrl:imgUrl, fileName,
+      fileUrl, fileName,
       uploadedAt:now, uploadedBy:user.displayName||"",
       extractedText:JSON.stringify(ocrResult?.extracted||{}),
       aiSummary:ocrResult?.aiSummary||"",
@@ -17442,22 +17483,39 @@ function PhotoAlbumScreen({user, store, onBack}){
   const [viewAlbum,setViewAlbum]=useState(null);
   const [form,setForm]=useState({title:"",description:"",takenDate:todayISO(),childIds:[],photos:[],isShared:false});
   const [saving,setSaving]=useState(false);
+  const [uploadingCount,setUploadingCount]=useState(0); // アップロード中の枚数カウント
   const fileRef=useRef();
 
   const myAlbums=(store.photoAlbums||[]).filter(a=>a.facilityId===facilityId||user.role==="admin")
     .sort((a,b)=>(b.takenDate||b.createdAt||"")>(a.takenDate||a.createdAt||"")?1:-1);
   const myUsers=store.dynUsers.filter(u=>(user.role==="admin"||u.facilityId===facilityId)&&u.active!==false);
 
-  const addPhotos=e=>{
+  // 写真追加：Storage にアップロード（失敗時はdata URLフォールバック）
+  const addPhotos=async e=>{
     const files=Array.from(e.target.files||[]);
-    files.forEach(file=>{
-      if(!checkFileSize(file)) return; // 5MB上限チェック
-      const reader=new FileReader();
-      reader.onload=ev=>{
-        setForm(p=>({...p,photos:[...p.photos,{id:genId(),url:ev.target.result,name:file.name,size:file.size}]}));
-      };
-      reader.readAsDataURL(file);
-    });
+    // サイズ確認後、アップロード中カウントをインクリメント
+    const validFiles=files.filter(f=>checkFileSize(f));
+    if(validFiles.length===0) return;
+    setUploadingCount(c=>c+validFiles.length);
+    for(const file of validFiles){
+      try{
+        const uploaded=await uploadToStorage(file,"album-photos",facilityId);
+        if(uploaded?.url){
+          // Storage URL 保存成功
+          setForm(p=>({...p,photos:[...p.photos,{id:genId(),url:uploaded.url,name:file.name,size:file.size}]}));
+        } else {
+          // フォールバック: data URL（オフライン時や一時エラー）
+          const url=await new Promise(res=>{const rd=new FileReader();rd.onload=ev=>res(ev.target.result);rd.readAsDataURL(file);});
+          setForm(p=>({...p,photos:[...p.photos,{id:genId(),url,name:file.name,size:file.size}]}));
+        }
+      } catch(e){
+        // フォールバック
+        const url=await new Promise(res=>{const rd=new FileReader();rd.onload=ev=>res(ev.target.result);rd.readAsDataURL(file);});
+        setForm(p=>({...p,photos:[...p.photos,{id:genId(),url,name:file.name,size:file.size}]}));
+      } finally{
+        setUploadingCount(c=>c-1);
+      }
+    }
   };
 
   const removePhoto=id=>setForm(p=>({...p,photos:p.photos.filter(ph=>ph.id!==id)}));
@@ -17516,10 +17574,11 @@ function PhotoAlbumScreen({user, store, onBack}){
 
       <div className="slbl">写真追加</div>
       <input ref={fileRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={addPhotos}/>
-      <button style={{width:"100%",padding:"14px",border:"2px dashed var(--bd)",borderRadius:12,background:"var(--bg2)",color:"var(--tl)",fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:14,fontFamily:"'Noto Sans JP',sans-serif"}}
-        onClick={()=>fileRef.current?.click()}>
-        📷 写真を選択（複数可）
+      <button style={{width:"100%",padding:"14px",border:"2px dashed var(--bd)",borderRadius:12,background:"var(--bg2)",color:"var(--tl)",fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:6,fontFamily:"'Noto Sans JP',sans-serif"}}
+        onClick={()=>fileRef.current?.click()} disabled={uploadingCount>0}>
+        {uploadingCount>0?`📤 アップロード中… (${uploadingCount}枚)`:"📷 写真を選択（複数可）"}
       </button>
+      {uploadingCount>0&&<div style={{fontSize:11,color:"var(--tl)",textAlign:"center",marginBottom:8}}>写真をサーバーに保存中です。しばらくお待ちください…</div>}
       {form.photos.length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
         {form.photos.map(ph=>(
           <div key={ph.id} style={{position:"relative",aspectRatio:"1",borderRadius:10,overflow:"hidden",background:"#000"}}>
@@ -17533,8 +17592,8 @@ function PhotoAlbumScreen({user, store, onBack}){
         <input type="checkbox" checked={form.isShared} onChange={e=>setForm(p=>({...p,isShared:e.target.checked}))}/>
         保護者に公開する（作成時から共有）
       </label>
-      <button className="bsave" style={{width:"100%"}} onClick={saveAlbum} disabled={saving}>
-        {saving?"保存中...":"💾 アルバムを保存"}
+      <button className="bsave" style={{width:"100%"}} onClick={saveAlbum} disabled={saving||uploadingCount>0}>
+        {saving?"保存中...":uploadingCount>0?"写真アップロード完了後に保存できます":"💾 アルバムを保存"}
       </button>
     </div>
   );

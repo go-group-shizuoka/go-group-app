@@ -24,13 +24,24 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "SUPABASE_SERVICE_KEY が設定されていません" });
   }
 
-  const { imageBase64, mediaType = "image/jpeg", folder = "records", fileName } = req.body || {};
+  // 許可バケット一覧（セキュリティ: 指定外バケットへの書き込みを防ぐ）
+  const ALLOWED_BUCKETS = ["photos", "staff-documents", "child-documents", "daily-photos", "album-photos"];
+
+  const { imageBase64, mediaType = "image/jpeg", folder = "uploads", fileName, bucket = "daily-photos" } = req.body || {};
   if (!imageBase64) {
     return res.status(400).json({ error: "imageBase64 が必要です" });
   }
 
+  // バケット名バリデーション
+  if (!ALLOWED_BUCKETS.includes(bucket)) {
+    return res.status(400).json({ error: `無効なバケット名です: ${bucket}` });
+  }
+
   // ファイル名生成（指定なければタイムスタンプ+UUID）
-  const ext = mediaType === "image/png" ? "png" : "jpg";
+  const ext = mediaType === "image/png" ? "png"
+            : mediaType === "application/pdf" ? "pdf"
+            : mediaType === "image/webp" ? "webp"
+            : "jpg";
   const name = fileName || `${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
   const storagePath = `${folder}/${name}`;
 
@@ -38,9 +49,9 @@ export default async function handler(req, res) {
     // Base64 → Buffer
     const buf = Buffer.from(imageBase64, "base64");
 
-    // Supabase Storage へアップロード
+    // Supabase Storage へアップロード（指定バケット）
     const uploadRes = await fetch(
-      `${SUPABASE_URL}/storage/v1/object/photos/${storagePath}`,
+      `${SUPABASE_URL}/storage/v1/object/${bucket}/${storagePath}`,
       {
         method: "POST",
         headers: {
@@ -58,8 +69,10 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Storage アップロードエラー: " + errText });
     }
 
-    // 公開URL生成（photosバケットは public=true なので直接URLでアクセス可）
-    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/photos/${storagePath}`;
+    // 公開URL生成
+    // public=true のバケット（daily-photos, album-photos, photos）は直接アクセス可
+    // private バケット（staff-documents, child-documents）はservice_role経由でのみアクセス可
+    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${storagePath}`;
 
     return res.json({
       success: true,
