@@ -11306,6 +11306,464 @@ function VisitReportTab({user, store, facilityId}) {
   </div>;
 }
 
+// ==================== Phase B: 請求管理強化 ====================
+
+// ─── 月次集計グラフタブ（SVGバーチャート + 推移） ───
+function BillingTrendTab({user,store,facilityId}){
+  const isAdmin=user.role==="admin";
+  const now=new Date();
+  // 過去6ヶ月分のYM一覧
+  const months=Array.from({length:6},(_,i)=>{
+    const d=new Date(now.getFullYear(),now.getMonth()-5+i,1);
+    return {y:d.getFullYear(),m:d.getMonth()+1,ym:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`};
+  });
+
+  // 施設ごとの月次集計
+  const facIds=isAdmin?FACILITIES.map(f=>f.id):[facilityId];
+
+  // 各施設×月の請求額を集計
+  const getAmt=(fid,ym)=>{
+    const cfg=store.facilityBillingSettings[fid]||{};
+    const TANKA=getShizuokaTanka(cfg.city||"その他");
+    const [y,m]=ym.split("-").map(Number);
+    const kk=store.kokuho.filter(k=>k.facilityId===fid&&k.year===y&&k.month===m);
+    return kk.reduce((s,k)=>s+Math.round(calcTotalUnits(k)*TANKA),0);
+  };
+
+  // この施設の月次データ
+  const myData=months.map(({ym,y,m})=>({ym,y,m,amt:getAmt(facilityId,ym)}));
+  const maxAmt=Math.max(...myData.map(d=>d.amt),1);
+  const totalThisMonth=myData[myData.length-1]?.amt||0;
+  const totalLastMonth=myData[myData.length-2]?.amt||0;
+  const diff=totalThisMonth-totalLastMonth;
+  const diffPct=totalLastMonth>0?Math.round(diff/totalLastMonth*100):0;
+
+  // 全施設比較（admin時）
+  const facComparison=facIds.map(fid=>{
+    const lastMonth=months[months.length-1];
+    return {fac:FACILITIES.find(f=>f.id===fid),amt:getAmt(fid,lastMonth.ym)};
+  }).sort((a,b)=>b.amt-a.amt);
+  const maxFacAmt=Math.max(...facComparison.map(f=>f.amt),1);
+
+  // 返戻件数集計
+  const returnsByMonth=months.map(({ym})=>({ym,cnt:(store.claimHistory||[]).filter(r=>r.facility_id===facilityId&&r.service_month===ym&&r.status!=="closed").length}));
+
+  // 色パレット
+  const FAC_COLORS={f1:"#3aa0d8",f2:"#2caa60",f3:"#f07020",f4:"#8b3acd"};
+  const myColor=FAC_COLORS[facilityId]||"#3aa0d8";
+
+  return <div>
+    {/* ─── サマリーカード ─── */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:16}}>
+      <div style={{background:"linear-gradient(135deg,#1a4a8a,#2d6ed6)",borderRadius:12,padding:"14px 16px",color:"#fff"}}>
+        <div style={{fontSize:10,opacity:.8,marginBottom:4}}>今月請求額</div>
+        <div style={{fontSize:22,fontWeight:900,fontFamily:"'DM Mono',monospace"}}>{totalThisMonth.toLocaleString()}<span style={{fontSize:11,fontWeight:400}}>円</span></div>
+        <div style={{fontSize:10,opacity:.7,marginTop:2}}>{months[months.length-1]?.ym}</div>
+      </div>
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"14px 16px"}}>
+        <div style={{fontSize:10,color:"var(--tx3)",marginBottom:4}}>前月比</div>
+        <div style={{fontSize:22,fontWeight:900,fontFamily:"'DM Mono',monospace",color:diff>=0?"var(--gr)":"var(--ro)"}}>
+          {diff>=0?"+":""}{diff.toLocaleString()}<span style={{fontSize:11,fontWeight:400}}>円</span>
+        </div>
+        <div style={{fontSize:10,color:diff>=0?"var(--gr)":"var(--ro)",marginTop:2}}>{diff>=0?"▲":"▼"}{Math.abs(diffPct)}%</div>
+      </div>
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"14px 16px"}}>
+        <div style={{fontSize:10,color:"var(--tx3)",marginBottom:4}}>6ヶ月累計</div>
+        <div style={{fontSize:22,fontWeight:900,fontFamily:"'DM Mono',monospace",color:"var(--am)"}}>
+          {myData.reduce((s,d)=>s+d.amt,0).toLocaleString()}<span style={{fontSize:11,fontWeight:400}}>円</span>
+        </div>
+        <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>直近6ヶ月合計</div>
+      </div>
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"14px 16px"}}>
+        <div style={{fontSize:10,color:"var(--tx3)",marginBottom:4}}>未解決の返戻</div>
+        <div style={{fontSize:22,fontWeight:900,fontFamily:"'DM Mono',monospace",color:(store.claimHistory||[]).filter(r=>r.facility_id===facilityId&&r.status==="returned").length>0?"var(--ro)":"var(--gr)"}}>
+          {(store.claimHistory||[]).filter(r=>r.facility_id===facilityId&&r.status==="returned").length}
+          <span style={{fontSize:11,fontWeight:400}}>件</span>
+        </div>
+        <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>返戻対応待ち</div>
+      </div>
+    </div>
+
+    {/* ─── 月次バーチャート（SVG）─── */}
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>📊 月次請求額推移（過去6ヶ月）</div>
+      <svg viewBox={`0 0 ${months.length*80} 140`} style={{width:"100%",height:140}}>
+        {/* グリッド線 */}
+        {[0,25,50,75,100].map(p=>(
+          <line key={p} x1="0" y1={110-p} x2={months.length*80} y2={110-p} stroke="var(--bd)" strokeWidth="0.5" strokeDasharray="2,2"/>
+        ))}
+        {/* バー */}
+        {myData.map((d,i)=>{
+          const bh=maxAmt>0?Math.round((d.amt/maxAmt)*90):0;
+          const bx=i*80+10; const by=110-bh;
+          const isLast=i===myData.length-1;
+          return <g key={d.ym}>
+            <rect x={bx} y={by} width={60} height={bh} rx="4"
+              fill={isLast?myColor:"rgba(58,160,216,0.4)"} opacity={isLast?1:0.7}/>
+            <text x={bx+30} y={125} textAnchor="middle" fontSize="8" fill="var(--tx3)">{d.m}月</text>
+            {d.amt>0&&<text x={bx+30} y={by-3} textAnchor="middle" fontSize="7" fill={isLast?myColor:"var(--tx3)"} fontWeight={isLast?"700":"400"}>
+              {d.amt>=10000?Math.round(d.amt/1000)+"k":d.amt.toLocaleString()}
+            </text>}
+          </g>;
+        })}
+        {/* 返戻マーカー */}
+        {returnsByMonth.map((rb,i)=>rb.cnt>0&&(
+          <g key={i}>
+            <circle cx={i*80+40} cy={105} r="5" fill="var(--ro)" opacity="0.8"/>
+            <text x={i*80+40} y={108} textAnchor="middle" fontSize="6" fill="#fff" fontWeight="700">{rb.cnt}</text>
+          </g>
+        ))}
+      </svg>
+      <div style={{display:"flex",gap:12,fontSize:10,color:"var(--tx3)",marginTop:4,flexWrap:"wrap"}}>
+        <span>■ <span style={{color:myColor}}>今月</span></span>
+        <span>■ <span style={{color:"rgba(58,160,216,0.6)"}}>過去月</span></span>
+        {returnsByMonth.some(r=>r.cnt>0)&&<span>● <span style={{color:"var(--ro)"}}>返戻件数</span></span>}
+      </div>
+    </div>
+
+    {/* ─── 施設比較（admin only）─── */}
+    {isAdmin&&<div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>🏢 施設別 今月請求額比較</div>
+      {facComparison.map(({fac,amt})=>{
+        const pct=maxFacAmt>0?Math.round(amt/maxFacAmt*100):0;
+        const color=FAC_COLORS[fac?.id]||"var(--tl)";
+        return <div key={fac?.id} style={{marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
+            <span style={{fontWeight:700}}>{fac?.name}</span>
+            <span style={{fontFamily:"'DM Mono',monospace",fontWeight:700,color}}>{amt.toLocaleString()}円</span>
+          </div>
+          <div style={{height:8,background:"var(--bg)",borderRadius:10,overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${pct}%`,background:color,borderRadius:10,transition:"width 0.5s"}}/>
+          </div>
+        </div>;
+      })}
+    </div>}
+
+    {/* ─── 月次利用者別詳細 ─── */}
+    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>👤 利用者別 月次推移（今月）</div>
+      {(()=>{
+        const lastMo=months[months.length-1];
+        const cfg=store.facilityBillingSettings[facilityId]||{};
+        const TANKA=getShizuokaTanka(cfg.city||"その他");
+        const kk=store.kokuho.filter(k=>k.facilityId===facilityId&&k.year===lastMo.y&&k.month===lastMo.m);
+        if(kk.length===0) return <div style={{textAlign:"center",padding:20,color:"var(--tx3)"}}>請求データがありません</div>;
+        const total=kk.reduce((s,k)=>s+Math.round(calcTotalUnits(k)*TANKA),0);
+        return kk.sort((a,b)=>calcTotalUnits(b)-calcTotalUnits(a)).map(k=>{
+          const amt=Math.round(calcTotalUnits(k)*TANKA);
+          const pct=total>0?Math.round(amt/total*100):0;
+          return <div key={k.id} style={{marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
+              <span style={{fontWeight:700}}>{k.userName}</span>
+              <span style={{fontFamily:"'DM Mono',monospace",color:"var(--am)"}}>{amt.toLocaleString()}円 ({pct}%)</span>
+            </div>
+            <div style={{height:6,background:"var(--bg)",borderRadius:10,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${pct}%`,background:"var(--tl)",borderRadius:10}}/>
+            </div>
+            <div style={{fontSize:9,color:"var(--tx3)",marginTop:1}}>{k.serviceDays}日 / {calcTotalUnits(k)}単位 / {k.status||"未請求"}</div>
+          </div>;
+        });
+      })()}
+    </div>
+  </div>;
+}
+
+// ─── 国保連フォーマットCSV強化（レセプト準拠形式）───
+function KokuhoFormatExportTab({user,store,facilityId,yearMonth,vm}){
+  const fac=FACILITIES.find(f=>f.id===facilityId)||{};
+  const cfg=store.facilityBillingSettings[facilityId]||{};
+  const TANKA=getShizuokaTanka(cfg.city||"その他");
+  const kk=store.kokuho.filter(k=>k.facilityId===facilityId&&k.year===vm.y&&k.month===vm.m);
+  const userMap={};store.dynUsers.forEach(u=>{userMap[u.id]=u;});
+  const [exportType,setExportType]=useState("simple"); // simple | receipt | excel_pivot
+
+  // サービス種別コード（国保連）
+  const getSvcCode=(ud)=>{
+    if(ud.serviceType==="jidouhattatsu") return "62";
+    return "61"; // 放課後等デイサービス
+  };
+
+  // 地域区分コード
+  const getRegionCode=(city)=>{
+    const cityMap={"浜松市":"6","静岡市":"5","沼津市":"4","三島市":"4","富士市":"4","磐田市":"4","焼津市":"4","掛川市":"4","藤枝市":"4","島田市":"4","袋井市":"4","湖西市":"4","菊川市":"4","御前崎市":"4","牧之原市":"4","伊豆市":"4","伊豆の国市":"4","函南町":"4","清水町":"4","長泉町":"4","小山町":"4","吉田町":"4","川根本町":"4","森町":"4","その他":"1"};
+    return cityMap[city]||"1";
+  };
+
+  // ─── 簡易CSV（内部管理用）───
+  const downloadSimpleCSV=()=>{
+    const hd=["施設名","サービス年月","利用者名","受給者証番号","生年月日","市区町村","サービス種別","利用日数","送迎日数","基本単位","加算単位","合計単位","地域単価","給付費請求額","自己負担額（概算）","状態","備考"];
+    const rows=kk.map(k=>{
+      const u=userMap[k.userId]||{};const ud=u.data||u;
+      const tu=calcTotalUnits(k);const base=k.serviceDays*(k.unitPrice||576);const add=tu-base;
+      const amt=Math.round(tu*TANKA);const copay=Math.round(amt*0.1);
+      return [fac.name||"",yearMonth,k.userName,ud.jukyushaNo||"",ud.dob||"",ud.jukyushaCity||cfg.city||"",
+        ud.serviceType==="jidouhattatsu"?"児童発達支援":"放課後等デイサービス",
+        k.serviceDays||0,k.transportDays||0,base,add,tu,TANKA,amt,copay,k.status||"未請求",""];
+    });
+    const csv=[hd,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"}));
+    a.download=`kokuho_simple_${yearMonth}_${fac.name||facilityId}.csv`;a.click();
+  };
+
+  // ─── 国保連レセプト準拠CSV ───
+  const downloadReceiptCSV=()=>{
+    // 国保連への提出に使うヘッダー（実際の送付には電子請求ソフトを通じてください）
+    const hd=["レコード種別","サービス種別コード","事業所番号","事業所名","提供年月","受給者証番号","利用者氏名","生年月日","市区町村コード","市区町村名","地域区分コード","利用日数","送迎加算日数（片道）","送迎加算日数（両道）","基本報酬コード","基本報酬単位数","加算合計単位数","総単位数","地域単価（円）","給付費請求額（円）","自己負担上限額","上限管理結果","備考"];
+    const rows=kk.map(k=>{
+      const u=userMap[k.userId]||{};const ud=u.data||u;
+      const tu=calcTotalUnits(k);const base=k.serviceDays*(k.unitPrice||576);const add=tu-base;
+      const amt=Math.round(tu*TANKA);
+      const city=ud.jukyushaCity||ud.jukyushaCityName||cfg.city||"その他";
+      const svcCode=getSvcCode(ud);
+      const regionCode=getRegionCode(city);
+      const maxBurden=ud.maxBurden||u.data?.maxBurden||"";
+      const transportBoth=(k.addons||[]).filter(a=>a.key==="transport_both").reduce((s,a)=>s+(a.perDay?k.serviceDays:1),0);
+      const transportOne=(k.addons||[]).filter(a=>a.key==="transport_one").reduce((s,a)=>s+(a.perDay?k.serviceDays:1),0);
+      return ["S",svcCode,cfg.jigyoshoNo||"",fac.name||"",yearMonth,
+        ud.jukyushaNo||"",k.userName,ud.dob||"","",city,regionCode,
+        k.serviceDays||0,transportOne,transportBoth,k.serviceCode||"",base,add,tu,TANKA,amt,maxBurden||"","",""];
+    });
+    const csv=[hd,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"}));
+    a.download=`receipt_${yearMonth}_${fac.name||facilityId}.csv`;a.click();
+  };
+
+  // ─── 月次集計ピボット形式 ───
+  const downloadPivotCSV=()=>{
+    const months12=Array.from({length:12},(_,i)=>i+1).map(m=>String(m).padStart(2,"0"));
+    const hd=["利用者名","受給者証番号",...months12.map(m=>`${vm.y}/${m}`),"合計（単位）","合計（円）"];
+    const users=store.dynUsers.filter(u=>u.facilityId===facilityId&&u.active!==false);
+    const rows=users.map(u=>{
+      const ud=u.data||u;
+      const monthAmts=months12.map(m=>{
+        const ym=`${vm.y}-${m}`;
+        const k=store.kokuho.find(kk=>kk.facilityId===facilityId&&kk.userId===u.id&&kk.year===vm.y&&kk.month===+m);
+        return k?calcTotalUnits(k):0;
+      });
+      const totalUnits=monthAmts.reduce((s,v)=>s+v,0);
+      const totalAmt=Math.round(totalUnits*TANKA);
+      return [u.name,ud.jukyushaNo||"",...monthAmts,totalUnits,totalAmt];
+    });
+    const csv=[hd,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"}));
+    a.download=`billing_pivot_${vm.y}_${fac.name||facilityId}.csv`;a.click();
+  };
+
+  const ngCount=kk.filter(k=>{const u=userMap[k.userId]||{};const ud=u.data||u;return !ud.jukyushaNo||!ud.jukyushaCity;}).length;
+
+  return <div>
+    {/* 注意バナー */}
+    <div style={{background:"rgba(240,112,32,0.08)",border:"1.5px solid rgba(240,112,32,0.35)",borderRadius:11,padding:"12px 14px",marginBottom:16}}>
+      <div style={{fontSize:12,fontWeight:700,color:"var(--ac)",marginBottom:4}}>⚠️ ご注意</div>
+      <div style={{fontSize:11,color:"var(--tx3)",lineHeight:1.8}}>
+        このCSVは内部管理・確認用です。<br/>
+        <strong>実際の国保連への請求提出は、正式な電子請求ソフト（NICE等）を通じて行ってください。</strong><br/>
+        「国保連レセプト準拠CSV」は参照・確認用として利用してください。
+      </div>
+    </div>
+
+    {ngCount>0&&<div style={{background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.35)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:11,color:"var(--ro)",fontWeight:700}}>
+      ⚠️ {ngCount}名の受給者証番号または市区町村が未入力です。出力前に「利用者管理」で入力してください。
+    </div>}
+
+    {kk.length===0&&<div style={{textAlign:"center",padding:24,color:"var(--tx3)"}}>
+      請求データがありません。「月次サマリー」→「パイプライン同期」を先に実行してください。
+    </div>}
+
+    {kk.length>0&&<div style={{display:"grid",gap:12}}>
+      {/* 出力ボタン群 */}
+      {[
+        {key:"simple",icon:"📊",title:"内部管理CSV",desc:"全詳細カラム・確認用",color:"#1a6b3a",fn:downloadSimpleCSV},
+        {key:"receipt",icon:"📋",title:"国保連レセプト準拠CSV",desc:"提出確認・照合用（参考）",color:"#1a4a8a",fn:downloadReceiptCSV},
+        {key:"pivot",icon:"📅",title:"年次ピボットCSV",desc:`${vm.y}年 全12ヶ月・利用者別`,color:"#6a2090",fn:downloadPivotCSV},
+      ].map(({key,icon,title,desc,color,fn})=>(
+        <div key={key} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"14px 16px",display:"flex",alignItems:"center",gap:14}}>
+          <div style={{width:48,height:48,borderRadius:12,background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>
+            {icon}
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:13,marginBottom:2}}>{title}</div>
+            <div style={{fontSize:11,color:"var(--tx3)"}}>{desc}</div>
+          </div>
+          <button onClick={fn} style={{padding:"9px 18px",borderRadius:9,background:color,color:"#fff",fontWeight:700,fontSize:12,border:"none",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",flexShrink:0}}>
+            ⬇ 出力
+          </button>
+        </div>
+      ))}
+
+      {/* 実績記録票印刷（既存機能への誘導） */}
+      <div style={{background:"rgba(58,160,216,0.06)",border:"1px solid rgba(58,160,216,0.3)",borderRadius:12,padding:"14px 16px",fontSize:11,color:"var(--tx3)"}}>
+        <div style={{fontWeight:700,fontSize:12,color:"var(--tl)",marginBottom:6}}>📄 実績記録票・個別明細書の印刷</div>
+        <div>「国保連出力」タブ → 📋 実績記録票印刷 または 🖨 明細書ボタンをご利用ください。</div>
+      </div>
+    </div>}
+  </div>;
+}
+
+// ─── 請求AI分析タブ ───
+function BillingAIAnalysisTab({user,store,facilityId,yearMonth,vm}){
+  const [analyzing,setAnalyzing]=useState(false);
+  const [result,setResult]=useState(null);
+  const cfg=store.facilityBillingSettings[facilityId]||{};
+  const TANKA=getShizuokaTanka(cfg.city||"その他");
+  const kk=store.kokuho.filter(k=>k.facilityId===facilityId&&k.year===vm.y&&k.month===vm.m);
+  const userMap={};store.dynUsers.forEach(u=>{userMap[u.id]=u;});
+  const fac=FACILITIES.find(f=>f.id===facilityId)||{};
+
+  // ─── ローカル自動チェック（APIコールなし）───
+  const runLocalChecks=()=>{
+    setAnalyzing(true);
+    const issues=[];
+    const ok=[];
+    const now=new Date();
+
+    kk.forEach(k=>{
+      const u=userMap[k.userId]||{};
+      const ud=u.data||u;
+      const tu=calcTotalUnits(k);
+      const baseUnits=k.serviceDays*(k.unitPrice||576);
+      const addUnits=tu-baseUnits;
+
+      // ① 利用日数チェック（受給者証の支給量超過）
+      const maxDays=ud.maxDays||ud.data?.maxDays||23;
+      if(k.serviceDays>maxDays){
+        issues.push({level:"error",user:k.userName,msg:`利用日数 ${k.serviceDays}日 が支給量 ${maxDays}日 を超過しています`,action:"利用者管理で支給量を確認してください"});
+      }
+
+      // ② 受給者証期限チェック
+      const exp=ud.jukyushaExpiry||ud.data?.jukyushaExpiry||"";
+      if(exp&&exp<yearMonth+"-01"){
+        issues.push({level:"critical",user:k.userName,msg:`受給者証が有効期限切れです（${exp}）`,action:"受給者証を更新してから請求してください"});
+      }
+
+      // ③ 加算漏れ検出（送迎記録があるのに送迎加算なし）
+      const transportRecs=store.recs.filter(r=>r.userId===k.userId&&r.facilityId===facilityId&&r.type==="user_in"&&r.transport&&r.transport!=="なし"&&recYM(r)===yearMonth);
+      const hasTransportAddon=(k.addons||[]).some(a=>a.key==="transport_both"||a.key==="transport_one");
+      if(transportRecs.length>0&&!hasTransportAddon){
+        issues.push({level:"warning",user:k.userName,msg:`送迎記録が${transportRecs.length}件あるのに送迎加算が設定されていません`,action:"加算設定タブで送迎加算を追加してください"});
+      }
+
+      // ④ ISP未作成で加算算定
+      const ISP_ADDONS=["individual_support","intensive_support","individual_support2"];
+      const hasIspAddon=(k.addons||[]).some(a=>ISP_ADDONS.includes(a.key));
+      const ISP_STAT=["finalized","parent_consented","manager_confirmed"];
+      const activeIsp=(store.ispRecords||[]).find(r=>r.userId===k.userId&&r.docType==="isp_plan"&&ISP_STAT.includes(r.status));
+      if(hasIspAddon&&!activeIsp){
+        issues.push({level:"warning",user:k.userName,msg:`個別支援加算が設定されていますが、確定済みISPが見つかりません`,action:"個別支援計画を確定してから加算を算定してください"});
+      }
+
+      // ⑤ 受給者証番号未入力
+      if(!ud.jukyushaNo){
+        issues.push({level:"error",user:k.userName,msg:`受給者証番号が未入力です`,action:"利用者管理で受給者証番号を入力してください"});
+      }
+
+      // ⑥ 加算比率チェック（加算が基本報酬の50%超）
+      if(baseUnits>0&&addUnits/baseUnits>0.5){
+        issues.push({level:"warning",user:k.userName,msg:`加算単位(${addUnits})が基本報酬(${baseUnits})の${Math.round(addUnits/baseUnits*100)}%を超えています`,action:"加算の算定根拠を確認してください"});
+      }
+
+      // ⑦ 問題なし
+      if(!issues.find(i=>i.user===k.userName)){
+        ok.push(k.userName);
+      }
+    });
+
+    // 職員体制チェック
+    const staffCfg=store.getStaffConfig(facilityId,yearMonth)||{};
+    if(!staffCfg.hasCDSM){
+      issues.push({level:"error",user:"（施設全体）",msg:`児童発達支援管理責任者（CDSM）の配置が未設定です`,action:"職員体制タブでCDSMを設定してください"});
+    }
+    const ft=parseFloat(staffCfg.fullTimeEquivalent||0);
+    const usrCnt=store.dynUsers.filter(u=>u.facilityId===facilityId&&u.active!==false).length||1;
+    if(ft>0&&ft/usrCnt<0.2){
+      issues.push({level:"warning",user:"（施設全体）",msg:`常勤換算比率 ${(ft/usrCnt).toFixed(2)} が基準（0.20）を下回っています`,action:"職員体制タブで常勤換算数を確認してください"});
+    }
+
+    setTimeout(()=>{
+      setResult({issues,ok,checkedAt:new Date().toISOString(),total:kk.length,issueCount:issues.length,okCount:ok.length});
+      setAnalyzing(false);
+    },600); // ローカル処理なので擬似的な遅延
+  };
+
+  const levelStyle={
+    critical:{color:"#dc2626",bg:"rgba(220,38,38,0.1)",border:"rgba(220,38,38,0.4)",icon:"🚫",label:"請求不可"},
+    error:{color:"var(--ro)",bg:"rgba(224,56,56,0.08)",border:"rgba(224,56,56,0.35)",icon:"❌",label:"エラー"},
+    warning:{color:"var(--am)",bg:"rgba(230,160,0,0.08)",border:"rgba(230,160,0,0.35)",icon:"⚠️",label:"要確認"},
+    info:{color:"var(--tl)",bg:"rgba(58,160,216,0.08)",border:"rgba(58,160,216,0.3)",icon:"ℹ️",label:"情報"},
+  };
+
+  return <div>
+    <div style={{background:"rgba(58,160,216,0.06)",border:"1px solid rgba(58,160,216,0.25)",borderRadius:11,padding:"12px 14px",marginBottom:14}}>
+      <div style={{fontSize:12,fontWeight:700,color:"var(--tl)",marginBottom:4}}>🤖 請求AIチェック</div>
+      <div style={{fontSize:11,color:"var(--tx3)",lineHeight:1.8}}>
+        利用日数・受給者証・加算漏れ・職員体制を自動でチェックします。<br/>
+        ⚠️ チェック結果は参考情報です。最終判断は管理者が行ってください。
+      </div>
+    </div>
+
+    {kk.length===0&&<div style={{textAlign:"center",padding:24,color:"var(--tx3)"}}>
+      請求データがありません。「月次サマリー」タブでパイプライン同期を先に実行してください。
+    </div>}
+
+    {kk.length>0&&!result&&<button onClick={runLocalChecks} disabled={analyzing}
+      style={{width:"100%",padding:"16px",borderRadius:12,background:analyzing?"var(--bg)":"linear-gradient(135deg,#1a4a8a,#2d6ed6)",color:analyzing?"var(--tx3)":"#fff",fontWeight:700,fontSize:15,border:"none",cursor:analyzing?"not-allowed":"pointer",fontFamily:"'Noto Sans JP',sans-serif",marginBottom:14}}>
+      {analyzing?"🔍 チェック中...":"🤖 請求チェックを実行する"}
+    </button>}
+
+    {result&&<>
+      {/* 結果サマリー */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+        <div style={{background:"rgba(44,170,96,0.1)",border:"1px solid rgba(44,170,96,0.3)",borderRadius:10,padding:"10px",textAlign:"center"}}>
+          <div style={{fontSize:20,fontWeight:900,color:"var(--gr)"}}>{result.okCount}</div>
+          <div style={{fontSize:10,color:"var(--gr)",fontWeight:700}}>✅ 問題なし</div>
+        </div>
+        <div style={{background:result.issues.some(i=>i.level==="critical"||i.level==="error")?"rgba(224,56,56,0.08)":"rgba(230,160,0,0.08)",border:`1px solid ${result.issues.some(i=>i.level==="critical"||i.level==="error")?"rgba(224,56,56,0.35)":"rgba(230,160,0,0.35)"}`,borderRadius:10,padding:"10px",textAlign:"center"}}>
+          <div style={{fontSize:20,fontWeight:900,color:result.issues.some(i=>i.level==="critical"||i.level==="error")?"var(--ro)":"var(--am)"}}>{result.issueCount}</div>
+          <div style={{fontSize:10,color:result.issues.some(i=>i.level==="critical"||i.level==="error")?"var(--ro)":"var(--am)",fontWeight:700}}>⚠️ 要対応</div>
+        </div>
+        <div style={{background:"var(--bg)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px",textAlign:"center"}}>
+          <div style={{fontSize:20,fontWeight:900,color:"var(--tx2)"}}>{result.total}</div>
+          <div style={{fontSize:10,color:"var(--tx3)",fontWeight:700}}>対象人数</div>
+        </div>
+      </div>
+
+      {/* 問題なし一覧 */}
+      {result.ok.length>0&&<div style={{background:"rgba(44,170,96,0.06)",border:"1px solid rgba(44,170,96,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--gr)",marginBottom:4}}>✅ 問題なし: {result.ok.join("、")}</div>
+      </div>}
+
+      {/* 問題一覧 */}
+      {result.issues.map((iss,i)=>{
+        const ls=levelStyle[iss.level]||levelStyle.info;
+        return <div key={i} style={{background:ls.bg,border:`1.5px solid ${ls.border}`,borderRadius:10,padding:"10px 14px",marginBottom:8}}>
+          <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+            <span style={{fontSize:16,flexShrink:0}}>{ls.icon}</span>
+            <div style={{flex:1}}>
+              <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:3,flexWrap:"wrap"}}>
+                <span style={{fontSize:12,fontWeight:700,color:"var(--tx)"}}>{iss.user}</span>
+                <span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:ls.bg,color:ls.color,fontWeight:700,border:`1px solid ${ls.border}`}}>{ls.label}</span>
+              </div>
+              <div style={{fontSize:12,color:"var(--tx2)",marginBottom:4}}>{iss.msg}</div>
+              <div style={{fontSize:10,color:ls.color,fontWeight:700}}>→ {iss.action}</div>
+            </div>
+          </div>
+        </div>;
+      })}
+
+      <div style={{fontSize:10,color:"var(--tx3)",textAlign:"center",marginTop:8}}>
+        チェック実行: {new Date(result.checkedAt).toLocaleString("ja-JP")}
+      </div>
+      <button onClick={()=>setResult(null)}
+        style={{width:"100%",marginTop:12,padding:"10px",borderRadius:9,border:"1px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+        🔄 再チェック
+      </button>
+    </>}
+  </div>;
+}
+
 // ─── メイン KokuhoScreen ───
 function KokuhoScreen({user,store,onBack}){
   const [vm,setVm]=useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()+1};});
@@ -11322,9 +11780,12 @@ function KokuhoScreen({user,store,onBack}){
   const tabs=[
     {id:"check",   icon:"🔍",label:"請求前チェック"},
     {id:"summary", icon:"💴",label:"月次サマリー"},
+    {id:"trend",   icon:"📈",label:"集計グラフ"},
+    {id:"ai_check",icon:"🤖",label:"AIチェック"},
     ...(hasJidou?[{id:"jidou_billing",icon:"🌱",label:"児発 請求"}]:[]),
     ...(hasVisit?[{id:"visit_billing",icon:"🚌",label:"訪問 請求"}]:[]),
     {id:"output",  icon:"📤",label:"国保連出力"},
+    {id:"csv_export",icon:"💾",label:"CSV強化出力"},
     {id:"addons",  icon:"⚙️",label:"加算設定"},
     {id:"staff",   icon:"👥",label:"職員体制"},
     {id:"facility",icon:"🏢",label:"事業所設定"},
@@ -11364,15 +11825,18 @@ function KokuhoScreen({user,store,onBack}){
       </button>)}
     </div>
     {/* コンテンツ */}
-    {tab==="check"        &&<BillingCheckTab    user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
-    {tab==="summary"      &&<BillingSummaryTab  user={user} store={store} facilityId={facilityId} yearMonth={yearMonth} vm={vm} setVm={setVm}/>}
-    {tab==="jidou_billing"&&<JidouBillingTab    user={user} store={store} facilityId={facilityId} vm={vm} setVm={setVm}/>}
-    {tab==="visit_billing"&&<VisitBillingTab    user={user} store={store} facilityId={facilityId}/>}
-    {tab==="output"       &&<KokuhoOutputTab    user={user} store={store} facilityId={facilityId} yearMonth={yearMonth} vm={vm}/>}
-    {tab==="addons"       &&<BillingAddonsTab   user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
-    {tab==="staff"        &&<BillingStaffTab    user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
-    {tab==="facility"     &&<BillingFacilityTab user={user} store={store} facilityId={facilityId}/>}
-    {tab==="reward_master"&&<RewardMasterTab    facilityId={facilityId}/>}
+    {tab==="check"        &&<BillingCheckTab        user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
+    {tab==="summary"      &&<BillingSummaryTab      user={user} store={store} facilityId={facilityId} yearMonth={yearMonth} vm={vm} setVm={setVm}/>}
+    {tab==="trend"        &&<BillingTrendTab        user={user} store={store} facilityId={facilityId}/>}
+    {tab==="ai_check"     &&<BillingAIAnalysisTab   user={user} store={store} facilityId={facilityId} yearMonth={yearMonth} vm={vm}/>}
+    {tab==="jidou_billing"&&<JidouBillingTab        user={user} store={store} facilityId={facilityId} vm={vm} setVm={setVm}/>}
+    {tab==="visit_billing"&&<VisitBillingTab        user={user} store={store} facilityId={facilityId}/>}
+    {tab==="output"       &&<KokuhoOutputTab        user={user} store={store} facilityId={facilityId} yearMonth={yearMonth} vm={vm}/>}
+    {tab==="csv_export"   &&<KokuhoFormatExportTab  user={user} store={store} facilityId={facilityId} yearMonth={yearMonth} vm={vm}/>}
+    {tab==="addons"       &&<BillingAddonsTab       user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
+    {tab==="staff"        &&<BillingStaffTab        user={user} store={store} facilityId={facilityId} yearMonth={yearMonth}/>}
+    {tab==="facility"     &&<BillingFacilityTab     user={user} store={store} facilityId={facilityId}/>}
+    {tab==="reward_master"&&<RewardMasterTab        facilityId={facilityId}/>}
     {tab==="master"       &&<BillingMasterTab/>}
   </div>;
 }
@@ -12925,6 +13389,17 @@ function HomeScreen({user,onNav,store}){
     if(soon30Docs.length>0) todoItems.push({level:"warn",icon:"📂",title:"職員書類 30日以内期限",names:[`${soon30Docs.length}件`],screen:"staff_documents"});
     if(missingDocStaff.length>0) todoItems.push({level:"warn",icon:"📂",title:"職員書類 必須未提出",names:[`${missingDocStaff.length}名`],screen:"staff_documents"});
     if(pendingReqs.length>0) todoItems.push({level:"info",icon:"📬",title:"書類提出依頼 未完了",names:[`${pendingReqs.length}件`],screen:"staff_documents"});
+    // 返戻期限超過チェック
+    const overdueRets=(store.claimHistory||[]).filter(r=>(user.role==="admin"||r.facility_id===user.selectedFacilityId)&&r.status==="returned"&&r.correction_deadline&&r.correction_deadline<new Date().toISOString().slice(0,10));
+    if(overdueRets.length>0) todoItems.push({level:"danger",icon:"↩️",title:"返戻 修正期限超過",names:[`${overdueRets.length}件の返戻が期限切れ`],screen:"returns"});
+    // 返戻14日以内期限
+    const soonRets=(store.claimHistory||[]).filter(r=>{
+      if(r.status!=="returned"||!r.correction_deadline) return false;
+      if(user.role!=="admin"&&r.facility_id!==user.selectedFacilityId) return false;
+      const d=new Date(r.correction_deadline);const diff=Math.floor((d-new Date())/(1000*60*60*24));
+      return diff>=0&&diff<=14;
+    });
+    if(soonRets.length>0) todoItems.push({level:"warn",icon:"↩️",title:"返戻 期限14日以内",names:[`${soonRets.length}件の返戻が期限近迫`],screen:"returns"});
   }
 
   // ===== クイックアクション =====
@@ -18926,7 +19401,7 @@ function ReturnsManagementScreen({user, store, onNav, onBack}){
   const [selFacility, setSelFacility] = useState(user.selectedFacilityId||"f1");
   const [selYear,  setSelYear]  = useState(now.getFullYear());
   const [selMonth, setSelMonth] = useState(now.getMonth()+1);
-  const [tab, setTab] = useState("returns"); // returns | audit
+  const [tab, setTab] = useState("returns"); // returns | deadline | audit
   const [expandedId, setExpandedId] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
@@ -18949,6 +19424,32 @@ function ReturnsManagementScreen({user, store, onNav, onBack}){
   // 返戻一覧（この施設・月）
   const returns = (store.claimHistory||[]).filter(r=>r.facility_id===selFacility&&r.service_month===monthStr)
     .sort((a,b)=>new Date(b.created_at||0)-new Date(a.created_at||0));
+
+  // 返戻 期限追跡（施設全体の未解決返戻）
+  const allOpenReturns=(store.claimHistory||[]).filter(r=>r.facility_id===selFacility&&r.status==="returned"&&r.correction_deadline)
+    .sort((a,b)=>(a.correction_deadline||"")>(b.correction_deadline||"")?1:-1);
+  const overdueReturns=allOpenReturns.filter(r=>r.correction_deadline<new Date().toISOString().slice(0,10));
+  const soonReturns=allOpenReturns.filter(r=>{
+    const d=new Date(r.correction_deadline);const diff=Math.floor((d-now)/(1000*60*60*24));
+    return diff>=0&&diff<=14;
+  });
+
+  // 返戻CSVエクスポート
+  const downloadReturnsCSV=()=>{
+    const allFacReturns=isAdmin
+      ?(store.claimHistory||[])
+      :(store.claimHistory||[]).filter(r=>r.facility_id===selFacility);
+    const hd=["施設","対象年月","利用者名","返戻理由","対象日","対象サービス","修正期限","ステータス","再請求日","登録者","登録日","備考"];
+    const rows=allFacReturns.map(r=>{
+      const facName=FACILITIES.find(f=>f.id===r.facility_id)?.name||r.facility_id;
+      const userName=facUsers.find(u=>u.id===r.child_id)?.name||r.child_name||r.child_id;
+      return [facName,r.service_month||"",userName,r.return_reason||"",r.target_date||"",r.target_service||"",r.correction_deadline||"",r.status||"",r.resubmitted_at?.slice(0,10)||"",r.created_by||"",r.created_at?.slice(0,10)||"",r.memo||""];
+    });
+    const csv=[hd,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"}));
+    a.download=`returns_${new Date().toISOString().slice(0,10)}.csv`;a.click();
+  };
 
   // 監査ログ（この施設）
   const logs = (store.auditLogs||[]).filter(l=>l.facility_id===selFacility)
@@ -19053,11 +19554,92 @@ function ReturnsManagementScreen({user, store, onNav, onBack}){
 
     {/* タブ切替 */}
     <div style={{display:"flex",gap:0,marginBottom:14,borderRadius:10,overflow:"hidden",border:"1.5px solid var(--bd)"}}>
-      {[{key:"returns",label:"↩️ 返戻一覧"},{key:"audit",label:"📋 監査ログ"}].map(t=>(
-        <button key={t.key} style={{flex:1,padding:"10px",border:"none",background:tab===t.key?"var(--tl)":"var(--wh)",color:tab===t.key?"#fff":"var(--tx3)",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}
+      {[
+        {key:"returns",label:`↩️ 返戻一覧`},
+        {key:"deadline",label:`⏰ 期限管理${overdueReturns.length>0?` (${overdueReturns.length}件超過)`:soonReturns.length>0?` (${soonReturns.length}件近迫)`:""}`},
+        {key:"audit",label:"📋 監査ログ"},
+      ].map(t=>(
+        <button key={t.key} style={{flex:1,padding:"10px",border:"none",
+          background:tab===t.key?t.key==="deadline"&&overdueReturns.length>0?"var(--ro)":"var(--tl)":"var(--wh)",
+          color:tab===t.key?"#fff":"var(--tx3)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",whiteSpace:"nowrap"}}
           onClick={()=>setTab(t.key)}>{t.label}</button>
       ))}
     </div>
+
+    {/* ────── 期限管理タブ ────── */}
+    {tab==="deadline"&&<>
+      {/* 期限切れアラート */}
+      {overdueReturns.length>0&&<div style={{background:"rgba(224,56,56,0.1)",border:"2px solid rgba(224,56,56,0.5)",borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+        <div style={{fontSize:13,fontWeight:700,color:"var(--ro)",marginBottom:8}}>🚨 修正期限超過 — {overdueReturns.length}件</div>
+        {overdueReturns.map(r=>{
+          const daysPast=Math.floor((now-new Date(r.correction_deadline))/(1000*60*60*24));
+          const uName=facUsers.find(u=>u.id===r.child_id)?.name||r.child_name||r.child_id;
+          return <div key={r.id} style={{background:"rgba(224,56,56,0.06)",border:"1px solid rgba(224,56,56,0.3)",borderRadius:9,padding:"8px 12px",marginBottom:6}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:12}}>{uName}</div>
+                <div style={{fontSize:11,color:"var(--tx3)"}}>{r.service_month} / {r.return_reason?.slice(0,20)}</div>
+              </div>
+              <span style={{fontSize:11,fontWeight:700,color:"#fff",background:"var(--ro)",borderRadius:8,padding:"3px 10px",flexShrink:0}}>{daysPast}日超過</span>
+            </div>
+          </div>;
+        })}
+      </div>}
+
+      {/* 14日以内期限 */}
+      {soonReturns.length>0&&<div style={{background:"rgba(230,160,0,0.08)",border:"1.5px solid rgba(230,160,0,0.4)",borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+        <div style={{fontSize:12,fontWeight:700,color:"var(--am)",marginBottom:8}}>⚠️ 修正期限 14日以内 — {soonReturns.length}件</div>
+        {soonReturns.map(r=>{
+          const daysLeft=Math.floor((new Date(r.correction_deadline)-now)/(1000*60*60*24));
+          const uName=facUsers.find(u=>u.id===r.child_id)?.name||r.child_name||r.child_id;
+          return <div key={r.id} style={{background:"rgba(230,160,0,0.06)",border:"1px solid rgba(230,160,0,0.3)",borderRadius:9,padding:"8px 12px",marginBottom:6}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:12}}>{uName}</div>
+                <div style={{fontSize:11,color:"var(--tx3)"}}>{r.service_month} / 期限: {r.correction_deadline}</div>
+              </div>
+              <span style={{fontSize:11,fontWeight:700,color:"var(--am)",background:"rgba(230,160,0,0.2)",borderRadius:8,padding:"3px 10px",flexShrink:0}}>残{daysLeft}日</span>
+            </div>
+          </div>;
+        })}
+      </div>}
+
+      {overdueReturns.length===0&&soonReturns.length===0&&<div style={{textAlign:"center",padding:"40px 20px",color:"var(--gr)",background:"rgba(44,170,96,0.06)",borderRadius:12,border:"1px solid rgba(44,170,96,0.25)"}}>
+        <div style={{fontSize:32,marginBottom:8}}>✅</div>
+        <div style={{fontSize:13,fontWeight:700}}>期限超過・直近期限の返戻はありません</div>
+        <div style={{fontSize:11,marginTop:4,color:"var(--tx3)"}}>全{allOpenReturns.length}件の返戻対応が期限内です</div>
+      </div>}
+
+      {/* 全未解決返戻一覧 */}
+      {allOpenReturns.length>0&&<div style={{marginTop:14}}>
+        <div style={{fontWeight:700,fontSize:12,marginBottom:8,color:"var(--tx2)"}}>📋 未解決の返戻 全期限一覧</div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:400}}>
+            <thead><tr style={{background:"var(--bg2)"}}>
+              {["対象年月","利用者","返戻理由","修正期限","残日数"].map(h=><th key={h} style={{padding:"6px 9px",textAlign:"left",fontSize:10,color:"var(--tx2)",fontWeight:700,borderBottom:"2px solid var(--bd)"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>{allOpenReturns.map(r=>{
+              const dLeft=Math.floor((new Date(r.correction_deadline)-now)/(1000*60*60*24));
+              const uName=facUsers.find(u=>u.id===r.child_id)?.name||r.child_name||r.child_id;
+              const col=dLeft<0?"var(--ro)":dLeft<=14?"var(--am)":"var(--gr)";
+              return <tr key={r.id} style={{borderBottom:"1px solid var(--bd)"}}>
+                <td style={{padding:"7px 9px",fontFamily:"'DM Mono',monospace",fontSize:11}}>{r.service_month}</td>
+                <td style={{padding:"7px 9px",fontWeight:700}}>{uName}</td>
+                <td style={{padding:"7px 9px",color:"var(--tx3)",fontSize:11}}>{r.return_reason?.slice(0,20)}</td>
+                <td style={{padding:"7px 9px",fontFamily:"'DM Mono',monospace",fontSize:11}}>{r.correction_deadline||"—"}</td>
+                <td style={{padding:"7px 9px",fontWeight:700,color:col}}>{dLeft<0?`${Math.abs(dLeft)}日超過`:dLeft<=14?`残${dLeft}日`:"期限余裕"}</td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>
+      </div>}
+
+      {/* CSV出力 */}
+      <button onClick={downloadReturnsCSV}
+        style={{width:"100%",marginTop:14,padding:"12px",borderRadius:10,background:"linear-gradient(135deg,#1a4a8a,#2d6ed6)",color:"#fff",fontWeight:700,fontSize:13,border:"none",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+        📊 返戻一覧 CSVエクスポート
+      </button>
+    </>}
 
     {/* ────── 返戻一覧タブ ────── */}
     {tab==="returns"&&<>
@@ -19070,6 +19652,12 @@ function ReturnsManagementScreen({user, store, onNav, onBack}){
         ):null)}
         {returns.length===0&&<div style={{fontSize:12,color:"var(--tx3)"}}>返戻なし — 問題ありません</div>}
       </div>
+
+      {/* CSV出力ボタン */}
+      {returns.length>0&&<button onClick={downloadReturnsCSV}
+        style={{width:"100%",padding:"10px",borderRadius:10,border:"1.5px solid rgba(58,160,216,0.4)",background:"rgba(58,160,216,0.07)",color:"var(--tl)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",marginBottom:10}}>
+        📊 この月の返戻 CSVエクスポート
+      </button>}
 
       {/* 返戻登録ボタン */}
       {isMgr&&!locked&&<button style={{width:"100%",padding:"12px",borderRadius:10,border:"1.5px dashed var(--ro)",background:"rgba(224,56,56,0.06)",color:"var(--ro)",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",marginBottom:14}}
