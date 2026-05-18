@@ -4576,7 +4576,7 @@ function ShiftScreen({user,store,onBack}){
       <div style={{fontSize:16,fontWeight:900,minWidth:90,textAlign:"center"}}>{vm.y}年 {vm.m}月</div>
       <button className="cn" onClick={()=>setVm(v=>v.m===12?{y:v.y+1,m:1}:{y:v.y,m:v.m+1})}>›</button>
       <div style={{display:"flex",gap:5,flexWrap:"wrap",marginLeft:8}}>
-        {[{id:"calendar",icon:"📅",label:"シフト表"},{id:"facilities",icon:"🏢",label:"店舗別"},{id:"check",icon:"✅",label:"充足チェック"},{id:"summary",icon:"📊",label:"勤務集計"}].map(t=>(
+        {[{id:"calendar",icon:"📅",label:"シフト表"},{id:"facilities",icon:"🏢",label:"店舗別"},{id:"check",icon:"✅",label:"充足チェック"},{id:"summary",icon:"📊",label:"勤務集計"},{id:"saburoku",icon:"⏱️",label:"36協定"}].map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)}
             style={{padding:"7px 13px",borderRadius:9,border:"2px solid",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,
               borderColor:tab===t.id?"var(--tl)":"var(--bd)",background:tab===t.id?"rgba(58,160,216,0.2)":"var(--bg)",color:tab===t.id?"var(--tl)":"var(--tx3)"}}>
@@ -4887,6 +4887,136 @@ function ShiftScreen({user,store,onBack}){
         </div>;
       })()}
     </>}
+
+    {/* ── 36協定チェックタブ ── */}
+    {tab==="saburoku"&&(()=>{
+      // 36協定の法定限度（一般条項）
+      const SABUROKU_LIMITS={monthly:45,yearly:360,sixMonth:270}; // 時間
+      // 各職員の月次残業時間を過去12ヶ月で計算（シフトから推定）
+      const SHIFT_HOURS2={A:8,B:8,C:8,off:0,holiday:0,P1:5,P2:4,P3:4,none:0};
+      const STANDARD_HOURS={A:7,B:7,C:7,P1:4,P2:3,P3:3}; // 所定時間（残業=実働-所定）
+      const getLast12Months=()=>{
+        const months=[];
+        for(let i=11;i>=0;i--){
+          const d=new Date(vm.y,vm.m-1-i,1);
+          months.push({y:d.getFullYear(),m:d.getMonth()+1,ym:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`});
+        }
+        return months;
+      };
+      const months12=getLast12Months();
+      // 月次残業時間計算（シフトから概算）
+      const calcMonthOvertime=(sid,y,m)=>{
+        const dd=daysInMonth(y,m);
+        const dmk=d=>`${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+        let ot=0;
+        for(let d=1;d<=dd;d++){
+          const t=store.getShift(sid,dmk(d))||"none";
+          const scheduled=STANDARD_HOURS[t]||0;
+          const worked=SHIFT_HOURS2[t]||0;
+          ot+=Math.max(0,worked-scheduled);
+        }
+        return ot;
+      };
+      // 各職員のサマリー
+      const staffData=fStaff.map(s=>{
+        const monthlyOTs=months12.map(({y,m,ym})=>({ym,ot:calcMonthOvertime(s.id,y,m)}));
+        const thisMonthOT=monthlyOTs[monthlyOTs.length-1].ot;
+        const yearlyOT=monthlyOTs.reduce((sum,m)=>sum+m.ot,0);
+        const last6OT=monthlyOTs.slice(6).reduce((sum,m)=>sum+m.ot,0);
+        const maxMonthOT=Math.max(...monthlyOTs.map(m=>m.ot));
+        return {s,monthlyOTs,thisMonthOT,yearlyOT,last6OT,maxMonthOT};
+      });
+      const maxYearlyOT=Math.max(...staffData.map(d=>d.yearlyOT),1);
+      // CSV出力
+      const exportSaburokuCSV=()=>{
+        const hd=["氏名","今月残業(h)",...months12.map(({ym})=>ym+"残業(h)"),"年計(h)","直近6ヶ月(h)","最大月(h)","年間判定","月間判定"];
+        const rows=staffData.map(({s,monthlyOTs,thisMonthOT,yearlyOT,last6OT,maxMonthOT})=>[
+          s.name,thisMonthOT,...monthlyOTs.map(m=>m.ot),yearlyOT,last6OT,maxMonthOT,
+          yearlyOT>SABUROKU_LIMITS.yearly?"超過(要協議)":yearlyOT>SABUROKU_LIMITS.yearly*0.9?"要注意":"問題なし",
+          maxMonthOT>SABUROKU_LIMITS.monthly?"超過(要協議)":maxMonthOT>SABUROKU_LIMITS.monthly*0.9?"要注意":"問題なし",
+        ]);
+        const csv=[hd,...rows].map(r=>r.join(",")).join("\n");
+        const a=document.createElement("a");
+        a.href=URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv"}));
+        a.download=`saburoku_${vm.y}${String(vm.m).padStart(2,"0")}.csv`;a.click();
+      };
+
+      return <>
+        {/* 法定限度説明 */}
+        <div style={{background:"rgba(58,160,216,0.07)",border:"1px solid rgba(58,160,216,0.25)",borderRadius:11,padding:"12px 14px",marginBottom:14}}>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--tl)",marginBottom:6}}>⏱️ 36協定（時間外労働の上限規制）法定限度</div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:11}}>
+            <span style={{background:"rgba(58,160,216,0.15)",borderRadius:8,padding:"4px 10px",fontWeight:700}}>月45時間</span>
+            <span style={{background:"rgba(44,170,96,0.15)",borderRadius:8,padding:"4px 10px",fontWeight:700}}>年360時間</span>
+            <span style={{background:"rgba(130,60,200,0.12)",borderRadius:8,padding:"4px 10px",fontWeight:700}}>6ヶ月270時間</span>
+          </div>
+          <div style={{fontSize:10,color:"var(--tx3)",marginTop:6}}>※ シフトからの概算値です。実際の残業管理には打刻データを使用してください。</div>
+        </div>
+
+        {/* アラート一覧 */}
+        {staffData.some(d=>d.yearlyOT>SABUROKU_LIMITS.yearly||d.thisMonthOT>SABUROKU_LIMITS.monthly)&&
+          <div style={{background:"rgba(224,56,56,0.08)",border:"2px solid rgba(224,56,56,0.4)",borderRadius:12,padding:"12px 14px",marginBottom:14}}>
+            <div style={{fontSize:13,fontWeight:700,color:"var(--ro)",marginBottom:8}}>🚨 36協定 上限超過の可能性あり</div>
+            {staffData.filter(d=>d.yearlyOT>SABUROKU_LIMITS.yearly).map(({s,yearlyOT})=>(
+              <div key={s.id} style={{fontSize:12,color:"var(--ro)",marginBottom:3}}>• {s.name}: 年間 <strong>{yearlyOT}h</strong>（限度360h超過）</div>
+            ))}
+            {staffData.filter(d=>d.thisMonthOT>SABUROKU_LIMITS.monthly).map(({s,thisMonthOT})=>(
+              <div key={s.id} style={{fontSize:12,color:"var(--ro)",marginBottom:3}}>• {s.name}: 今月 <strong>{thisMonthOT}h</strong>（限度45h超過）</div>
+            ))}
+          </div>}
+
+        {/* 職員別サマリー */}
+        <div style={{marginBottom:14}}>
+          {staffData.map(({s,monthlyOTs,thisMonthOT,yearlyOT,last6OT,maxMonthOT})=>{
+            const monthlyNG=thisMonthOT>SABUROKU_LIMITS.monthly;
+            const monthlyWarn=!monthlyNG&&thisMonthOT>SABUROKU_LIMITS.monthly*0.8;
+            const yearlyNG=yearlyOT>SABUROKU_LIMITS.yearly;
+            const yearlyWarn=!yearlyNG&&yearlyOT>SABUROKU_LIMITS.yearly*0.8;
+            const statusColor=monthlyNG||yearlyNG?"var(--ro)":monthlyWarn||yearlyWarn?"var(--am)":"var(--gr)";
+            const yearPct=Math.min(100,Math.round(yearlyOT/SABUROKU_LIMITS.yearly*100));
+            return <div key={s.id} style={{background:"var(--wh)",border:`1.5px solid ${statusColor==="var(--ro)"?"rgba(224,56,56,0.35)":statusColor==="var(--am)"?"rgba(230,160,0,0.35)":"rgba(44,170,96,0.3)"}`,borderRadius:12,padding:"12px 14px",marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
+                <div style={{fontWeight:700,fontSize:13}}>{s.name}</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,padding:"3px 9px",borderRadius:8,fontWeight:700,background:`rgba(${monthlyNG?"224,56,56":monthlyWarn?"230,160,0":"44,170,96"},0.12)`,color:statusColor}}>
+                    今月 {thisMonthOT}h {monthlyNG?"⚠超過":monthlyWarn?"要注意":"✓"}
+                  </span>
+                  <span style={{fontSize:10,padding:"3px 9px",borderRadius:8,fontWeight:700,background:`rgba(${yearlyNG?"224,56,56":yearlyWarn?"230,160,0":"44,170,96"},0.12)`,color:yearlyNG?"var(--ro)":yearlyWarn?"var(--am)":"var(--gr)"}}>
+                    年計 {yearlyOT}h {yearlyNG?"⚠超過":yearlyWarn?"要注意":"✓"}
+                  </span>
+                </div>
+              </div>
+              {/* 年間使用率バー */}
+              <div style={{marginBottom:6}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--tx3)",marginBottom:2}}>
+                  <span>年間使用率 ({yearlyOT}/{SABUROKU_LIMITS.yearly}h)</span>
+                  <span style={{fontWeight:700,color:yearlyNG?"var(--ro)":yearlyWarn?"var(--am)":"var(--tx3)"}}>{yearPct}%</span>
+                </div>
+                <div style={{height:6,background:"var(--bg)",borderRadius:10,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${yearPct}%`,background:yearlyNG?"var(--ro)":yearlyWarn?"var(--am)":"var(--gr)",borderRadius:10,transition:"width 0.4s"}}/>
+                </div>
+              </div>
+              {/* 月次バー（ミニ） */}
+              <div style={{display:"flex",gap:2,alignItems:"flex-end",height:28}}>
+                {monthlyOTs.map(({ym,ot},i)=>{
+                  const isLast=i===monthlyOTs.length-1;
+                  const h=SABUROKU_LIMITS.monthly>0?Math.round(ot/SABUROKU_LIMITS.monthly*24):0;
+                  const col=ot>SABUROKU_LIMITS.monthly?"var(--ro)":ot>SABUROKU_LIMITS.monthly*0.8?"var(--am)":"rgba(58,160,216,0.5)";
+                  return <div key={ym} title={`${ym}: ${ot}h`} style={{flex:1,height:Math.max(2,h),background:isLast?"var(--tl)":col,borderRadius:"2px 2px 0 0",cursor:"default"}}/>
+                })}
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"var(--tx3)",marginTop:2}}>
+                <span>{months12[0].ym.slice(0,7)}</span><span>→ 今月</span>
+              </div>
+            </div>;
+          })}
+        </div>
+        <button onClick={exportSaburokuCSV}
+          style={{width:"100%",padding:"12px",borderRadius:10,background:"linear-gradient(135deg,#1a4a8a,#2d6ed6)",color:"#fff",fontWeight:700,fontSize:13,border:"none",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+          📊 36協定チェック CSV出力
+        </button>
+      </>;
+    })()}
   </div>;
 }
 
@@ -14613,17 +14743,55 @@ function WorkRecordScreen({user,store,onBack}){
     if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),400);}
   };
 
-  // CSV出力
+  // 勤怠集計 CSV出力（強化版：給与計算基礎項目付き）
   const downloadCSV=()=>{
-    const headers=["職員ID","氏名","雇用区分","出勤日数","実働時間(h)","時間外(h)","遅刻日数","早退日数","未打刻日数"];
+    const headers=[
+      "職員ID","氏名","雇用区分","所属施設",
+      "出勤日数","実働時間(h)","時間外(h)","深夜残業(h,概算)",
+      "遅刻日数","早退日数","未打刻日数","有給取得日数","公休日数",
+      "勤怠備考（給与計算用）"
+    ];
     const rows=fStaff.map(s=>{
-      const m=calcMonthSummary(s.id);
+      const mo=calcMonthSummary(s.id);
       const sd=s.data||s;
-      return [s.id,s.name,sd.employmentType||"—",m.workDays,m.totalH,m.overtimeH,m.lateDays,m.earlyDays,m.noClockDays];
+      const fac=FACILITIES.find(f=>f.id===(s.facilityId||user.selectedFacilityId))?.name||"";
+      // 有給・公休数（シフトから）
+      let holCnt=0,offCnt=0;
+      for(let i=1;i<=days;i++){const t=store.getShift(s.id,mk(i));if(t==="holiday")holCnt++;else if(t==="off")offCnt++;}
+      // 備考（遅刻・残業ありの場合）
+      const note=[];
+      if(mo.lateDays>0) note.push(`遅刻${mo.lateDays}日`);
+      if(mo.earlyDays>0) note.push(`早退${mo.earlyDays}日`);
+      if(mo.overtimeH>45) note.push("残業45h超");
+      if(mo.noClockDays>0) note.push(`打刻漏れ${mo.noClockDays}日`);
+      return [s.id,s.name,sd.employmentType||"—",fac,
+        mo.workDays,mo.totalH,mo.overtimeH,0, // 深夜は0で概算
+        mo.lateDays,mo.earlyDays,mo.noClockDays,holCnt,offCnt,
+        note.length>0?note.join("・"):"問題なし"];
     });
     const csv=[headers,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"}));
     a.download=`kintai_${yearMonth}_${facName}.csv`;a.click();
+  };
+
+  // 全職員分の日次明細CSVエクスポート（勤怠管理システム連携用）
+  const downloadDetailCSV=()=>{
+    const headers=["職員ID","氏名","日付","曜日","シフト","出勤時刻","退勤時刻","実働(h)","残業(h)","遅刻(分)","早退(分)","ステータス"];
+    const rows=[];
+    fStaff.forEach(s=>{
+      for(let i=1;i<=days;i++){
+        const date=mk(i);const dw=["日","月","火","水","木","金","土"][new Date(date).getDay()];
+        const r=calcDay(s.id,date);
+        if(r.status==="休日") return;
+        rows.push([s.id,s.name,date,dw,r.shiftKey||"—",
+          r.inTime||"—",r.outTime||"—",
+          r.workedH!=null?Math.round(r.workedH*10)/10:"—",
+          r.overtimeH||0,r.lateMin||0,r.earlyMin||0,r.status]);
+      }
+    });
+    const csv=[headers,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"}));
+    a.download=`kintai_detail_${yearMonth}_${facName}.csv`;a.click();
   };
 
   const selStaff=fStaff.find(s=>s.id===selStaffId)||fStaff[0];
@@ -14648,8 +14816,9 @@ function WorkRecordScreen({user,store,onBack}){
           </button>
         ))}
       </div>
-      {isMgr&&<div style={{display:"flex",gap:6,marginLeft:"auto"}}>
-        <button className="bexp" onClick={downloadCSV}>⬇ CSV</button>
+      {isMgr&&<div style={{display:"flex",gap:6,marginLeft:"auto",flexWrap:"wrap"}}>
+        <button className="bexp" onClick={downloadCSV}>⬇ 集計CSV</button>
+        <button className="bexp" style={{background:"rgba(44,170,96,0.1)",borderColor:"var(--gr)",color:"var(--gr)"}} onClick={downloadDetailCSV}>⬇ 日次明細CSV</button>
         <button className="bexp" style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={printMonthly}>🖨️ 集計印刷</button>
       </div>}
     </div>
