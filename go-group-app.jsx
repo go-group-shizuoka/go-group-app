@@ -1712,6 +1712,7 @@ const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=DM+Mono:wght@400;500&display=swap');
 :root{--bg:#0d0d12;--bg2:#13131a;--bg3:#1c1c26;--bg4:#24242f;--wh:#1e1e2a;--tx:#eeeef5;--tx2:#9898b8;--tx3:#8888aa;--ac:#f07020;--ac2:#ff8a38;--tl:#3aa0d8;--tl2:#52b8f0;--gr:#2caa60;--gr2:#3dc870;--am:#e0a828;--ro:#e03838;--pu:#9048d8;--bd:#28283a;--bda:#38384e;--sh:0 2px 12px rgba(0,0,0,0.6);--sh2:0 6px 28px rgba(0,0,0,0.85);--sidebar-w:230px;--header-h:56px;}
 *{box-sizing:border-box;margin:0;padding:0;}
+button,a,[role="button"]{touch-action:manipulation;}
 body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;overflow-x:hidden;}
 /* ===== APP SHELL ===== */
 .app{min-height:100vh;background:var(--bg);}
@@ -7273,6 +7274,20 @@ function MonitoringTab({u,myMonitorings,myIsps,user,store}){
 
 // ==================== OCR共通ユーティリティ ====================
 
+// 画像ファイルサイズ上限（5MB）
+const MAX_FILE_SIZE_MB = 5;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+// ファイルサイズチェック（超過時は alert して false を返す）
+function checkFileSize(file) {
+  if (!file) return false;
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    alert(`ファイルサイズが大きすぎます（${(file.size / 1024 / 1024).toFixed(1)}MB）。\n${MAX_FILE_SIZE_MB}MB以下の画像を選択してください。`);
+    return false;
+  }
+  return true;
+}
+
 // 画像ファイル → Base64変換
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -7309,6 +7324,7 @@ function JukyushaTab({u, user, store}) {
   // ファイル選択 → OCR実行
   const handleFile = async (file) => {
     if (!file) return;
+    if (!checkFileSize(file)) return; // 5MB上限チェック
     setOcrError("");
     setPreview(URL.createObjectURL(file));
     setScanning(true);
@@ -7794,6 +7810,7 @@ function SoudanGenanTab({u, user, store}) {
   // ファイル選択 → OCR実行
   const handleFile = async (file) => {
     if (!file) return;
+    if (!checkFileSize(file)) return; // 5MB上限チェック
     setOcrError(""); setPreview(URL.createObjectURL(file));
     setScanning(true); setMode("scan");
     try {
@@ -8263,6 +8280,7 @@ function UserVisitTab({u, user, store}) {
   const handlePhoto = e => {
     const file = e.target.files?.[0];
     if(!file) return;
+    if(!checkFileSize(file)) return; // 5MB上限チェック
     const reader = new FileReader();
     reader.onload = ev => setPhotoData(ev.target.result);
     reader.readAsDataURL(file);
@@ -17413,6 +17431,7 @@ function PhotoAlbumScreen({user, store, onBack}){
   const addPhotos=e=>{
     const files=Array.from(e.target.files||[]);
     files.forEach(file=>{
+      if(!checkFileSize(file)) return; // 5MB上限チェック
       const reader=new FileReader();
       reader.onload=ev=>{
         setForm(p=>({...p,photos:[...p.photos,{id:genId(),url:ev.target.result,name:file.name,size:file.size}]}));
@@ -19440,6 +19459,7 @@ function SupportPlanScreen({user, store, onBack}){
   const handleOcrFile = e => {
     const file = e.target.files?.[0];
     if(!file) return;
+    if(!checkFileSize(file)) return; // 5MB上限チェック
     setOcrLoading(true);
     const reader = new FileReader();
     reader.onload = async ev => {
