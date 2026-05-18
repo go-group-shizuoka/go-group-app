@@ -53,12 +53,32 @@ async function sbSave(table, data) {
   try { await sb.from(table).upsert(data); } catch(e) { console.error("Save error:", e); }
 }
 async function sbLoad(table) {
-  try { return await sb.from(table).select("*"); } catch(e) { console.error("Load error:", e); return []; }
+  try {
+    const r = await sb.from(table).select("*");
+    // 論理削除フィルタ: is_deleted=true の行をJS側で除外
+    // （is_deletedカラムがないテーブルは全件通過するため既存データに影響なし）
+    return Array.isArray(r) ? r.filter(row => !row.is_deleted) : r;
+  } catch(e) { console.error("Load error:", e); return []; }
 }
 async function sbDelete(table, id) {
+  // ① 論理削除を試みる（is_deleted カラムがあるテーブルのみ有効）
   try {
-    const headers = {"apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY};
-    await fetch(SUPABASE_URL + "/rest/v1/" + table + "?id=eq." + encodeURIComponent(id), {method:"DELETE", headers});
+    const now = new Date().toISOString();
+    const hUpsert = {
+      "apikey": SUPABASE_KEY,
+      "Authorization": "Bearer " + SUPABASE_KEY,
+      "Content-Type": "application/json",
+      "Prefer": "resolution=merge-duplicates,return=minimal"
+    };
+    const r = await fetch(SUPABASE_URL + "/rest/v1/" + table, {
+      method: "POST",
+      headers: hUpsert,
+      body: JSON.stringify({id, is_deleted: true, deleted_at: now})
+    });
+    if (r.ok) return; // 論理削除成功
+    // is_deleted カラムがない場合は物理削除にフォールバック
+    const hDel = {"apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY};
+    await fetch(SUPABASE_URL + "/rest/v1/" + table + "?id=eq." + encodeURIComponent(id), {method:"DELETE", headers:hDel});
   } catch(e) { console.error("SB delete error:", e); }
 }
 
@@ -2479,7 +2499,7 @@ function useStore() {
           message: m.body,
           ...(m.photoData?{imageBase64:m.photoData}:{})
         })
-      }).catch(e=>console.warn("LINE送信エラー:",e));
+      }).catch(e=>console.error("LINE送信エラー:",e));
     }
   };
   const replyMsg = (id,txt) => setMsgs(p=>p.map(m=>{
@@ -21729,48 +21749,87 @@ export default function App(){
     parent_portal:"保護者ポータル",
   };
 
+  // ─── ルーティング権限ガード ───
+  // allowedRoles に user.role が含まれない場合はアクセス拒否画面を返す
+  const guard = (allowedRoles, component) => {
+    if (!allowedRoles.includes(user.role)) {
+      return (
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+          minHeight:300,padding:32,textAlign:"center"}}>
+          <div style={{fontSize:48,marginBottom:12}}>🔒</div>
+          <div style={{fontSize:17,fontWeight:700,color:"#c0392b",marginBottom:8}}>
+            アクセス権限がありません
+          </div>
+          <div style={{fontSize:13,color:"#666",marginBottom:24,lineHeight:1.7}}>
+            このページは <strong>{allowedRoles.join(" / ")}</strong> のみアクセスできます。<br/>
+            権限が必要な場合は管理者にお問い合わせください。
+          </div>
+          <button onClick={()=>setScreen("home")}
+            style={{padding:"10px 28px",borderRadius:8,background:"#2563eb",color:"#fff",
+              border:"none",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+            ← ホームに戻る
+          </button>
+        </div>
+      );
+    }
+    return component;
+  };
+
+  // ロール定数（可読性のため）
+  const ROLE_ADMIN         = ["admin"];
+  const ROLE_ADMIN_MGR     = ["admin","manager"];
+  const ROLE_ADMIN_MGR_STF = ["admin","manager","staff"];
+
   const render=()=>{switch(screen){
+    // ── 全員アクセス可 ──
     case "home":return user.role==="parent"?<ParentPortalScreen user={user} store={store} onBack={()=>{}}/>:<HomeScreen user={user} onNav={setScreen} store={store}/>;
-    case "clock_in":return <StaffClockIn user={user} onBack={()=>setScreen("home")} store={store}/>;
-    case "clock_out":return <StaffClockOut user={user} onBack={()=>setScreen("home")} store={store}/>;
-    case "user_arrive":return <UserArrive user={user} onBack={()=>setScreen("home")} store={store}/>;
-    case "user_depart":return <UserDepart user={user} onBack={()=>setScreen("home")} store={store}/>;
-    case "photo":return <PhotoRecord user={user} onBack={()=>setScreen("home")} store={store}/>;
-    case "service":return <ServiceRecord user={user} onBack={()=>setScreen("home")} store={store}/>;
-    case "attendance":return <AttendanceScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "shift":return <ShiftScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "kintai":return <WorkRecordScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "transport":return <TransportScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "messages":return <ParentMessages user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "daily":return <DailyReport user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "users":return <UserManagement user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "kokuho":return <KokuhoScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "billing_check":return <BillingCheckScreen user={user} store={store} onNav={setScreen} onBack={()=>setScreen("home")}/>;
-    case "returns":return <ReturnsManagementScreen user={user} store={store} onNav={setScreen} onBack={()=>setScreen("home")}/>;
-    case "support_plan":return <SupportPlanScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "paidleave":return <PaidLeaveScreen user={user} store={store} onBack={()=>setScreen("home")}/>
-    case "schedule":return <ScheduleScreen user={user} store={store} onBack={()=>setScreen("home")}/>
-    case "jisseki":return <JissekiScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "schedule_ocr":return <ScheduleOCRScreen user={user} store={store} onBack={()=>setScreen("home")}/>
-    case "staffmgmt":return <StaffManagement user={user} store={store} onBack={()=>setScreen("home")}/>
-    case "admin":return <AdminScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "audit":return <AuditScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "isp":return <IspScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "visit":return <VisitManagementScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "records_list":return <RecordListScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "parent_connect":return <ParentConnectScreen user={user} store={store} onNav={setScreen} onBack={()=>setScreen("home")}/>;
-    case "transport_live":return <TransportLiveScreen user={user} store={store} onNav={setScreen} onBack={()=>setScreen("home")}/>;
-    case "kintai_dash":return <StaffKintaiDashboardScreen user={user} store={store} onNav={setScreen} onBack={()=>setScreen("home")}/>;
-    case "billing_mgmt":return <BillingManagementScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "data_analytics":return <DataAnalyticsScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "staff_documents":return <StaffDocumentScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "parent_contacts":return <ParentContactsScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "staff_monitor":return <StaffMonitorScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "activity_ai":return <ActivityAIScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "management_dash":return <ManagementDashboardScreen user={user} store={store} onNav={setScreen} onBack={()=>setScreen("home")}/>;
-    case "audit_mode":return <AuditModeScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
-    case "photo_album":return <PhotoAlbumScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
     case "parent_portal":return <ParentPortalScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
+
+    // ── staff以上（保護者除外）──
+    case "clock_in":         return guard(ROLE_ADMIN_MGR_STF,<StaffClockIn user={user} onBack={()=>setScreen("home")} store={store}/>);
+    case "clock_out":        return guard(ROLE_ADMIN_MGR_STF,<StaffClockOut user={user} onBack={()=>setScreen("home")} store={store}/>);
+    case "user_arrive":      return guard(ROLE_ADMIN_MGR_STF,<UserArrive user={user} onBack={()=>setScreen("home")} store={store}/>);
+    case "user_depart":      return guard(ROLE_ADMIN_MGR_STF,<UserDepart user={user} onBack={()=>setScreen("home")} store={store}/>);
+    case "photo":            return guard(ROLE_ADMIN_MGR_STF,<PhotoRecord user={user} onBack={()=>setScreen("home")} store={store}/>);
+    case "service":          return guard(ROLE_ADMIN_MGR_STF,<ServiceRecord user={user} onBack={()=>setScreen("home")} store={store}/>);
+    case "messages":         return guard(ROLE_ADMIN_MGR_STF,<ParentMessages user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "daily":            return guard(ROLE_ADMIN_MGR_STF,<DailyReport user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "schedule":         return guard(ROLE_ADMIN_MGR_STF,<ScheduleScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "jisseki":          return guard(ROLE_ADMIN_MGR_STF,<JissekiScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "transport":        return guard(ROLE_ADMIN_MGR_STF,<TransportScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "transport_live":   return guard(ROLE_ADMIN_MGR_STF,<TransportLiveScreen user={user} store={store} onNav={setScreen} onBack={()=>setScreen("home")}/>);
+    case "isp":              return guard(ROLE_ADMIN_MGR_STF,<IspScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "visit":            return guard(ROLE_ADMIN_MGR_STF,<VisitManagementScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "records_list":     return guard(ROLE_ADMIN_MGR_STF,<RecordListScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "parent_connect":   return guard(ROLE_ADMIN_MGR_STF,<ParentConnectScreen user={user} store={store} onNav={setScreen} onBack={()=>setScreen("home")}/>);
+    case "parent_contacts":  return guard(ROLE_ADMIN_MGR_STF,<ParentContactsScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "activity_ai":      return guard(ROLE_ADMIN_MGR_STF,<ActivityAIScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "photo_album":      return guard(ROLE_ADMIN_MGR_STF,<PhotoAlbumScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "schedule_ocr":     return guard(ROLE_ADMIN_MGR_STF,<ScheduleOCRScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "support_plan":     return guard(ROLE_ADMIN_MGR_STF,<SupportPlanScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "paidleave":        return guard(ROLE_ADMIN_MGR_STF,<PaidLeaveScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+
+    // ── admin / manager のみ ──
+    case "attendance":       return guard(ROLE_ADMIN_MGR,<AttendanceScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "shift":            return guard(ROLE_ADMIN_MGR,<ShiftScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "kintai":           return guard(ROLE_ADMIN_MGR,<WorkRecordScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "users":            return guard(ROLE_ADMIN_MGR,<UserManagement user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "staffmgmt":        return guard(ROLE_ADMIN_MGR,<StaffManagement user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "staff_monitor":    return guard(ROLE_ADMIN_MGR,<StaffMonitorScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "kokuho":           return guard(ROLE_ADMIN_MGR,<KokuhoScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "billing_check":    return guard(ROLE_ADMIN_MGR,<BillingCheckScreen user={user} store={store} onNav={setScreen} onBack={()=>setScreen("home")}/>);
+    case "returns":          return guard(ROLE_ADMIN_MGR,<ReturnsManagementScreen user={user} store={store} onNav={setScreen} onBack={()=>setScreen("home")}/>);
+    case "billing_mgmt":     return guard(ROLE_ADMIN_MGR,<BillingManagementScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "kintai_dash":      return guard(ROLE_ADMIN_MGR,<StaffKintaiDashboardScreen user={user} store={store} onNav={setScreen} onBack={()=>setScreen("home")}/>);
+    case "data_analytics":   return guard(ROLE_ADMIN_MGR,<DataAnalyticsScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "staff_documents":  return guard(ROLE_ADMIN_MGR,<StaffDocumentScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "management_dash":  return guard(ROLE_ADMIN_MGR,<ManagementDashboardScreen user={user} store={store} onNav={setScreen} onBack={()=>setScreen("home")}/>);
+    case "audit":            return guard(ROLE_ADMIN_MGR,<AuditScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "audit_mode":       return guard(ROLE_ADMIN_MGR,<AuditModeScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+
+    // ── admin のみ ──
+    case "admin":            return guard(ROLE_ADMIN,<AdminScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+
     default:return <HomeScreen user={user} onNav={setScreen} store={store}/>;
   }};
 
