@@ -9923,11 +9923,13 @@ function IspScreen({user, store, onBack}){
     </div>
 
     {/* スクリーンタブ */}
-    <div style={{display:"flex",gap:6,marginBottom:16}}>
+    <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
       {[
-        {id:"users",   icon:"👤", label:"利用者別"},
-        {id:"meetings",icon:"📝", label:`会議録管理${allMeetings.length>0?` (${allMeetings.length})`:""}` },
-        {id:"consents",icon:"✍️", label:`同意書管理${expiredConsents.length>0?` ⚠️${expiredConsents.length}`:""}` },
+        {id:"users",     icon:"👤", label:"利用者別"},
+        {id:"dashboard", icon:"📊", label:`期限ダッシュボード${expiredCount>0?` ⚠️${expiredCount}`:""}` },
+        {id:"meetings",  icon:"📝", label:`会議録管理${allMeetings.length>0?` (${allMeetings.length})`:""}` },
+        {id:"consents",  icon:"✍️", label:`同意書管理${expiredConsents.length>0?` ⚠️${expiredConsents.length}`:""}` },
+        {id:"bulk_export",icon:"📤",label:"一括出力"},
       ].map(t=>(
         <button key={t.id} onClick={()=>setScreenTab(t.id)}
           style={{padding:"8px 14px",borderRadius:10,fontWeight:700,fontSize:12,cursor:"pointer",border:"1.5px solid",fontFamily:"'Noto Sans JP',sans-serif",
@@ -9938,6 +9940,168 @@ function IspScreen({user, store, onBack}){
         </button>
       ))}
     </div>
+
+    {/* ─── 期限ダッシュボードタブ ─── */}
+    {screenTab==="dashboard"&&(()=>{
+      // 全利用者のISP有効期限・モニタリング期日を集計
+      const dashRows=myUsers.map(u2=>{
+        const recs2=(store.ispRecords||[]).filter(r=>r.userId===u2.id);
+        const latestIsp2=recs2.filter(r=>r.docType==="isp_plan").sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+        const latestMon=recs2.filter(r=>r.docType==="monitoring").sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+        const validTo=latestIsp2?.content?.validTo||null;
+        const monDate=latestMon?.content?.date||latestMon?.createdAt?.slice(0,10)||null;
+        // モニタリング期日：最終実施から6ヶ月後
+        const monDue=monDate?(()=>{const d=new Date(monDate);d.setMonth(d.getMonth()+6);return d.toISOString().slice(0,10);})():null;
+        const ispDaysLeft=validTo?Math.floor((new Date(validTo)-new Date(today))/(1000*60*60*24)):null;
+        const monDaysLeft=monDue?Math.floor((new Date(monDue)-new Date(today))/(1000*60*60*24)):null;
+        return {u2,latestIsp2,validTo,monDue,ispDaysLeft,monDaysLeft,latestMon};
+      }).sort((a,b)=>{
+        // 期限切れ・近いものを上に
+        const aScore=(a.ispDaysLeft===null?9999:a.ispDaysLeft<0?-9999:a.ispDaysLeft);
+        const bScore=(b.ispDaysLeft===null?9999:b.ispDaysLeft<0?-9999:b.ispDaysLeft);
+        return aScore-bScore;
+      });
+
+      // CSV出力
+      const exportISPDeadlineCSV=()=>{
+        const hd=["氏名","ISP有効期限","残日数","計画ステータス","最終モニタリング日","次回モニタリング期日","モニタリング残日数"];
+        const rows=dashRows.map(({u2,validTo,ispDaysLeft,monDue,monDaysLeft,latestIsp2,latestMon})=>[
+          u2.name,validTo||"未作成",ispDaysLeft===null?"—":ispDaysLeft<0?`${Math.abs(ispDaysLeft)}日超過`:`残${ispDaysLeft}日`,
+          latestIsp2?.status||"未作成",latestMon?.content?.date||latestMon?.createdAt?.slice(0,10)||"未実施",
+          monDue||"—",monDaysLeft===null?"—":monDaysLeft<0?`${Math.abs(monDaysLeft)}日超過`:`残${monDaysLeft}日`
+        ]);
+        const csv=[hd,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+        const a=document.createElement("a");
+        a.href=URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"}));
+        a.download=`isp_deadlines_${today}.csv`;a.click();
+      };
+
+      const expiredISPs=dashRows.filter(r=>r.ispDaysLeft!==null&&r.ispDaysLeft<0);
+      const soon30=dashRows.filter(r=>r.ispDaysLeft!==null&&r.ispDaysLeft>=0&&r.ispDaysLeft<=30);
+      const noISP=dashRows.filter(r=>r.validTo===null);
+      const monOverdue=dashRows.filter(r=>r.monDaysLeft!==null&&r.monDaysLeft<0);
+
+      return <div>
+        {/* サマリーカード */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,marginBottom:14}}>
+          {[
+            {label:"計画期限切れ",val:expiredISPs.length,color:"var(--ro)",bg:"rgba(224,56,56,0.1)"},
+            {label:"30日以内更新",val:soon30.length,color:"var(--am)",bg:"rgba(230,160,0,0.08)"},
+            {label:"計画未作成",val:noISP.length,color:"var(--tx3)",bg:"var(--bg)"},
+            {label:"モニタリング期限超",val:monOverdue.length,color:"var(--pu)",bg:"rgba(130,60,200,0.08)"},
+            {label:"全利用者",val:myUsers.length,color:"var(--tl)",bg:"rgba(58,160,216,0.08)"},
+          ].map(c=>(
+            <div key={c.label} style={{background:c.bg,border:`1px solid ${c.color}30`,borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
+              <div style={{fontSize:20,fontWeight:900,color:c.color,fontFamily:"'DM Mono',monospace"}}>{c.val}</div>
+              <div style={{fontSize:9,color:"var(--tx3)",marginTop:2}}>{c.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* 期限アラート */}
+        {expiredISPs.length>0&&<div style={{background:"rgba(224,56,56,0.08)",border:"2px solid rgba(224,56,56,0.4)",borderRadius:11,padding:"10px 14px",marginBottom:10}}>
+          <div style={{fontWeight:700,fontSize:12,color:"var(--ro)",marginBottom:6}}>🚨 個別支援計画 期限切れ ({expiredISPs.length}件)</div>
+          {expiredISPs.map(({u2,validTo,ispDaysLeft})=>(
+            <div key={u2.id} style={{fontSize:11,display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid rgba(224,56,56,0.15)"}}>
+              <span style={{fontWeight:700}}>{u2.name}</span>
+              <span style={{color:"var(--ro)",fontWeight:700}}>{validTo} ({Math.abs(ispDaysLeft)}日超過)</span>
+            </div>
+          ))}
+        </div>}
+
+        {monOverdue.length>0&&<div style={{background:"rgba(130,60,200,0.06)",border:"1.5px solid rgba(130,60,200,0.3)",borderRadius:11,padding:"10px 14px",marginBottom:10}}>
+          <div style={{fontWeight:700,fontSize:12,color:"var(--pu)",marginBottom:6}}>📊 モニタリング期限超過 ({monOverdue.length}件)</div>
+          {monOverdue.map(({u2,monDue,monDaysLeft})=>(
+            <div key={u2.id} style={{fontSize:11,display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid rgba(130,60,200,0.12)"}}>
+              <span style={{fontWeight:700}}>{u2.name}</span>
+              <span style={{color:"var(--pu)",fontWeight:700}}>{monDue} ({Math.abs(monDaysLeft)}日超過)</span>
+            </div>
+          ))}
+        </div>}
+
+        {/* 全利用者一覧テーブル */}
+        <div style={{overflowX:"auto",marginBottom:14}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
+            <thead><tr style={{background:"var(--bg2)"}}>
+              {["利用者","ISP有効期限","残日数","状態","最終モニタリング","次回期日"].map(h=>(
+                <th key={h} style={{padding:"7px 9px",textAlign:"left",fontSize:10,color:"var(--tx2)",fontWeight:700,borderBottom:"2px solid var(--bd)",whiteSpace:"nowrap"}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>{dashRows.map(({u2,validTo,ispDaysLeft,monDue,monDaysLeft,latestIsp2})=>{
+              const ispColor=ispDaysLeft===null?"var(--tx3)":ispDaysLeft<0?"var(--ro)":ispDaysLeft<=30?"var(--am)":"var(--gr)";
+              const monColor=monDaysLeft===null?"var(--tx3)":monDaysLeft<0?"var(--pu)":monDaysLeft<=30?"var(--am)":"var(--gr)";
+              return <tr key={u2.id} style={{borderBottom:"1px solid var(--bd)"}}>
+                <td style={{padding:"7px 9px",fontWeight:700}}>{u2.name}</td>
+                <td style={{padding:"7px 9px",fontFamily:"'DM Mono',monospace",fontSize:10}}>{validTo||"—"}</td>
+                <td style={{padding:"7px 9px",fontFamily:"'DM Mono',monospace",fontWeight:700,color:ispColor}}>
+                  {ispDaysLeft===null?"未作成":ispDaysLeft<0?`${Math.abs(ispDaysLeft)}日超過`:ispDaysLeft===0?"本日期限":`残${ispDaysLeft}日`}
+                </td>
+                <td style={{padding:"7px 9px"}}>
+                  <span style={{fontSize:9,padding:"2px 7px",borderRadius:7,fontWeight:700,background:ispColor+"18",color:ispColor}}>
+                    {latestIsp2?.status==="finalized"?"確定":latestIsp2?.status==="ai_draft"?"AI原案":latestIsp2?"作成中":"未作成"}
+                  </span>
+                </td>
+                <td style={{padding:"7px 9px",fontSize:10,color:"var(--tx3)"}}>{dashRows.find(r=>r.u2.id===u2.id)?.latestMon?.content?.date||"—"}</td>
+                <td style={{padding:"7px 9px",fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:700,color:monColor}}>
+                  {monDue||"—"}{monDaysLeft!==null&&monDaysLeft<0&&<span style={{color:"var(--pu)"}}>⚠</span>}
+                </td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>
+        <button onClick={exportISPDeadlineCSV}
+          style={{width:"100%",padding:"11px",borderRadius:10,background:"linear-gradient(135deg,#1a4a8a,#2d6ed6)",color:"#fff",fontWeight:700,fontSize:13,border:"none",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+          📊 ISP期限一覧 CSV出力
+        </button>
+      </div>;
+    })()}
+
+    {/* ─── 一括出力タブ ─── */}
+    {screenTab==="bulk_export"&&<div>
+      <div style={{background:"rgba(58,160,216,0.06)",border:"1px solid rgba(58,160,216,0.25)",borderRadius:11,padding:"12px 14px",marginBottom:14}}>
+        <div style={{fontSize:12,fontWeight:700,color:"var(--tl)",marginBottom:4}}>📤 一括出力</div>
+        <div style={{fontSize:11,color:"var(--tx3)",lineHeight:1.7}}>
+          利用者を選択して一括で書類を印刷できます。監査対応・管理者提出用に使用してください。<br/>
+          ⚠️ 確定済み（finalized）のISPのみが出力対象です。
+        </div>
+      </div>
+      {(()=>{
+        const finalizedISPs=myUsers.map(u2=>{
+          const recs2=(store.ispRecords||[]).filter(r=>r.userId===u2.id&&r.docType==="isp_plan"&&r.status==="finalized");
+          const latest=recs2.sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
+          return {u2,latest};
+        }).filter(x=>x.latest);
+
+        if(finalizedISPs.length===0) return <div style={{textAlign:"center",padding:"32px 20px",color:"var(--tx3)",background:"var(--bg)",borderRadius:11}}>
+          <div style={{fontSize:28,marginBottom:8}}>📄</div>
+          <div>確定済みの個別支援計画がありません。</div>
+          <div style={{fontSize:11,marginTop:4}}>ISPを「最終確定」ステータスにしてから使用してください。</div>
+        </div>;
+
+        const facName2=FACILITIES.find(f=>f.id===fac)?.name||"GO GROUP";
+        return <div>
+          <div style={{fontWeight:700,fontSize:12,marginBottom:10}}>確定済みISP: {finalizedISPs.length}名</div>
+          {finalizedISPs.map(({u2,latest})=>{
+            const c=latest.content||{};
+            return <div key={u2.id} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"10px 14px",marginBottom:8,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:13}}>{u2.name}</div>
+                <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>
+                  有効期間: {c.validFrom||"—"} 〜 {c.validTo||"—"}
+                </div>
+              </div>
+              <button onClick={()=>printIspRecord(latest,u2,facName2)}
+                style={{padding:"7px 14px",borderRadius:9,background:"var(--tl)",color:"#fff",fontWeight:700,fontSize:11,border:"none",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                🖨 印刷・PDF
+              </button>
+            </div>;
+          })}
+          {finalizedISPs.length>1&&<div style={{background:"rgba(240,112,32,0.07)",border:"1px solid rgba(240,112,32,0.3)",borderRadius:10,padding:"10px 14px",marginTop:8,fontSize:11,color:"var(--tx3)"}}>
+            💡 複数利用者のISPをまとめて印刷する場合は、各ボタンを順番にクリックしてください。
+          </div>}
+        </div>;
+      })()}
+    </div>}
 
     {/* ─── 会議録管理タブ ─── */}
     {screenTab==="meetings"&&<div>
