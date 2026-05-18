@@ -2020,8 +2020,10 @@ select.fi option{background:var(--bg2);color:var(--tx);}
 .bsave,.bpri{min-height:52px;font-size:15px;letter-spacing:.5px;}
 .bconf{min-height:46px;}
 .bback{min-height:40px;display:inline-flex;align-items:center;}
-/* タブ・チップ系は最小40px */
-.tab,.nb,.tg,.cb{min-height:40px;display:inline-flex;align-items:center;justify-content:center;}
+/* タブ・チップ系は最小44px（HIG推奨タッチターゲット） */
+.tab,.nb,.tg,.cb{min-height:44px;display:inline-flex;align-items:center;justify-content:center;}
+.bexp{min-height:44px;display:inline-flex;align-items:center;justify-content:center;}
+.sbtn{min-height:36px;display:inline-flex;align-items:center;justify-content:center;}
 /* ホームカード最小高 */
 .hc{min-height:82px;}
 /* ===== iOS入力フォームズーム防止 ===== */
@@ -3835,12 +3837,15 @@ function RecordListScreen({user,store,onBack}){
   const [editTr,setEditTr]=useState("");
   const [editDayType,setEditDayType]=useState("");
   const [editReason,setEditReason]=useState("");
+  const [editSaving,setEditSaving]=useState(false); // 保存連打防止
   const [confirmDel,setConfirmDel]=useState(null);
 
   const facilityId=user.selectedFacilityId;
   const isMgr=user.role==="manager"||user.role==="admin";
   // 月文字列: "2026-05"
   const yearMonth=vm.y+"-"+String(vm.m).padStart(2,"0");
+  // 月次ロック判定（ロック済み月は編集・削除不可）
+  const isLocked=store.isMonthLocked(facilityId, yearMonth);
 
   // 職員出勤記録（staff_in / staff_out）
   const staffRecs=store.recs
@@ -3867,14 +3872,17 @@ function RecordListScreen({user,store,onBack}){
     setEditReason("");
   };
 
-  // 保存
+  // 保存（editSavingで連打防止）
   const saveEdit=()=>{
+    if(editSaving) return;
     if(!editReason.trim()){alert("変更理由を入力してください（監査対応のため必須）");return;}
+    setEditSaving(true);
     const newTime=buildDTForDate(editDate,editTime);
     const ch={time:newTime,temp:editTemp,note:editNote};
     if(tab==="user") {ch.transport=editTr;ch.dayType=editDayType;}
     store.updRec(editRec.id,ch,user.displayName,editReason);
     setEditRec(null);
+    setEditSaving(false);
     store.showToast("✅ 実績を修正しました");
   };
 
@@ -3934,6 +3942,15 @@ function RecordListScreen({user,store,onBack}){
       </div>
     </div>
 
+    {/* 月次ロックバナー */}
+    {isLocked&&<div style={{background:"rgba(224,56,56,0.1)",border:"1.5px solid rgba(224,56,56,0.4)",borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+      <span style={{fontSize:16}}>🔒</span>
+      <div>
+        <div style={{fontSize:12,fontWeight:900,color:"var(--ro)"}}>月次ロック済み — 編集・削除不可</div>
+        <div style={{fontSize:11,color:"var(--tx3)"}}>この月のデータは確定済みです。変更が必要な場合は管理者に連絡してください。</div>
+      </div>
+    </div>}
+
     {/* 記録なし */}
     {groups.length===0&&<div style={{textAlign:"center",color:"var(--tx3)",padding:"36px 0",fontSize:13}}>
       {vm.y}年{vm.m}月の記録がありません
@@ -3965,16 +3982,17 @@ function RecordListScreen({user,store,onBack}){
               </div>
               {(r.history||[]).length>0&&<div style={{fontSize:10,color:"var(--am)",marginTop:3}}>✏ 修正済み（{r.history.length}回）</div>}
             </div>
-            {isMgr&&<div style={{display:"flex",gap:6,flexShrink:0}}>
+            {isMgr&&!isLocked&&<div style={{display:"flex",gap:6,flexShrink:0}}>
               <button onClick={()=>openEdit(r)}
-                style={{padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.12)",border:"1.5px solid var(--tl)",color:"var(--tl)"}}>
+                style={{padding:"8px 12px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.12)",border:"1.5px solid var(--tl)",color:"var(--tl)",minHeight:44,minWidth:44}}>
                 ✏ 編集
               </button>
               <button onClick={()=>setConfirmDel(r)}
-                style={{padding:"5px 8px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(224,56,56,0.1)",border:"1.5px solid rgba(224,56,56,0.5)",color:"var(--ro)"}}>
+                style={{padding:"8px 12px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(224,56,56,0.1)",border:"1.5px solid rgba(224,56,56,0.5)",color:"var(--ro)",minHeight:44,minWidth:44}}>
                 🗑
               </button>
             </div>}
+            {isMgr&&isLocked&&<div style={{fontSize:10,color:"var(--ro)",fontWeight:700,padding:"4px 8px"}}>🔒</div>}
           </div>;
         })}
       </div>
@@ -4056,9 +4074,9 @@ function RecordListScreen({user,store,onBack}){
             style={{flex:1,padding:"11px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx3)"}}>
             キャンセル
           </button>
-          <button onClick={saveEdit} disabled={!editReason.trim()}
-            style={{flex:2,padding:"11px",borderRadius:10,fontWeight:700,fontSize:13,cursor:editReason.trim()?"pointer":"not-allowed",fontFamily:"'Noto Sans JP',sans-serif",background:editReason.trim()?"var(--tl)":"var(--bg)",color:editReason.trim()?"#fff":"var(--tx3)",border:"none",opacity:editReason.trim()?1:0.6}}>
-            ✅ 保存する
+          <button onClick={saveEdit} disabled={!editReason.trim()||editSaving}
+            style={{flex:2,padding:"11px",borderRadius:10,fontWeight:700,fontSize:13,cursor:(editReason.trim()&&!editSaving)?"pointer":"not-allowed",fontFamily:"'Noto Sans JP',sans-serif",background:(editReason.trim()&&!editSaving)?"var(--tl)":"var(--bg)",color:(editReason.trim()&&!editSaving)?"#fff":"var(--tx3)",border:"none",opacity:(editReason.trim()&&!editSaving)?1:0.6}}>
+            {editSaving?"⏳ 保存中…":"✅ 保存する"}
           </button>
         </div>
       </div>
@@ -4414,6 +4432,9 @@ function AttendanceScreen({user,store,onBack}){
   };
   const [dayTypeRefresh, setDayTypeRefresh] = useState(0);
   const currentDayType = getDayType(sel);
+  // 月次ロック判定
+  const attYearMonth=vm.y+"-"+String(vm.m).padStart(2,"0");
+  const isAttLocked=store.isMonthLocked(user.selectedFacilityId, attYearMonth);
 
   return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">📅 出欠管理</div><button className="bexp" style={{marginLeft:"auto",background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={()=>printAttendance(users,vm,days,store.getAtt,facName)}>🖨️ 印刷</button></div>
     <div><div className="panel" style={{marginBottom:12}}>
@@ -4430,6 +4451,11 @@ function AttendanceScreen({user,store,onBack}){
         })}
       </div>
     </div>
+    {/* 月次ロックバナー（出欠管理） */}
+    {isAttLocked&&<div style={{background:"rgba(224,56,56,0.1)",border:"1.5px solid rgba(224,56,56,0.4)",borderRadius:10,padding:"10px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+      <span style={{fontSize:16}}>🔒</span>
+      <div style={{fontSize:12,fontWeight:900,color:"var(--ro)"}}>月次ロック済み — 出欠変更不可</div>
+    </div>}
     <div style={{marginBottom:10}}>
       <div style={{fontSize:14,fontWeight:900,marginBottom:9}}>{dlabel(sel)} の出欠状況</div>
       {/* 放課後/休日 切替 */}
@@ -4464,7 +4490,7 @@ function AttendanceScreen({user,store,onBack}){
               </span>}
           </div>
           <div style={{display:"flex",gap:4}}>
-            {STATS.map(s=><button key={s} className={store.getAtt(u.id,sel)===s?scls[s]:"sbtn sn2"} onClick={()=>store.setAtt(u.id,sel,s)}>{s}</button>)}
+            {STATS.map(s=><button key={s} className={store.getAtt(u.id,sel)===s?scls[s]:"sbtn sn2"} onClick={()=>!isAttLocked&&store.setAtt(u.id,sel,s)} disabled={isAttLocked} style={{opacity:isAttLocked?0.5:1,cursor:isAttLocked?"not-allowed":"pointer"}}>{s}</button>)}
           </div>
         </div>;
       })}
@@ -6263,6 +6289,7 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
   const [form, setForm] = useState({...init});
   const upd = (k,v) => setForm(p=>({...p,[k]:v}));
   const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false); // 保存連打防止
 
   const validate = () => {
     const e = {};
@@ -6275,7 +6302,9 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
   };
 
   const handleSave = () => {
+    if(saving) return;
     if(!validate()) return;
+    setSaving(true);
     onSave(form);
   };
 
@@ -6463,8 +6492,8 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
       </div>}
 
       <div style={{display:"flex",gap:10,paddingBottom:32}}>
-        <button className="bsave" style={{background:"var(--bg)",color:"var(--tx2)",border:"1.5px solid var(--bd)"}} onClick={onBack}>キャンセル</button>
-        <button className="bsave" style={{flex:2}} onClick={handleSave}>{isEdit?"変更を保存する":"登録する"}</button>
+        <button className="bsave" style={{background:"var(--bg)",color:"var(--tx2)",border:"1.5px solid var(--bd)"}} onClick={onBack} disabled={saving}>キャンセル</button>
+        <button className="bsave" style={{flex:2,opacity:saving?0.6:1}} onClick={handleSave} disabled={saving}>{saving?"⏳ 保存中…":(isEdit?"変更を保存する":"登録する")}</button>
       </div>
     </div>
   );
@@ -8176,9 +8205,10 @@ function DevRecordTab({u, user, store}) {
 
   const handleSave = () => {
     if(!form.domain||!form.content) return;
+    if(saved) return; // 連打防止
     store.addDevRecord({...form, id:genId(), userId:u.id, facilityId:u.facilityId});
     setSaved(true);
-    setTimeout(()=>{setSaved(false);setMode("list");setForm(p=>({...p,domain:"",level:"",goal:"",content:""}));},1500);
+    setTimeout(()=>{setSaved(false);setMode("list");setForm(p=>({...p,domain:"",level:"",goal:"",content:""}));},1200);
   };
 
   if(mode==="new") return <div>
@@ -8258,9 +8288,10 @@ function ParentSupportTab({u, user, store}) {
 
   const handleSave = () => {
     if(!form.type||!form.content) return;
+    if(saved) return; // 連打防止
     store.addParentSupportRecord({...form, id:genId(), userId:u.id, facilityId:u.facilityId});
     setSaved(true);
-    setTimeout(()=>{setSaved(false);setMode("list");setForm(p=>({...p,type:"",content:"",nextAction:""}));},1500);
+    setTimeout(()=>{setSaved(false);setMode("list");setForm(p=>({...p,type:"",content:"",nextAction:""}));},1200);
   };
 
   if(mode==="new") return <div>
@@ -12274,6 +12305,9 @@ function KokuhoScreen({user,store,onBack}){
   const hasJidou   = facilityServiceTypes.some(s=>s.id==="jidouhattatsu");
   const hasVisit   = facilityServiceTypes.some(s=>s.id==="hoikuvisit");
 
+  // 月次ロック判定（請求確定済み月は編集不可）
+  const isKokuhoLocked = store.isMonthLocked(facilityId, yearMonth);
+
   const tabs=[
     {id:"check",   icon:"🔍",label:"請求前チェック"},
     {id:"summary", icon:"💴",label:"月次サマリー"},
@@ -12310,6 +12344,9 @@ function KokuhoScreen({user,store,onBack}){
       <div style={{fontSize:10,color:"var(--tx3)",fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>
         {getBillingMaster(yearMonth).name}
       </div>
+      {isKokuhoLocked&&<div style={{display:"flex",alignItems:"center",gap:5,background:"rgba(224,56,56,0.1)",border:"1px solid rgba(224,56,56,0.35)",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700,color:"var(--ro)"}}>
+        🔒 月次ロック中（確定済み）
+      </div>}
     </div>
     {/* タブナビ */}
     <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:16}}>
