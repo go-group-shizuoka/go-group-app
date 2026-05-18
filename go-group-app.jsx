@@ -5119,11 +5119,12 @@ function TransportScreen({user,store,onBack}){
     </div>
 
     {/* タブ */}
-    <div style={{display:"flex",gap:6,padding:"10px 14px",background:"var(--bg)",borderBottom:"1px solid var(--bd)"}}>
+    <div style={{display:"flex",gap:6,padding:"10px 14px",background:"var(--bg)",borderBottom:"1px solid var(--bd)",flexWrap:"wrap"}}>
       {[
-        {id:"today", icon:"🚌", label:"本日の送迎"},
-        {id:"routes",icon:"📍", label:`ルート管理 (${(store.routes||[]).filter(r=>r.facilityId===facId).length})`},
-        {id:"history",icon:"📋", label:"記録履歴"},
+        {id:"today",   icon:"🚌", label:"本日の送迎"},
+        {id:"routes",  icon:"📍", label:`ルート管理 (${(store.routes||[]).filter(r=>r.facilityId===facId).length})`},
+        {id:"history", icon:"📋", label:"記録履歴"},
+        {id:"stats",   icon:"📊", label:"月次集計"},
       ].map(t=>(
         <button key={t.id} onClick={()=>setTab(t.id)}
           style={{padding:"7px 12px",borderRadius:9,fontWeight:700,fontSize:11,cursor:"pointer",border:"1.5px solid",fontFamily:"'Noto Sans JP',sans-serif",
@@ -5298,8 +5299,23 @@ function TransportScreen({user,store,onBack}){
 
     {/* ═══ 記録履歴タブ ═══ */}
     {tab==="history"&&<div>
-      <div className="togr" style={{marginBottom:14}}>
-        {["来所","退所"].map(d=><button key={d} className={`tg ${dir===d?"on":""}`} onClick={()=>setDir(d)}>{d}</button>)}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+        <div className="togr" style={{margin:0}}>
+          {["来所","退所"].map(d=><button key={d} className={`tg ${dir===d?"on":""}`} onClick={()=>setDir(d)}>{d}</button>)}
+        </div>
+        {/* 送迎記録 CSV出力 */}
+        <button onClick={()=>{
+          const allTransRecs=store.recs.filter(r=>r.facilityId===facId&&r.transport==="あり"&&(r.type==="user_in"||r.type==="user_out"))
+            .sort((a,b)=>b.time>a.time?1:-1);
+          const hd=["日付","種別","利用者名","時刻","体温","送迎","記録者"];
+          const rows=allTransRecs.map(r=>[r.time?.slice(0,10)||"",r.type==="user_in"?"来所":"退所",r.userName||"",r.time?.slice(-8,-3)||"",r.temp||"",r.transport||"",r.createdBy||""]);
+          const csv=[hd,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+          const a=document.createElement("a");
+          a.href=URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"}));
+          a.download=`transport_${today}.csv`;a.click();
+        }} style={{padding:"7px 14px",borderRadius:9,background:"linear-gradient(135deg,#1a4a8a,#2d6ed6)",color:"#fff",fontSize:11,fontWeight:700,border:"none",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+          📊 全送迎記録 CSV出力
+        </button>
       </div>
       {(()=>{
         const histRecs=store.recs.filter(r=>r.facilityId===facId&&r.type===(dir==="来所"?"user_in":"user_out")&&r.transport==="あり")
@@ -5332,6 +5348,104 @@ function TransportScreen({user,store,onBack}){
             ))}
           </div>
         ));
+      })()}
+    </div>}
+
+    {/* ═══ 月次集計タブ ═══ */}
+    {tab==="stats"&&<div>
+      {(()=>{
+        const now2=new Date();
+        const [selY,setSelY]=[useState(now2.getFullYear()),null];
+        const [selM,setSelM]=[useState(now2.getMonth()+1),null];
+        // 月ごとのデータ（過去6ヶ月）
+        const months6=Array.from({length:6},(_,i)=>{
+          const d=new Date(now2.getFullYear(),now2.getMonth()-5+i,1);
+          return {y:d.getFullYear(),m:d.getMonth()+1,ym:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`};
+        });
+        // 送迎利用者ごとの月次集計
+        const userStats=facUsers.filter(u=>u.hasTransport||store.trData?.find(t=>t.userId===u.id&&t.facilityId===facId))
+          .map(u=>{
+            const monthData=months6.map(({ym,y,m})=>{
+              const recs=store.recs.filter(r=>r.facilityId===facId&&r.userId===u.id&&r.transport==="あり"&&(r.time||"").startsWith(ym));
+              const comingCnt=recs.filter(r=>r.type==="user_in").length;
+              const goingCnt=recs.filter(r=>r.type==="user_out").length;
+              return {ym,comingCnt,goingCnt};
+            });
+            return {u,monthData};
+          });
+
+        // 全送迎利用者（送迎記録があるユーザー）
+        const allTransUsers=new Set(
+          store.recs.filter(r=>r.facilityId===facId&&r.transport==="あり").map(r=>r.userId)
+        );
+        const totalToday=store.recs.filter(r=>r.facilityId===facId&&r.transport==="あり"&&r.time?.startsWith(today)).length;
+
+        // 月次CSV
+        const exportMonthlyCSV=()=>{
+          const thisM=months6[months6.length-1];
+          const hd=["利用者名","月","来所送迎日数","退所送迎日数","合計送迎日数"];
+          const rows=userStats.flatMap(({u,monthData})=>monthData.map(({ym,comingCnt,goingCnt})=>[u.name,ym,comingCnt,goingCnt,comingCnt+goingCnt]));
+          const csv=[hd,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+          const a=document.createElement("a");
+          a.href=URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"}));
+          a.download=`transport_monthly_${today}.csv`;a.click();
+        };
+
+        return <div>
+          {/* サマリーカード */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:16}}>
+            <div style={{background:"linear-gradient(135deg,#1a4a8a,#2d6ed6)",borderRadius:12,padding:"12px 14px",color:"#fff",textAlign:"center"}}>
+              <div style={{fontSize:22,fontWeight:900,fontFamily:"'DM Mono',monospace"}}>{totalToday}</div>
+              <div style={{fontSize:10,opacity:.8,marginTop:2}}>本日 送迎件数</div>
+            </div>
+            <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"12px 14px",textAlign:"center"}}>
+              <div style={{fontSize:22,fontWeight:900,color:"var(--tl)",fontFamily:"'DM Mono',monospace"}}>{allTransUsers.size}</div>
+              <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>送迎記録のある利用者</div>
+            </div>
+            <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"12px 14px",textAlign:"center"}}>
+              <div style={{fontSize:22,fontWeight:900,color:"var(--gr)",fontFamily:"'DM Mono',monospace"}}>
+                {(()=>{const m=months6[months6.length-1];return store.recs.filter(r=>r.facilityId===facId&&r.transport==="あり"&&(r.time||"").startsWith(m.ym)).length;})()}
+              </div>
+              <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>今月 送迎件数</div>
+            </div>
+          </div>
+
+          {/* 送迎利用者別・月次バー */}
+          {userStats.length>0&&<div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+            <div style={{fontWeight:700,fontSize:12,marginBottom:12}}>👤 利用者別 月次送迎日数（過去6ヶ月）</div>
+            {userStats.map(({u,monthData})=>{
+              const thisMonthTotal=(monthData[monthData.length-1]?.comingCnt||0)+(monthData[monthData.length-1]?.goingCnt||0);
+              const maxTotal=Math.max(...monthData.map(m=>m.comingCnt+m.goingCnt),1);
+              return <div key={u.id} style={{marginBottom:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4}}>
+                  <span style={{fontWeight:700}}>{u.name}</span>
+                  <span style={{fontFamily:"'DM Mono',monospace",color:"var(--tl)"}}>{thisMonthTotal}件/今月</span>
+                </div>
+                <div style={{display:"flex",gap:2,alignItems:"flex-end",height:24}}>
+                  {monthData.map(({ym,comingCnt,goingCnt},i)=>{
+                    const total=comingCnt+goingCnt;
+                    const pct=maxTotal>0?Math.round(total/maxTotal*100):0;
+                    const isLast=i===monthData.length-1;
+                    return <div key={ym} title={`${ym}: ${total}件`}
+                      style={{flex:1,height:Math.max(2,Math.round(pct*0.22)),background:isLast?"var(--tl)":"rgba(58,160,216,0.4)",borderRadius:"2px 2px 0 0"}}/>;
+                  })}
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:"var(--tx3)",marginTop:1}}>
+                  <span>{months6[0].ym.slice(0,7)}</span><span>→ 今月</span>
+                </div>
+              </div>;
+            })}
+            {userStats.length===0&&<div style={{textAlign:"center",color:"var(--tx3)",padding:16}}>送迎利用者の記録がありません</div>}
+          </div>}
+
+          {/* CSV出力 */}
+          <div style={{display:"grid",gap:10}}>
+            <button onClick={exportMonthlyCSV}
+              style={{width:"100%",padding:"12px",borderRadius:10,background:"linear-gradient(135deg,#1a6b3a,#2d9e58)",color:"#fff",fontWeight:700,fontSize:13,border:"none",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+              📊 月次送迎集計 CSV出力（6ヶ月分）
+            </button>
+          </div>
+        </div>;
       })()}
     </div>}
 
