@@ -25468,34 +25468,6 @@ export default function App(){
   </>;
 }
 
-// ==================== ERROR BOUNDARY ====================
-// コンポーネントがクラッシュしても画面全白にならないよう保護する
-class ErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
-  static getDerivedStateFromError(error) { return { hasError: true, error }; }
-  componentDidCatch(error, info) { console.error("GO GROUP ErrorBoundary:", error, info); }
-  render() {
-    if (this.state.hasError) return (
-      <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",padding:24,background:"#f0f4f8",fontFamily:"'Noto Sans JP',sans-serif"}}>
-        <div style={{fontSize:56,marginBottom:16}}>⚠️</div>
-        <div style={{fontSize:18,fontWeight:700,color:"#c0392b",marginBottom:8}}>画面でエラーが発生しました</div>
-        <div style={{fontSize:13,color:"#555",marginBottom:6,maxWidth:400,textAlign:"center",lineHeight:1.7}}>
-          {this.state.error?.message || "不明なエラー"}
-        </div>
-        <div style={{fontSize:11,color:"#888",marginBottom:24,maxWidth:400,textAlign:"center"}}>
-          画面を再読み込みすると復旧することがあります。<br/>
-          繰り返し発生する場合は管理者にご連絡ください。
-        </div>
-        <button onClick={()=>window.location.reload()}
-          style={{padding:"12px 32px",borderRadius:10,background:"#2563eb",color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,0.3)"}}>
-          🔄 画面を再読み込み
-        </button>
-      </div>
-    );
-    return this.props.children;
-  }
-}
-
 // エントリーポイント（Vite HMRで多重createRootしないよう対策）
 const _rootEl = document.getElementById("root");
 if (_rootEl) {
