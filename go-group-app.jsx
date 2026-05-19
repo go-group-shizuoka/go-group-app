@@ -3023,6 +3023,8 @@ function useStore() {
     sbLoad("manual_review_queue").then(d=>{ if(d?.length) setManualReviewQueue(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,100)); });
     // 児童別 AIドキュメントBOX（最新500件）
     sbLoad("child_documents").then(d=>{ if(d?.length) setChildDocuments(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,500)); });
+    // AI監査チェック（最新1000件: open+resolved両方）
+    sbLoad("audit_checks").then(d=>{ if(d?.length) setAuditChecks(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,1000)); });
   }, []);
   // ─── 訪問先マスタ（保育所等訪問支援） ───
   const [visitDests, setVisitDests] = useState([
@@ -3174,6 +3176,50 @@ function useStore() {
     sbSave("child_documents", upd);
   };
 
+
+  // ─── AI監査チェック ───
+  // 毎日の自動監査結果・解決履歴を管理する
+  const [auditChecks, setAuditChecks] = useState([]);
+
+  // 監査チェック1件を保存（新規 upsert）
+  const saveAuditCheck = check => {
+    setAuditChecks(p => {
+      // 同じ checkType+childId の open がすでにあれば重複追加しない
+      const key = `${check.checkType}_${check.childId||"_"}`;
+      const already = p.some(c => c.status === "open" && `${c.checkType}_${c.childId||"_"}` === key);
+      if (already) return p;
+      sbSave("audit_checks", {
+        id:             check.id,
+        check_type:     check.checkType,
+        severity:       check.severity        || "info",
+        child_id:       check.childId         || null,
+        child_name:     check.childName       || null,
+        facility_id:    check.facilityId      || null,
+        title:          check.title           || "",
+        description:    check.description     || "",
+        recommendation: check.recommendation  || "",
+        status:         check.status          || "open",
+        related_id:     check.relatedId       || null,
+        check_date:     check.checkDate       || new Date().toISOString().slice(0,10),
+        created_at:     check.createdAt       || new Date().toISOString(),
+        updated_at:     new Date().toISOString(),
+      });
+      return [check, ...p];
+    });
+  };
+
+  // 監査チェックのステータスを更新（解決・却下・自動解決）
+  const updAuditCheck = (id, changes) => {
+    setAuditChecks(p => p.map(c => c.id === id ? { ...c, ...changes } : c));
+    sbSave("audit_checks", {
+      id,
+      updated_at: new Date().toISOString(),
+      ...(changes.status       !== undefined ? { status:       changes.status }       : {}),
+      ...(changes.resolvedBy   !== undefined ? { resolved_by:  changes.resolvedBy }   : {}),
+      ...(changes.resolved_at  !== undefined ? { resolved_at:  changes.resolved_at }  : {}),
+      ...(changes.resolvedNote !== undefined ? { resolved_note: changes.resolvedNote } : {}),
+    });
+  };
 
   // 再解析時にOCRログを更新（既存行をupsertで上書き）
   const updOcrLog = (id, changes) => {
@@ -3509,7 +3555,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck};
 }
 
 
@@ -3580,6 +3626,223 @@ function matchChildByOcr(ocrData, dynUsers, facilityId) {
     matchStatus: confidence >= 70 ? "confirmed" : "pending_review",
     matchedUser: bestMatch,
   };
+}
+
+// ==================== AI監査チェック ロジック ====================
+// 毎日自動巡回してデータの問題を検出する。AuditCenterTab から呼ばれる。
+// daysUntil / expiryStatus は後で定義される function 宣言なので hoisting で使用可能。
+
+// 重要度の並び順
+const AUDIT_SEV_ORDER = { critical: 0, warning: 1, info: 2 };
+
+// 書類種別ラベル（generateAuditChecks内で使用）
+const AUDIT_DOC_LABELS = {
+  jukyusha:"受給者証", isp:"個別支援計画", monitoring:"モニタリング記録",
+  service_plan:"サービス等利用計画", medical_opinion:"医師意見書",
+  assessment:"アセスメント", support_record:"支援記録",
+};
+
+// チェック1件を生成するヘルパー
+function mkAuditCheck(checkType, severity, childId, childName, facilityId, title, description, recommendation, relatedId=null) {
+  return {
+    id: `ac_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+    checkType, severity,
+    childId, childName, facilityId,
+    title, description, recommendation,
+    status: "open",
+    relatedId,
+    checkDate: new Date().toISOString().slice(0,10),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+// メイン監査関数: store データを巡回して問題リストを返す
+// facilityId="all" で全施設、指定すると1施設のみ
+function generateAuditChecks(store, facilityId = "all") {
+  const checks = [];
+  const now    = new Date();
+
+  const inFac = id => facilityId === "all" || id === facilityId;
+
+  // ── 利用者単位のチェック ──
+  const users = (store.dynUsers || []).filter(u => u.active !== false && inFac(u.facilityId));
+
+  for (const u of users) {
+    const uid  = u.id;
+    const uFac = u.facilityId;
+    const uName = u.name;
+
+    // ① 受給者証期限
+    const jDocs   = (store.jukyushaDocs || []).filter(j => j.userId === uid);
+    const activeJ = jDocs.find(j => j.status === "有効");
+    if (jDocs.length === 0) {
+      checks.push(mkAuditCheck("jukyusha_missing", "critical", uid, uName, uFac,
+        "受給者証が未登録",
+        `${uName}さんの受給者証が1件も登録されていません`,
+        "受給者証タブからOCR読み取りを行い、登録してください（監査必須）"));
+    } else if (activeJ?.expiryDate) {
+      const diff = daysUntil(activeJ.expiryDate);
+      if (diff !== null) {
+        if (diff < 0)
+          checks.push(mkAuditCheck("jukyusha_expired", "critical", uid, uName, uFac,
+            "受給者証が期限切れ",
+            `${uName}さんの受給者証が${Math.abs(diff)}日前に期限切れです（${activeJ.expiryDate}）`,
+            "至急、更新受給者証を取得し受給者証タブから登録してください。サービス継続に影響します", activeJ.id));
+        else if (diff <= 30)
+          checks.push(mkAuditCheck("jukyusha_expiring_30", "warning", uid, uName, uFac,
+            `受給者証の期限まで残${diff}日`,
+            `${uName}さんの受給者証有効期限は${activeJ.expiryDate}（残${diff}日）`,
+            "更新申請を速やかに開始してください。市区町村への申請が必要です", activeJ.id));
+        else if (diff <= 60)
+          checks.push(mkAuditCheck("jukyusha_expiring_60", "info", uid, uName, uFac,
+            `受給者証の期限まで残${diff}日`,
+            `${uName}さんの受給者証有効期限は${activeJ.expiryDate}（残${diff}日）`,
+            "更新準備を始めてください。申請書類を事前に確認してください", activeJ.id));
+      }
+    }
+
+    // ② 個別支援計画期限
+    const latestIsp = (store.ispRecords || [])
+      .filter(r => r.userId === uid && r.docType === "isp_plan")
+      .sort((a,b) => b.createdAt > a.createdAt ? 1 : -1)[0];
+    if (!latestIsp) {
+      checks.push(mkAuditCheck("isp_missing", "critical", uid, uName, uFac,
+        "個別支援計画が未作成",
+        `${uName}さんの個別支援計画が作成されていません`,
+        "個別支援計画タブから計画を作成してください（監査必須書類）"));
+    } else if (latestIsp.content?.validTo) {
+      const diff = daysUntil(latestIsp.content.validTo);
+      if (diff !== null) {
+        if (diff < 0)
+          checks.push(mkAuditCheck("isp_expired", "critical", uid, uName, uFac,
+            "個別支援計画が期限切れ",
+            `${uName}さんの個別支援計画が${Math.abs(diff)}日前に期限切れです（${latestIsp.content.validTo}）`,
+            "新しい計画を作成し、保護者への説明・同意を得てください", latestIsp.id));
+        else if (diff <= 30)
+          checks.push(mkAuditCheck("isp_expiring", "warning", uid, uName, uFac,
+            `個別支援計画の期限まで残${diff}日`,
+            `${uName}さんの個別支援計画の期限は${latestIsp.content.validTo}（残${diff}日）`,
+            "計画の見直し・更新を行ってください。モニタリング結果を反映してください", latestIsp.id));
+      }
+    }
+
+    // ③ モニタリング期限（6ヶ月ごと）
+    const lastMon = (store.monitorings || [])
+      .filter(m => m.userId === uid)
+      .sort((a,b) => b.date > a.date ? 1 : -1)[0];
+    if (!lastMon) {
+      checks.push(mkAuditCheck("monitoring_missing", "critical", uid, uName, uFac,
+        "モニタリング記録がありません",
+        `${uName}さんのモニタリング記録が1件もありません`,
+        "モニタリングを実施し記録を作成してください（6ヶ月ごとに実施必須）"));
+    } else {
+      const nextMon = new Date(lastMon.date);
+      nextMon.setMonth(nextMon.getMonth() + 6);
+      const diff = daysUntil(nextMon.toISOString().slice(0,10));
+      if (diff !== null) {
+        if (diff < 0)
+          checks.push(mkAuditCheck("monitoring_overdue", "critical", uid, uName, uFac,
+            "モニタリング更新が超過",
+            `${uName}さんのモニタリング更新が${Math.abs(diff)}日超過（最終: ${lastMon.date}）`,
+            "速やかにモニタリングを実施・記録してください", lastMon.id || null));
+        else if (diff <= 30)
+          checks.push(mkAuditCheck("monitoring_due", "warning", uid, uName, uFac,
+            `モニタリング期限まで残${diff}日`,
+            `${uName}さんのモニタリング実施期限まで残${diff}日（最終: ${lastMon.date}）`,
+            "モニタリング実施の予定を組んでください", lastMon.id || null));
+      }
+    }
+
+    // ④ フェイスシート未作成
+    if (!(store.facesheets || []).some(f => f.userId === uid)) {
+      checks.push(mkAuditCheck("facesheet_missing", "warning", uid, uName, uFac,
+        "フェイスシートが未作成",
+        `${uName}さんのフェイスシートが作成されていません`,
+        "フェイスシートタブから緊急連絡先・健康情報・支援方針を入力してください"));
+    }
+
+    // ⑤ is_latest 異常（同一child+type で複数 is_latest=true）
+    const myChildDocs = (store.childDocuments || []).filter(d => d.childId === uid);
+    const typeLatestMap = {};
+    myChildDocs.forEach(d => {
+      if (!d.isLatest) return;
+      if (!typeLatestMap[d.documentType]) typeLatestMap[d.documentType] = [];
+      typeLatestMap[d.documentType].push(d);
+    });
+    Object.entries(typeLatestMap).forEach(([type, arr]) => {
+      if (arr.length > 1) {
+        checks.push(mkAuditCheck("is_latest_duplicate", "info", uid, uName, uFac,
+          `書類BOX is_latestフラグ異常`,
+          `${uName}さんの${AUDIT_DOC_LABELS[type]||type}でis_latest=trueが${arr.length}件あります（正常は1件）`,
+          "書類BOXを確認し、最新版1件のみis_latest=trueになるよう整理してください"));
+      }
+    });
+
+    // ⑥ version_no 連番異常（欠番チェック）
+    const typeVersionMap = {};
+    myChildDocs.forEach(d => {
+      if (!typeVersionMap[d.documentType]) typeVersionMap[d.documentType] = [];
+      typeVersionMap[d.documentType].push(d.versionNo || 1);
+    });
+    Object.entries(typeVersionMap).forEach(([type, versions]) => {
+      const sorted = [...new Set(versions)].sort((a,b)=>a-b);
+      if (sorted.length > 1) {
+        for (let i = 0; i < sorted.length - 1; i++) {
+          if (sorted[i+1] - sorted[i] > 1) {
+            checks.push(mkAuditCheck("version_gap", "info", uid, uName, uFac,
+              `書類BOX version_no 欠番`,
+              `${uName}さんの${AUDIT_DOC_LABELS[type]||type}でバージョン番号に欠番があります（${sorted.join(", ")}）`,
+              "書類BOXを確認してください。削除された書類がある可能性があります"));
+            break; // 1種別1件のみ
+          }
+        }
+      }
+    });
+  }
+
+  // ── 施設全体チェック ──
+
+  // ⑦ pending_review 放置（7日以上）
+  const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+  (store.manualReviewQueue || [])
+    .filter(item => {
+      if (item.status !== "pending") return false;
+      if (!inFac(item.facility_id || item.facilityId)) return false;
+      return new Date(item.created_at || item.createdAt || now) < sevenDaysAgo;
+    })
+    .forEach(item => {
+      const cName    = item.child_name  || item.childName  || "不明";
+      const docLabel = AUDIT_DOC_LABELS[item.predicted_type || item.predictedType] || "不明書類";
+      checks.push(mkAuditCheck("pending_review_stale", "warning",
+        item.child_id || item.childId || null, cName,
+        item.facility_id || item.facilityId,
+        "未確認書類が7日以上放置されています",
+        `「${cName}」の${docLabel}（AI信頼度: ${item.confidence||0}%）が7日以上未確認のままです`,
+        "管理画面「未分類」タブから書類種別を確定してください", item.id));
+    });
+
+  // ⑧ OCR失敗放置（3日以上）
+  const threeDaysAgo = new Date(now - 3 * 24 * 60 * 60 * 1000);
+  (store.ocrLogs || [])
+    .filter(log => {
+      if ((log.failed_count || 0) === 0) return false;
+      if (!inFac(log.facility_id)) return false;
+      return new Date(log.created_at || now) < threeDaysAgo;
+    })
+    .slice(0, 5)
+    .forEach(log => {
+      checks.push(mkAuditCheck("ocr_failed_stale", "info",
+        log.child_id || null, log.child_name || "不明",
+        log.facility_id,
+        "OCR読み取り失敗が未処理",
+        `${log.child_name||"不明"}の書類読み取りで${log.failed_count}枚が失敗しています（${(log.created_at||"").slice(0,10)}）`,
+        "OCR履歴タブから「再解析」ボタンを使って再試行してください", log.id));
+    });
+
+  // 重要度順でソート（critical → warning → info）
+  return checks.sort((a,b) =>
+    (AUDIT_SEV_ORDER[a.severity] ?? 9) - (AUDIT_SEV_ORDER[b.severity] ?? 9)
+  );
 }
 
 // ==================== IME対応 テキスト入力ヘルパー ====================
@@ -14030,6 +14293,354 @@ function OcrLogTab({store, user}) {
   );
 }
 
+// ==================== AI監査センター ====================
+// 毎日の自動監査チェック結果を一覧表示・解決管理するコンポーネント
+function AuditCenterTab({store, user}) {
+  const [running,      setRunning]      = useState(false);
+  const [analyzing,    setAnalyzing]    = useState(false);
+  const [aiReport,     setAiReport]     = useState(null);
+  const [filterSev,    setFilterSev]    = useState("all");
+  const [filterStatus, setFilterStatus] = useState("open");
+  const [filterFac,    setFilterFac]    = useState(user.role==="admin"?"all":(user.selectedFacilityId||"all"));
+  const [searchName,   setSearchName]   = useState("");
+  const [resolveItem,  setResolveItem]  = useState(null); // {check}
+  const [resolveNote,  setResolveNote]  = useState("");
+  const [lastRun,      setLastRun]      = useState(() => localStorage.getItem("go_audit_last_run") || null);
+  const today = new Date().toISOString().slice(0,10);
+
+  // マウント時：今日まだ実行していなければ自動実行
+  useEffect(() => {
+    if (lastRun !== today) handleRunChecks();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 監査実行
+  const handleRunChecks = () => {
+    setRunning(true);
+    setAiReport(null);
+    try {
+      const facId = user.role === "admin" ? "all" : (user.selectedFacilityId || "all");
+      const newChecks = generateAuditChecks(store, facId);
+
+      // 既存 open の同一問題を auto_resolved に（問題が解消された場合）
+      const newKeys = new Set(newChecks.map(c => `${c.checkType}_${c.childId||"_"}`));
+      (store.auditChecks || [])
+        .filter(c => c.status === "open" && (facId === "all" || c.facilityId === facId))
+        .forEach(c => {
+          if (!newKeys.has(`${c.checkType}_${c.childId||"_"}`)) {
+            store.updAuditCheck(c.id, {
+              status: "auto_resolved",
+              resolved_at: new Date().toISOString(),
+              resolvedBy: "システム自動",
+              resolvedNote: "監査再実行時に問題が解消されました",
+            });
+          }
+        });
+
+      // 新規チェックを保存（重複は saveAuditCheck 内でスキップ）
+      newChecks.forEach(c => store.saveAuditCheck(c));
+
+      localStorage.setItem("go_audit_last_run", today);
+      setLastRun(today);
+      store.showToast(`✅ 監査完了: ${newChecks.length}件を検出 (重大${newChecks.filter(c=>c.severity==="critical").length}件)`);
+    } catch(e) {
+      store.showToast("監査実行エラー: " + e.message, "error");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  // AI一括分析
+  const handleAiAnalysis = async () => {
+    const openChecks = (store.auditChecks||[]).filter(c => c.status === "open");
+    if (openChecks.length === 0) { store.showToast("未解決の問題がありません"); return; }
+    setAnalyzing(true); setAiReport(null);
+    try {
+      const facName = FACILITIES.find(f=>f.id===user.selectedFacilityId)?.name || "GO GROUP";
+      const res = await fetch("/api/audit", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ checks: openChecks, facilityName: facName }),
+      });
+      const data = await res.json();
+      if (data?.success) setAiReport(data);
+      else store.showToast("AI分析エラー: " + (data?.error||"不明"), "error");
+    } catch(e) {
+      store.showToast("ネットワークエラー: " + e.message, "error");
+    } finally { setAnalyzing(false); }
+  };
+
+  // 解決処理
+  const handleResolve = (check) => {
+    store.updAuditCheck(check.id, {
+      status: "resolved",
+      resolvedBy: user.displayName,
+      resolved_at: new Date().toISOString(),
+      resolvedNote: resolveNote || null,
+    });
+    store.showToast("✅ 解決済みにしました");
+    setResolveItem(null); setResolveNote("");
+  };
+  // 却下処理
+  const handleDismiss = (check) => {
+    store.updAuditCheck(check.id, {
+      status: "dismissed",
+      resolvedBy: user.displayName,
+      resolved_at: new Date().toISOString(),
+      resolvedNote: "対応不要として却下",
+    });
+    store.showToast("対応不要として却下しました");
+  };
+
+  // フィルタリング
+  const allChecks = (store.auditChecks || []);
+  const filtered = allChecks.filter(c => {
+    if (filterStatus === "open"     && c.status !== "open") return false;
+    if (filterStatus === "resolved" && !["resolved","auto_resolved"].includes(c.status)) return false;
+    if (filterStatus === "dismissed"&& c.status !== "dismissed") return false;
+    if (filterSev !== "all" && c.severity !== filterSev) return false;
+    if (filterFac !== "all" && c.facilityId !== filterFac) return false;
+    if (searchName && !(c.childName||"").includes(searchName)) return false;
+    return true;
+  }).sort((a,b) => (AUDIT_SEV_ORDER[a.severity]??9)-(AUDIT_SEV_ORDER[b.severity]??9));
+
+  const openChecks = allChecks.filter(c=>c.status==="open");
+  const critCount  = openChecks.filter(c=>c.severity==="critical").length;
+  const warnCount  = openChecks.filter(c=>c.severity==="warning").length;
+  const infoCount  = openChecks.filter(c=>c.severity==="info").length;
+
+  // 重要度スタイル
+  const sevStyle = sev => ({
+    critical: {bg:"rgba(224,56,56,0.12)",  color:"var(--ro)",  border:"rgba(224,56,56,0.4)",  icon:"🔴", label:"緊急"},
+    warning:  {bg:"rgba(224,168,40,0.12)", color:"var(--am)",  border:"rgba(224,168,40,0.4)", icon:"🟡", label:"警告"},
+    info:     {bg:"rgba(58,160,216,0.10)", color:"var(--tl)",  border:"rgba(58,160,216,0.3)", icon:"🔵", label:"情報"},
+  }[sev] || {bg:"var(--bg3)",color:"var(--tx3)",border:"var(--bd)",icon:"⚪",label:"?"});
+
+  return (
+    <div>
+      {/* ヘッダー */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>
+          🔍 AI監査センター
+          <span style={{fontSize:10,fontWeight:400,color:"var(--tx3)",marginLeft:6}}>
+            最終実行: {lastRun || "未実行"}
+          </span>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button onClick={handleRunChecks} disabled={running}
+            style={{padding:"6px 14px",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",
+              fontFamily:"'Noto Sans JP',sans-serif",border:"none",background:"var(--tl)",color:"#fff",
+              opacity:running?0.6:1}}>
+            {running ? "⏳ 監査中…" : "▶ 今すぐ実行"}
+          </button>
+          <button onClick={handleAiAnalysis} disabled={analyzing||openChecks.length===0}
+            style={{padding:"6px 14px",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",
+              fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--pu)",
+              background:"rgba(144,72,216,0.08)",color:"var(--pu)",
+              opacity:(analyzing||openChecks.length===0)?0.5:1}}>
+            {analyzing ? "⏳ AI分析中…" : "✨ AI一括分析"}
+          </button>
+        </div>
+      </div>
+
+      {/* サマリーカード */}
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+        {[
+          {label:"緊急",count:critCount, color:"var(--ro)", bg:"rgba(224,56,56,0.10)", icon:"🔴"},
+          {label:"警告",count:warnCount, color:"var(--am)", bg:"rgba(224,168,40,0.10)",icon:"🟡"},
+          {label:"情報",count:infoCount, color:"var(--tl)", bg:"rgba(58,160,216,0.10)",icon:"🔵"},
+          {label:"解決済",count:allChecks.filter(c=>["resolved","auto_resolved"].includes(c.status)).length,
+           color:"var(--gr)", bg:"rgba(44,170,96,0.10)", icon:"✅"},
+        ].map(item => (
+          <div key={item.label} style={{
+            flex:1,minWidth:70,padding:"8px 10px",borderRadius:10,
+            background:item.bg,textAlign:"center",
+          }}>
+            <div style={{fontSize:18}}>{item.icon}</div>
+            <div style={{fontSize:16,fontWeight:900,color:item.color,fontFamily:"'DM Mono',monospace"}}>{item.count}</div>
+            <div style={{fontSize:10,color:"var(--tx3)",fontWeight:700}}>{item.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* AI一括分析レポート */}
+      {aiReport && (
+        <div style={{background:"rgba(144,72,216,0.07)",border:"1.5px solid rgba(144,72,216,0.3)",
+          borderRadius:12,padding:"12px 14px",marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--pu)",marginBottom:6}}>✨ AI分析レポート</div>
+          <div style={{fontSize:11,color:"var(--tx)",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{aiReport.analysis}</div>
+          <div style={{fontSize:10,color:"var(--tx3)",marginTop:6}}>
+            対象: critical{aiReport.stats?.critical}件 / warning{aiReport.stats?.warning}件 / info{aiReport.stats?.info}件
+          </div>
+        </div>
+      )}
+
+      {/* フィルター */}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+        <select style={{padding:"5px 8px",borderRadius:8,fontSize:11,border:"1px solid var(--bd)",
+          background:"var(--bg)",color:"var(--tx)",fontFamily:"'Noto Sans JP',sans-serif"}}
+          value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}>
+          <option value="open">未解決</option>
+          <option value="resolved">解決済</option>
+          <option value="dismissed">却下</option>
+          <option value="all">すべて</option>
+        </select>
+        <select style={{padding:"5px 8px",borderRadius:8,fontSize:11,border:"1px solid var(--bd)",
+          background:"var(--bg)",color:"var(--tx)",fontFamily:"'Noto Sans JP',sans-serif"}}
+          value={filterSev} onChange={e=>setFilterSev(e.target.value)}>
+          <option value="all">全重要度</option>
+          <option value="critical">🔴 緊急のみ</option>
+          <option value="warning">🟡 警告のみ</option>
+          <option value="info">🔵 情報のみ</option>
+        </select>
+        {user.role==="admin" && (
+          <select style={{padding:"5px 8px",borderRadius:8,fontSize:11,border:"1px solid var(--bd)",
+            background:"var(--bg)",color:"var(--tx)",fontFamily:"'Noto Sans JP',sans-serif"}}
+            value={filterFac} onChange={e=>setFilterFac(e.target.value)}>
+            <option value="all">全施設</option>
+            {FACILITIES.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        )}
+        <input placeholder="氏名検索" value={searchName} onChange={e=>setSearchName(e.target.value)}
+          style={{padding:"5px 8px",borderRadius:8,fontSize:11,border:"1px solid var(--bd)",
+            background:"var(--bg)",color:"var(--tx)",fontFamily:"'Noto Sans JP',sans-serif",flex:1,minWidth:80}}/>
+      </div>
+
+      {/* チェック一覧 */}
+      {filtered.length === 0 ? (
+        <div style={{textAlign:"center",padding:"40px 16px",color:"var(--tx3)"}}>
+          <div style={{fontSize:36,marginBottom:10}}>
+            {filterStatus==="open" ? "✅" : "📋"}
+          </div>
+          <div style={{fontSize:13,fontWeight:700}}>
+            {filterStatus==="open" ? "未解決の問題はありません" : "該当する記録がありません"}
+          </div>
+          {filterStatus==="open" && lastRun !== today && (
+            <div style={{fontSize:11,marginTop:6,color:"var(--tx3)"}}>
+              「▶ 今すぐ実行」ボタンで監査を実行してください
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {filtered.map(check => {
+            const ss = sevStyle(check.severity);
+            const isResolved = check.status !== "open";
+            const facName = FACILITIES.find(f=>f.id===check.facilityId)?.name || "";
+            return (
+              <div key={check.id} style={{
+                background:isResolved?"var(--bg3)":"var(--bg2)",
+                borderRadius:12,padding:"10px 14px",
+                border:`1.5px solid ${isResolved?"var(--bd)":ss.border}`,
+                opacity:isResolved?0.72:1,
+              }}>
+                <div style={{display:"flex",alignItems:"flex-start",gap:8,flexWrap:"wrap"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    {/* 上段: 重要度バッジ・タイトル・状態 */}
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:5}}>
+                      <span style={{padding:"2px 8px",borderRadius:9,fontSize:10,fontWeight:700,
+                        background:ss.bg,color:ss.color,border:`1px solid ${ss.border}`,flexShrink:0}}>
+                        {ss.icon} {ss.label}
+                      </span>
+                      <span style={{fontSize:12,fontWeight:700,color:"var(--tx)"}}>{check.title}</span>
+                      {isResolved && (
+                        <span style={{padding:"2px 7px",borderRadius:8,fontSize:9,fontWeight:700,
+                          background:"rgba(44,170,96,0.12)",color:"var(--gr)"}}>
+                          {check.status==="auto_resolved"?"🤖自動解決":"✅解決済"}
+                        </span>
+                      )}
+                    </div>
+                    {/* 対象児童・施設 */}
+                    <div style={{fontSize:10,color:"var(--tx3)",marginBottom:4,display:"flex",gap:8,flexWrap:"wrap"}}>
+                      {check.childName && <span>👤 {check.childName}</span>}
+                      {facName && <span>🏢 {facName}</span>}
+                      <span>📅 {check.checkDate}</span>
+                    </div>
+                    {/* 問題内容 */}
+                    <div style={{fontSize:11,color:"var(--tx2)",marginBottom:5,lineHeight:1.6}}>
+                      {check.description}
+                    </div>
+                    {/* 推奨対応 */}
+                    {!isResolved && (
+                      <div style={{fontSize:11,padding:"5px 8px",borderRadius:7,
+                        background:`${ss.bg}`,color:ss.color,border:`1px solid ${ss.border}`,lineHeight:1.6}}>
+                        💡 {check.recommendation}
+                      </div>
+                    )}
+                    {/* 解決メモ */}
+                    {isResolved && check.resolvedNote && (
+                      <div style={{fontSize:10,color:"var(--tx3)",marginTop:3}}>
+                        📝 {check.resolvedNote} — {check.resolvedBy} {check.resolved_at?.slice(0,16).replace("T"," ")}
+                      </div>
+                    )}
+                  </div>
+                  {/* 操作ボタン */}
+                  {!isResolved && (
+                    <div style={{display:"flex",flexDirection:"column",gap:5,flexShrink:0}}>
+                      <button onClick={() => {setResolveItem(check); setResolveNote("");}}
+                        style={{padding:"5px 10px",borderRadius:8,fontSize:10,fontWeight:700,cursor:"pointer",
+                          fontFamily:"'Noto Sans JP',sans-serif",border:"none",
+                          background:"var(--tl)",color:"#fff",whiteSpace:"nowrap"}}>
+                        ✅ 解決
+                      </button>
+                      <button onClick={() => handleDismiss(check)}
+                        style={{padding:"5px 10px",borderRadius:8,fontSize:10,fontWeight:700,cursor:"pointer",
+                          fontFamily:"'Noto Sans JP',sans-serif",
+                          border:"1px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",
+                          whiteSpace:"nowrap"}}>
+                        ✕ 却下
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 解決モーダル */}
+      {resolveItem && (
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",
+          zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:"var(--bg2)",borderRadius:16,padding:"20px",maxWidth:420,width:"100%",
+            boxShadow:"0 8px 32px rgba(0,0,0,0.25)"}}>
+            <div style={{fontSize:14,fontWeight:700,color:"var(--tx)",marginBottom:12}}>
+              ✅ 問題を解決済みにする
+            </div>
+            <div style={{background:"var(--bg3)",borderRadius:8,padding:"8px 10px",marginBottom:12,fontSize:11,lineHeight:1.7}}>
+              <div><strong>{resolveItem.title}</strong></div>
+              {resolveItem.childName && <div>対象: {resolveItem.childName}</div>}
+              <div style={{color:"var(--tx3)",fontSize:10,marginTop:3}}>{resolveItem.description}</div>
+            </div>
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginBottom:5}}>📝 対応メモ（任意）</div>
+              <textarea value={resolveNote} onChange={e=>setResolveNote(e.target.value)}
+                placeholder="どのように対応したか記録してください（任意）"
+                style={{width:"100%",padding:"8px 10px",borderRadius:8,fontSize:11,
+                  border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",
+                  fontFamily:"'Noto Sans JP',sans-serif",resize:"vertical",minHeight:60,
+                  boxSizing:"border-box"}}/>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>setResolveItem(null)}
+                style={{padding:"7px 14px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",
+                  fontFamily:"'Noto Sans JP',sans-serif",border:"1px solid var(--bd)",
+                  background:"var(--bg)",color:"var(--tx2)"}}>
+                キャンセル
+              </button>
+              <button onClick={()=>handleResolve(resolveItem)}
+                style={{padding:"7px 14px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",
+                  fontFamily:"'Noto Sans JP',sans-serif",border:"none",background:"var(--tl)",color:"#fff"}}>
+                ✅ 解決済みにする
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ==================== 児童別 AIドキュメントBOX ====================
 // 受給者証・個別支援計画等のOCR書類を児童ごとに時系列・バージョン管理で表示
 function ChildDocumentBox({u, user, store}) {
@@ -14468,7 +15079,10 @@ function AdminScreen({user,store,onBack}){
   const [tab,setTab]=useState("staff_in");const [fFac,setFFac]=useState(user.selectedFacilityId||"all");const [fName,setFName]=useState("");const [editRec,setEditRec]=useState(null);
   // 未分類書類のpending件数を取得してバッジ表示用に使う
   const unclassifiedCount = (store.manualReviewQueue||[]).filter(i=>i.status==="pending").length;
-  const TABS=[{k:"staff_in",l:"出勤"},{k:"staff_out",l:"退勤"},{k:"user_in",l:"来所"},{k:"user_out",l:"退所"},{k:"photo",l:"写真"},{k:"service",l:"サービス記録"},{k:"history",l:"修正履歴"},{k:"ocr_logs",l:"OCR履歴"},{k:"unclassified",l:`未分類${unclassifiedCount>0?` (${unclassifiedCount})`:""}` }];
+  // 未解決のcritical監査件数（バッジ表示用）
+  const auditCriticalCount = (store.auditChecks||[]).filter(c=>c.status==="open"&&c.severity==="critical").length;
+  const auditOpenCount = (store.auditChecks||[]).filter(c=>c.status==="open").length;
+  const TABS=[{k:"staff_in",l:"出勤"},{k:"staff_out",l:"退勤"},{k:"user_in",l:"来所"},{k:"user_out",l:"退所"},{k:"photo",l:"写真"},{k:"service",l:"サービス記録"},{k:"history",l:"修正履歴"},{k:"ocr_logs",l:"OCR履歴"},{k:"unclassified",l:`未分類${unclassifiedCount>0?` (${unclassifiedCount})`:""}` },{k:"audit",l:`🔍監査${auditOpenCount>0?` (${auditCriticalCount>0?`🔴${auditCriticalCount}`:auditOpenCount})`:""}` }];
   const fil=store.recs.filter(r=>r.type===tab&&(fFac==="all"||r.facilityId===fFac)&&(fName===""||((r.staffName||r.userName||"").includes(fName))));
   const cnt=t=>store.recs.filter(r=>r.type===t&&(fFac==="all"||r.facilityId===fFac)).length;
   const tl=t=>({staff_in:"出勤",staff_out:"退勤",user_in:"来所",user_out:"退所",photo:"写真",service:"サービス"}[t]||t);
@@ -14490,7 +15104,9 @@ function AdminScreen({user,store,onBack}){
     <div className="tabs">{TABS.map(t=><button key={t.k} className={`tab ${tab===t.k?"on":""}`} onClick={()=>setTab(t.k)}>{t.l}</button>)}</div>
     <div className="frow">{user.role==="admin"&&<select className="fsm" value={fFac} onChange={e=>setFFac(e.target.value)}><option value="all">全施設</option>{FACILITIES.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select>}<input className="fsm" placeholder="氏名で絞込" value={fName} onChange={e=>setFName(e.target.value)}/></div>
     <div className="ebar"><button className="bexp" onClick={csv}>⬇ CSV出力</button></div>
-    {tab==="unclassified"
+    {tab==="audit"
+      ? <AuditCenterTab store={store} user={user}/>
+      : tab==="unclassified"
       ? <UnclassifiedTab store={store} user={user}/>
       : tab==="ocr_logs"
       ? <OcrLogTab store={store} user={user}/>
