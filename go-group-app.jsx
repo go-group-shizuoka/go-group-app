@@ -3021,6 +3021,8 @@ function useStore() {
     sbLoad("ocr_analysis_logs").then(d=>{ if(d?.length) setOcrLogs(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,200)); });
     // 未分類書類キュー（pending/reviewedを最大100件）
     sbLoad("manual_review_queue").then(d=>{ if(d?.length) setManualReviewQueue(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,100)); });
+    // 児童別 AIドキュメントBOX（最新500件）
+    sbLoad("child_documents").then(d=>{ if(d?.length) setChildDocuments(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,500)); });
   }, []);
   // ─── 訪問先マスタ（保育所等訪問支援） ───
   const [visitDests, setVisitDests] = useState([
@@ -3108,6 +3110,70 @@ function useStore() {
     setManualReviewQueue(p => p.map(q => q.id === id ? {...q, ...changes} : q));
     sbSave("manual_review_queue", { id, ...changes });
   };
+
+  // ─── 児童別 AIドキュメントBOX ───
+  // OCR完了後に書類を自動保存。同じ児童×書類種別ならバージョン管理する。
+  const [childDocuments, setChildDocuments] = useState([]);
+
+  const addChildDoc = (doc) => {
+    // バージョン管理: 同じ child_id × document_type の既存ドキュメントを調べる
+    setChildDocuments(prev => {
+      const sameDocs = prev.filter(d =>
+        d.childId === doc.childId && d.documentType === doc.documentType
+      );
+      const maxVer = sameDocs.reduce((m, d) => Math.max(m, d.versionNo || 1), 0);
+      const newVer = maxVer + 1;
+
+      // 既存の is_latest を false に（state + DB）
+      const updated = prev.map(d => {
+        if (d.childId === doc.childId && d.documentType === doc.documentType && d.isLatest) {
+          sbSave("child_documents", {
+            id: d.id, is_latest: false, updated_at: new Date().toISOString()
+          });
+          return { ...d, isLatest: false };
+        }
+        return d;
+      });
+
+      const newDoc = { ...doc, versionNo: newVer, isLatest: true };
+      // DBに保存
+      sbSave("child_documents", {
+        id:               newDoc.id,
+        child_id:         newDoc.childId         || null,
+        document_type:    newDoc.documentType    || "unknown",
+        document_date:    newDoc.documentDate    || null,
+        expiry_date:      newDoc.expiryDate      || null,
+        file_url:         newDoc.fileUrl         || null,
+        thumbnail_url:    newDoc.thumbnailUrl    || null,
+        ocr_log_id:       newDoc.ocrLogId        || null,
+        ai_summary:       newDoc.aiSummary       || null,
+        extracted_fields: newDoc.extractedFields || null,
+        version_no:       newVer,
+        is_latest:        true,
+        match_confidence: newDoc.matchConfidence || 0,
+        match_status:     newDoc.matchStatus     || "confirmed",
+        uploaded_by:      newDoc.uploadedBy      || null,
+        facility_id:      newDoc.facilityId      || null,
+        created_at:       newDoc.createdAt       || new Date().toISOString(),
+        updated_at:       new Date().toISOString(),
+      });
+      return [newDoc, ...updated];
+    });
+  };
+
+  const updChildDoc = (id, changes) => {
+    setChildDocuments(p => p.map(d => d.id === id ? { ...d, ...changes } : d));
+    // DBに変更内容だけ反映（aiSummary, matchStatus, childId, isLatest等）
+    const upd = { id, updated_at: new Date().toISOString() };
+    if (changes.aiSummary       !== undefined) upd.ai_summary       = changes.aiSummary;
+    if (changes.matchStatus     !== undefined) upd.match_status     = changes.matchStatus;
+    if (changes.childId         !== undefined) upd.child_id         = changes.childId;
+    if (changes.isLatest        !== undefined) upd.is_latest        = changes.isLatest;
+    if (changes.matchConfidence !== undefined) upd.match_confidence = changes.matchConfidence;
+    if (changes.expiryDate      !== undefined) upd.expiry_date      = changes.expiryDate;
+    sbSave("child_documents", upd);
+  };
+
 
   // 再解析時にOCRログを更新（既存行をupsertで上書き）
   const updOcrLog = (id, changes) => {
@@ -3443,9 +3509,78 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc};
 }
 
+
+// ==================== 児童自動紐付けロジック ====================
+// OCR抽出結果（name / nameKana / jukyushaNo）と dynUsers を照合して
+// 最も可能性の高い児童を推定する。スコアリング方式。
+// 戻り値: { childId, childName, confidence(0-100), matchStatus("confirmed"|"pending_review"), matchedUser }
+function matchChildByOcr(ocrData, dynUsers, facilityId) {
+  if (!ocrData || !dynUsers || dynUsers.length === 0) {
+    return { childId: null, childName: null, confidence: 0, matchStatus: "pending_review", matchedUser: null };
+  }
+
+  // テキスト正規化（スペース・全角スペース除去・小文字化）
+  const normalize = s => (s || "").replace(/[\s　]/g, "").toLowerCase();
+
+  const ocrName      = normalize(ocrData.name || ocrData.userName || ocrData.childName || "");
+  const ocrKana      = normalize(ocrData.nameKana || "");
+  const ocrJukyushaNo = (ocrData.jukyushaNo || "").replace(/[\s　]/g, "");
+
+  let bestMatch = null;
+  let bestScore = 0;
+
+  for (const u of dynUsers) {
+    if (u.active === false) continue;
+    let score = 0;
+
+    // ① 受給者証番号完全一致（最重要: 80点）
+    const uJukyushaNo = (u.jukyushaNo || "").replace(/[\s　]/g, "");
+    if (ocrJukyushaNo && uJukyushaNo && ocrJukyushaNo === uJukyushaNo) {
+      score += 80;
+    }
+
+    // ② 名前完全一致（50点）/ 部分一致（20点）
+    const uName = normalize(u.name || "");
+    if (ocrName && uName) {
+      if (ocrName === uName)           score += 50;
+      else if (uName.includes(ocrName) || ocrName.includes(uName)) score += 20;
+    }
+
+    // ③ ふりがな完全一致（30点）
+    const uKana = normalize(u.nameKana || u.kana || "");
+    if (ocrKana && uKana && ocrKana === uKana) {
+      score += 30;
+    }
+
+    // ④ 同じ施設（15点）
+    if (facilityId && u.facilityId === facilityId) {
+      score += 15;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = u;
+    }
+  }
+
+  // スコア0-100に正規化（理論最大175点）
+  const rawConf = Math.min(100, Math.round((bestScore / 175) * 100));
+  // 受給者証番号が完全一致していれば信頼度を85%以上に補正
+  const jukyushaExact = ocrJukyushaNo && bestMatch &&
+    ocrJukyushaNo === (bestMatch.jukyushaNo || "").replace(/[\s　]/g, "");
+  const confidence = jukyushaExact ? Math.max(85, rawConf) : rawConf;
+
+  return {
+    childId:     confidence >= 70 ? (bestMatch?.id || null) : null,
+    childName:   bestMatch?.name || null,
+    confidence,
+    matchStatus: confidence >= 70 ? "confirmed" : "pending_review",
+    matchedUser: bestMatch,
+  };
+}
 
 // ==================== IME対応 テキスト入力ヘルパー ====================
 // 日本語入力（IME変換中）にReactのcontrolled inputが確定してしまう問題を防ぐ。
@@ -7128,6 +7263,7 @@ function UserManagement({user,store,onBack}){
       {k:"isp_draft",   l:"原案",     ic:"📄"},  // 個別支援計画（原案）
       {k:"jukyusha",    l:"受給者証", ic:"🪪"},
       {k:"soudan_genan",l:"相談支援", ic:"📑"},
+      {k:"docbox",      l:"書類BOX",  ic:"📦"},
       {k:"timeline",    l:"履歴",     ic:"📅"},
       ...(isJidou?[
         {k:"dev_record",    l:"発達記録",  ic:"🌱"},
@@ -7195,6 +7331,8 @@ function UserManagement({user,store,onBack}){
         {hubTab==="dev_record"&&<DevRecordTab u={u} user={user} store={store}/>}
         {/* ===== 保護者支援記録（児発のみ） ===== */}
         {hubTab==="parent_support"&&<ParentSupportTab u={u} user={user} store={store}/>}
+        {/* ===== AIドキュメントBOX ===== */}
+        {hubTab==="docbox"&&<ChildDocumentBox u={u} user={user} store={store}/>}
         {/* ===== タイムライン ===== */}
         {hubTab==="timeline"&&<TimelineTab u={u} user={user} store={store}/>}
         {/* ===== 受給者証OCR ===== */}
@@ -8269,6 +8407,35 @@ function JukyushaTab({u, user, store}) {
     store.addJukyushaDoc(doc);
     // 利用者の受給者証情報も更新
     store.updUser2(u.id, { jukyushaNo: form.jukyushaNo, jukyushaCity: form.city, jukyushaExpiry: form.expiryDate });
+
+    // ── AIドキュメントBOXに自動登録 ──
+    // JukyushaTabは必ず利用者詳細（hub画面）から呼ばれるため、u.idは確定済み
+    const cdId = "cd_" + Date.now();
+    store.addChildDoc({
+      id:              cdId,
+      childId:         u.id,
+      documentType:    "jukyusha",
+      documentDate:    form.grantDate || form.startDate || new Date().toISOString().slice(0,10),
+      expiryDate:      form.expiryDate || null,
+      ocrLogId:        currentLogId || null,
+      extractedFields: ocrResult ? { ...ocrResult } : { ...form },
+      aiSummary:       null,       // バックグラウンドで後から生成
+      matchConfidence: 100,        // 利用者詳細から直接呼ばれるので信頼度100%
+      matchStatus:     "confirmed",
+      uploadedBy:      user.displayName,
+      facilityId:      u.facilityId,
+      createdAt:       new Date().toISOString(),
+    });
+    // バックグラウンドでAI要約生成（エラーしても無視）
+    if (ocrResult) {
+      fetch("/api/summarize", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ extractedFields: ocrResult, documentType: "jukyusha" }),
+      }).then(r => r.json()).then(data => {
+        if (data?.success && data.summary) store.updChildDoc(cdId, { aiSummary: data.summary });
+      }).catch(() => {});
+    }
+
     store.showToast("✅ 受給者証を保存しました（" + photos.length + "枚）");
     setMode("list"); setPhotos([]); setOcrResult(null);
   };
@@ -13863,6 +14030,261 @@ function OcrLogTab({store, user}) {
   );
 }
 
+// ==================== 児童別 AIドキュメントBOX ====================
+// 受給者証・個別支援計画等のOCR書類を児童ごとに時系列・バージョン管理で表示
+function ChildDocumentBox({u, user, store}) {
+  const [showHistory, setShowHistory]     = useState({}); // {docType: bool}
+  const [summaryLoading, setSummaryLoading] = useState({}); // {docId: bool}
+  const [detailDocId, setDetailDocId]     = useState(null); // 詳細表示中のdocId
+  const [resolvingItem, setResolvingItem] = useState(null); // 紐付け確認待ちdoc
+  const [resolveChildId, setResolveChildId] = useState(""); // 手動指定childId
+
+  // 書類種別ラベル・アイコン
+  const DOC_LABELS = {
+    jukyusha:"受給者証", isp:"個別支援計画", monitoring:"モニタリング記録",
+    service_plan:"サービス等利用計画", medical_opinion:"医師意見書",
+    assessment:"アセスメント", support_record:"支援記録", unknown:"不明書類",
+  };
+  const DOC_ICONS = {
+    jukyusha:"🪪", isp:"📝", monitoring:"🔍",
+    service_plan:"📑", medical_opinion:"🏥", assessment:"📊",
+    support_record:"📋", unknown:"❓",
+  };
+
+  // この利用者の書類（新しい順）
+  const myDocs = (store.childDocuments || [])
+    .filter(d => d.childId === u.id)
+    .sort((a, b) => (b.versionNo||1) - (a.versionNo||1) || (b.createdAt > a.createdAt ? 1 : -1));
+
+  // 書類種別ごとにグループ化
+  const byType = {};
+  myDocs.forEach(d => {
+    if (!byType[d.documentType]) byType[d.documentType] = [];
+    byType[d.documentType].push(d);
+  });
+
+  // 有効期限バッジ（日数から色を決定）
+  const expiryBadge = (expiryDate) => {
+    if (!expiryDate) return null;
+    const diff = Math.floor((new Date(expiryDate) - new Date()) / (1000*60*60*24));
+    if (diff < 0)  return <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:"rgba(224,56,56,0.15)",color:"var(--ro)",border:"1px solid rgba(224,56,56,0.3)"}}>⚠️ 期限切れ</span>;
+    if (diff <= 30) return <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:"rgba(224,56,56,0.12)",color:"var(--ro)",border:"1px solid rgba(224,56,56,0.25)"}}>🔴 残{diff}日</span>;
+    if (diff <= 60) return <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:"rgba(230,126,34,0.12)",color:"#e67e22",border:"1px solid rgba(230,126,34,0.3)"}}>🟡 残{diff}日</span>;
+    if (diff <= 90) return <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:"rgba(224,168,40,0.10)",color:"#8a6200",border:"1px solid rgba(224,168,40,0.25)"}}>📅 残{diff}日</span>;
+    return null;
+  };
+
+  // AI要約生成（/api/summarize を呼ぶ）
+  const generateSummary = async (doc) => {
+    if (!doc.extractedFields) { store.showToast("抽出データがありません","error"); return; }
+    setSummaryLoading(p => ({...p, [doc.id]: true}));
+    try {
+      const res = await fetch("/api/summarize", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ extractedFields: doc.extractedFields, documentType: doc.documentType }),
+      });
+      const data = await res.json();
+      if (data?.success && data.summary) {
+        store.updChildDoc(doc.id, { aiSummary: data.summary });
+        store.showToast("✨ AI要約を生成しました");
+      } else {
+        store.showToast("要約生成に失敗しました","error");
+      }
+    } catch(e) {
+      store.showToast("ネットワークエラー: "+e.message,"error");
+    }
+    setSummaryLoading(p => ({...p, [doc.id]: false}));
+  };
+
+  // 書類がまだない場合
+  if (myDocs.length === 0) return (
+    <div style={{textAlign:"center",padding:"48px 16px",color:"var(--tx3)"}}>
+      <div style={{fontSize:40,marginBottom:12}}>📦</div>
+      <div style={{fontSize:13,fontWeight:700,color:"var(--tx2)"}}>書類がまだ登録されていません</div>
+      <div style={{fontSize:11,marginTop:6,lineHeight:1.7}}>
+        「受給者証」タブでOCRを実行すると<br/>自動的にここに保存されます
+      </div>
+    </div>
+  );
+
+  // 期限アラートバー（60日以内）
+  const latestDocs = myDocs.filter(d => d.isLatest);
+  const expiringDocs = latestDocs.filter(d => {
+    if (!d.expiryDate) return false;
+    const diff = Math.floor((new Date(d.expiryDate) - new Date()) / (1000*60*60*24));
+    return diff <= 60;
+  });
+
+  return (
+    <div>
+      {/* ヘッダー */}
+      <div style={{fontSize:13,fontWeight:700,color:"var(--tx)",marginBottom:12}}>
+        📦 AIドキュメントBOX
+        <span style={{fontSize:11,fontWeight:400,color:"var(--tx3)",marginLeft:6}}>
+          ({myDocs.length}件 / {Object.keys(byType).length}種類)
+        </span>
+      </div>
+
+      {/* 期限間近アラートバー */}
+      {expiringDocs.length > 0 && (
+        <div style={{background:"rgba(224,56,56,0.07)",border:"1.5px solid rgba(224,56,56,0.3)",borderRadius:10,padding:"10px 14px",marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--ro)",marginBottom:5}}>⚠️ 期限が近い書類があります</div>
+          {expiringDocs.map(d => {
+            const diff = Math.floor((new Date(d.expiryDate) - new Date()) / (1000*60*60*24));
+            return (
+              <div key={d.id} style={{fontSize:11,color:"var(--ro)",marginTop:2}}>
+                {DOC_ICONS[d.documentType]} {DOC_LABELS[d.documentType]||d.documentType} —
+                {diff < 0 ? " 期限切れ" : ` 残${diff}日（${d.expiryDate}まで）`}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 書類種別ごとのカード */}
+      {Object.entries(byType).map(([docType, docs]) => {
+        const allVers = [...docs].sort((a,b) => (b.versionNo||1) - (a.versionNo||1));
+        const latest  = allVers.find(d => d.isLatest) || allVers[0];
+        const isPending = latest.matchStatus === "pending_review";
+        const isHistOpen = !!showHistory[docType];
+        const isDetail = detailDocId === latest.id;
+
+        return (
+          <div key={docType} style={{
+            background:"var(--bg2)", borderRadius:12, padding:"12px 14px",
+            border:`1.5px solid ${isPending ? "rgba(230,126,34,0.45)" : "var(--bd)"}`,
+            marginBottom:12,
+          }}>
+            {/* ── 上段: 種別名・バッジ群 ── */}
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:8}}>
+              <span style={{fontSize:18,flexShrink:0}}>{DOC_ICONS[docType]}</span>
+              <span style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>{DOC_LABELS[docType]||docType}</span>
+              {/* バージョンバッジ */}
+              <span style={{padding:"2px 8px",borderRadius:9,fontSize:10,fontWeight:700,
+                background:"rgba(58,160,216,0.12)",color:"var(--tl)"}}>
+                v{latest.versionNo||1}
+              </span>
+              {/* 紐付け待ちバッジ */}
+              {isPending && (
+                <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
+                  background:"rgba(230,126,34,0.15)",color:"#e67e22",border:"1px solid rgba(230,126,34,0.3)"}}>
+                  ⏳ 紐付け確認待ち
+                </span>
+              )}
+              {/* 有効期限バッジ */}
+              {latest.expiryDate && expiryBadge(latest.expiryDate)}
+              {/* 信頼度 */}
+              {latest.matchConfidence > 0 && latest.matchConfidence < 100 && (
+                <span style={{fontSize:9,color:"var(--tx3)",fontFamily:"'DM Mono',monospace"}}>
+                  🤖{latest.matchConfidence}%
+                </span>
+              )}
+            </div>
+
+            {/* ── メタ情報 ── */}
+            <div style={{fontSize:10,color:"var(--tx3)",marginBottom:8,lineHeight:1.8,display:"flex",flexWrap:"wrap",gap:"2px 10px"}}>
+              {latest.documentDate && <span>📅 書類日付: {latest.documentDate}</span>}
+              {latest.expiryDate   && <span>⏰ 有効期限: {latest.expiryDate}</span>}
+              {latest.uploadedBy   && <span>📤 登録者: {latest.uploadedBy}</span>}
+              {latest.createdAt    && <span>🕐 登録日: {latest.createdAt?.slice(0,10)}</span>}
+            </div>
+
+            {/* ── AI要約 ── */}
+            <div style={{background:"rgba(58,160,216,0.06)",borderRadius:8,padding:"8px 10px",marginBottom:8}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                <span style={{fontSize:10,fontWeight:700,color:"var(--tl)"}}>✨ AI要約</span>
+                <button
+                  onClick={() => generateSummary(latest)}
+                  disabled={summaryLoading[latest.id]}
+                  style={{padding:"2px 8px",borderRadius:7,fontSize:9,fontWeight:700,cursor:"pointer",
+                    fontFamily:"'Noto Sans JP',sans-serif",border:"1px solid var(--tl)",
+                    background:"rgba(58,160,216,0.08)",color:"var(--tl)",opacity:summaryLoading[latest.id]?0.6:1}}>
+                  {summaryLoading[latest.id] ? "⏳生成中…" : latest.aiSummary ? "🔄再生成" : "✨生成する"}
+                </button>
+              </div>
+              {latest.aiSummary ? (
+                <div style={{fontSize:11,color:"var(--tx)",lineHeight:1.75,whiteSpace:"pre-wrap"}}>
+                  {latest.aiSummary}
+                </div>
+              ) : (
+                <div style={{fontSize:11,color:"var(--tx3)",fontStyle:"italic"}}>
+                  「✨生成する」ボタンでAI要約を作成します
+                </div>
+              )}
+            </div>
+
+            {/* ── 抽出フィールド（詳細展開） ── */}
+            {latest.extractedFields && (
+              <div style={{marginBottom:8}}>
+                <button onClick={() => setDetailDocId(isDetail ? null : latest.id)}
+                  style={{padding:"3px 10px",borderRadius:8,fontSize:10,fontWeight:700,cursor:"pointer",
+                    fontFamily:"'Noto Sans JP',sans-serif",border:"1px solid var(--bd)",
+                    background:"var(--bg)",color:"var(--tx3)"}}>
+                  {isDetail ? "▲ OCRデータを閉じる" : "▼ OCRデータを表示"}
+                </button>
+                {isDetail && (
+                  <div style={{marginTop:8,background:"var(--bg3)",borderRadius:8,padding:"8px 10px",fontSize:10,
+                    fontFamily:"'DM Mono',monospace",color:"var(--tx2)",overflowX:"auto",maxHeight:200,overflowY:"auto",
+                    lineHeight:1.8}}>
+                    {Object.entries(latest.extractedFields)
+                      .filter(([,v]) => v !== null && v !== "" && v !== undefined)
+                      .map(([k,v]) => (
+                        <div key={k}><span style={{color:"var(--tl)",fontWeight:700}}>{k}:</span> {String(v)}</div>
+                      ))
+                    }
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── バージョン履歴（複数バージョンある場合のみ） ── */}
+            {allVers.length > 1 && (
+              <div>
+                <button onClick={() => setShowHistory(p => ({...p, [docType]: !isHistOpen}))}
+                  style={{padding:"3px 10px",borderRadius:8,fontSize:10,fontWeight:700,cursor:"pointer",
+                    fontFamily:"'Noto Sans JP',sans-serif",border:"1px solid var(--bd)",
+                    background:"var(--bg)",color:"var(--tx3)"}}>
+                  {isHistOpen ? "▲ バージョン履歴を閉じる" : `▼ バージョン履歴 (${allVers.length}件)`}
+                </button>
+                {isHistOpen && (
+                  <div style={{marginTop:8,borderTop:"1px solid var(--bd)",paddingTop:8}}>
+                    <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",marginBottom:6}}>📚 バージョン一覧</div>
+                    {allVers.map(ver => (
+                      <div key={ver.id} style={{
+                        display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:8,
+                        background:ver.isLatest ? "rgba(58,160,216,0.08)" : "var(--bg3)",
+                        marginBottom:4,fontSize:11,flexWrap:"wrap",
+                      }}>
+                        <span style={{fontWeight:700,color:ver.isLatest?"var(--tl)":"var(--tx3)",
+                          fontFamily:"'DM Mono',monospace",minWidth:24}}>v{ver.versionNo||1}</span>
+                        {ver.isLatest && (
+                          <span style={{padding:"1px 6px",borderRadius:6,fontSize:9,fontWeight:700,
+                            background:"rgba(58,160,216,0.15)",color:"var(--tl)"}}>最新</span>
+                        )}
+                        <span style={{flex:1,color:"var(--tx3)"}}>
+                          {ver.documentDate||ver.createdAt?.slice(0,10)||""}
+                          {ver.uploadedBy ? `　${ver.uploadedBy}` : ""}
+                        </span>
+                        {ver.expiryDate && (
+                          <span style={{fontSize:10,color:"var(--tx3)"}}>期限:{ver.expiryDate}</span>
+                        )}
+                        {ver.aiSummary && (
+                          <span style={{fontSize:9,padding:"1px 5px",borderRadius:5,
+                            background:"rgba(44,170,96,0.12)",color:"var(--gr)"}}>要約あり</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ==================== 未分類書類一覧タブ ====================
 function UnclassifiedTab({store, user}) {
   const [filterStatus, setFilterStatus] = useState("pending"); // pending | reviewed | resolved | all
@@ -14660,6 +15082,22 @@ function getUserAlerts(u, store) {
       alerts.push({type:"訪問記録",date:null,status:"warn",tab:"visit_record",msg:"当月訪問なし"});
     }
   }
+
+  // ─── AIドキュメントBOX: 有効期限アラート ───
+  // 受給者証・計画書などの expiry_date が近い場合に docbox タブへ誘導
+  const myChildDocs = (store.childDocuments||[]).filter(d => d.childId === u.id && d.isLatest);
+  const docTypeLabels = {
+    jukyusha:"受給者証", isp:"個別支援計画", monitoring:"モニタリング記録",
+    service_plan:"サービス等利用計画",
+  };
+  myChildDocs.forEach(d => {
+    if (!d.expiryDate) return;
+    const st = expiryStatus(d.expiryDate);
+    if (st && st !== "ok") {
+      const label = docTypeLabels[d.documentType] || d.documentType;
+      alerts.push({ type:`${label}(BOX)`, date: d.expiryDate, status: st, tab: "docbox" });
+    }
+  });
 
   return alerts;
 }
