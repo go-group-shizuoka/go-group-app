@@ -3076,7 +3076,24 @@ function useStore() {
       error_messages:   log.errorMessages   || [],
       created_by:       log.createdBy       || null,
       created_at:       log.createdAt       || new Date().toISOString(),
+      retry_count:      0,
     });
+  };
+  // 再解析時にOCRログを更新（既存行をupsertで上書き）
+  const updOcrLog = (id, changes) => {
+    setOcrLogs(p => p.map(l => l.id === id ? {...l, ...changes} : l));
+    // 更新対象カラムだけを送る（undefinedは除外）
+    const upd = { id };
+    if (changes.retry_count     !== undefined) upd.retry_count     = changes.retry_count;
+    if (changes.retried_at      !== undefined) upd.retried_at      = changes.retried_at;
+    if (changes.retried_by      !== undefined) upd.retried_by      = changes.retried_by;
+    if (changes.retry_history   !== undefined) upd.retry_history   = changes.retry_history;
+    if (changes.raw_ocr_results !== undefined) upd.raw_ocr_results = changes.raw_ocr_results;
+    if (changes.merged_result   !== undefined) upd.merged_result   = changes.merged_result;
+    if (changes.success_count   !== undefined) upd.success_count   = changes.success_count;
+    if (changes.failed_count    !== undefined) upd.failed_count    = changes.failed_count;
+    if (changes.error_messages  !== undefined) upd.error_messages  = changes.error_messages;
+    sbSave("ocr_analysis_logs", upd);
   };
 
   // ─── 相談支援原案 ───
@@ -3396,7 +3413,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog};
 }
 
 
@@ -7827,6 +7844,12 @@ function JukyushaTab({u, user, store}) {
   const [ocrResult, setOcrResult] = useState(null);
   const [ocrError, setOcrError] = useState("");
   const [form, setForm] = useState({});
+  // 再解析機能用ステート
+  const [rawResults, setRawResults] = useState([]);       // OCR生結果（失敗写真の特定・再解析に使用）
+  const [retrying, setRetrying] = useState(false);         // 再解析実行中フラグ
+  const [currentLogId, setCurrentLogId] = useState(null); // 現在のOCRログID（再解析時に更新用）
+  const [retryCount, setRetryCount] = useState(0);         // 累計再解析回数
+  const [retryHistory, setRetryHistory] = useState([]);   // 再解析履歴（ログ保存用）
   // 受給者証カード折りたたみ管理（docId → expanded boolean）
   const [expandedDocId, setExpandedDocId] = useState(null); // null=全部閉じ
   const fileRef2   = useRef(null); // 写真2 カメラ
@@ -7965,8 +7988,15 @@ function JukyushaTab({u, user, store}) {
           ? (r.reason?.message || "ネットワークエラー")
           : (r.status === "fulfilled" && !r.value?.success ? r.value?.error || "解析失敗" : null),
       }));
+      // 再解析用に生結果をステートに保持（失敗写真の特定に使用）
+      setRawResults(rawForLog);
+      // ログIDを確定してステートに保存（再解析時に同じレコードを更新するため）
+      const logId = "ocr_" + Date.now();
+      setCurrentLogId(logId);
+      setRetryCount(0);
+      setRetryHistory([]);
       store.addOcrLog({
-        id:             "ocr_" + Date.now(),
+        id:             logId,
         childId:        u.id,
         childName:      u.name,
         facilityId:     u.facilityId,
@@ -7980,6 +8010,143 @@ function JukyushaTab({u, user, store}) {
         createdBy:      user.displayName,
         createdAt:      new Date().toISOString(),
       });
+    }
+  };
+
+  // ── 失敗した写真のみ再解析 ──
+  const retryFailedOcr = async () => {
+    // 失敗した写真のインデックスを特定（rawResults から判定）
+    const failedIndices = rawResults
+      .map((r, idx) => (!r.success ? idx : -1))
+      .filter(idx => idx !== -1);
+    if (failedIndices.length === 0) return;
+
+    const failedPhotos = failedIndices.map(idx => photos[idx]).filter(Boolean);
+    if (failedPhotos.length === 0) return;
+
+    setRetrying(true);
+    setOcrError("");
+
+    // 再解析前のマージ結果を保存（前後比較用）
+    const beforeMerged = ocrResult ? { ...ocrResult } : null;
+
+    try {
+      // 失敗写真のみ並列OCR実行
+      const retrySettled = await Promise.allSettled(
+        failedPhotos.map(photo =>
+          fetch("/api/ocr", {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({
+              imageBase64: photo.base64Raw,
+              mediaType: photo.mediaType || "image/jpeg",
+              mode: "jukyusha"
+            })
+          }).then(r => r.json())
+        )
+      );
+
+      // rawResults を更新（失敗インデックスに再解析結果を差し替え）
+      const newRawResults = [...rawResults];
+      failedIndices.forEach((origIdx, retryIdx) => {
+        const r = retrySettled[retryIdx];
+        newRawResults[origIdx] = {
+          photo: origIdx + 1,
+          status: r.status,
+          success: r.status === "fulfilled" ? (r.value?.success ?? false) : false,
+          data:    r.status === "fulfilled" ? (r.value?.data   ?? null)  : null,
+          error:   r.status === "rejected"
+            ? (r.reason?.message || "ネットワークエラー")
+            : (r.status === "fulfilled" && !r.value?.success ? r.value?.error || "解析失敗" : null),
+        };
+      });
+      setRawResults(newRawResults);
+
+      // merged_result を全結果から再生成
+      let newMerged = {};
+      let newSuccessCount = 0;
+      let newFailCount = 0;
+      let newErrorMessages = [];
+      for (const r of newRawResults) {
+        if (r.success && r.data) {
+          newSuccessCount++;
+          Object.keys(r.data).forEach(k => {
+            if (r.data[k] !== null && r.data[k] !== "" && !newMerged[k]) newMerged[k] = r.data[k];
+          });
+        } else {
+          newFailCount++;
+          if (r.error) newErrorMessages.push(r.error);
+        }
+      }
+
+      // フォームと表示を更新（再解析で取得できた項目のみ補完）
+      if (newSuccessCount > 0) {
+        setOcrResult(newMerged);
+        setForm(f => ({
+          ...f,
+          name:               newMerged.name               || f.name               || u.name || "",
+          nameKana:           newMerged.nameKana           || f.nameKana           || "",
+          guardianName:       newMerged.guardianName       || f.guardianName       || "",
+          jukyushaNo:         newMerged.jukyushaNo         || f.jukyushaNo         || "",
+          city:               newMerged.city               || f.city               || "",
+          expiryDate:         newMerged.expiryDate         || f.expiryDate         || "",
+          startDate:          newMerged.startDate          || f.startDate          || "",
+          grantDate:          newMerged.grantDate          || f.grantDate          || "",
+          serviceType:        newMerged.serviceType        || f.serviceType        || "",
+          serviceAmount:      newMerged.serviceAmount      || f.serviceAmount      || "",
+          maxBurden:          newMerged.maxBurden != null  ? String(newMerged.maxBurden) : (f.maxBurden || ""),
+          monitoringInterval: newMerged.monitoringInterval || f.monitoringInterval || "",
+          specialNotes:       newMerged.specialNotes       || f.specialNotes       || "",
+        }));
+      }
+
+      // エラーメッセージ（一部失敗・全失敗）
+      if (newFailCount > 0) {
+        setOcrError(
+          `再解析後も${newFailCount}枚の読み取りに失敗しました。` +
+          `\n📌 写真が暗い・斜め・文字が切れている可能性があります。該当箇所は手動で入力してください。`
+        );
+      } else {
+        setOcrError(""); // 全成功ならエラーをクリア
+      }
+
+      // 再解析回数・履歴を更新
+      const newRetryCount = retryCount + 1;
+      setRetryCount(newRetryCount);
+      const retryEntry = {
+        retried_at:          new Date().toISOString(),
+        retried_by:          user.displayName,
+        retried_photos:      failedIndices.map(i => i + 1), // 1ベース
+        before_merged:       beforeMerged,
+        after_merged:        newSuccessCount > 0 ? newMerged : null,
+        retry_success_count: failedIndices.filter((_,i) => newRawResults[failedIndices[i]]?.success).length,
+        retry_fail_count:    newFailCount,
+      };
+      const newRetryHistory = [...retryHistory, retryEntry];
+      setRetryHistory(newRetryHistory);
+
+      // OCR履歴テーブルを更新（同じレコードに再解析結果を上書き保存）
+      if (currentLogId) {
+        store.updOcrLog(currentLogId, {
+          retry_count:     newRetryCount,
+          retried_at:      retryEntry.retried_at,
+          retried_by:      retryEntry.retried_by,
+          retry_history:   newRetryHistory,
+          raw_ocr_results: newRawResults,
+          merged_result:   newSuccessCount > 0 ? newMerged : null,
+          success_count:   newSuccessCount,
+          failed_count:    newFailCount,
+          error_messages:  newErrorMessages,
+        });
+      }
+
+    } catch(e) {
+      setOcrError(
+        "再解析中にエラーが発生しました: " + e.message +
+        "\n📌 写真が暗い・斜め・文字が切れている可能性があります。"
+      );
+    } finally {
+      setRetrying(false);
     }
   };
 
@@ -8254,18 +8421,18 @@ function JukyushaTab({u, user, store}) {
         {photos.filter(Boolean).length > 0 && (
           <button
             onClick={runAllOcr}
-            disabled={scanning}
+            disabled={scanning || retrying}
             style={{
               width:"100%", marginTop:10, padding:"11px 14px",
-              borderRadius:10, border:"none", cursor:scanning?"not-allowed":"pointer",
+              borderRadius:10, cursor:(scanning||retrying)?"not-allowed":"pointer",
               background: ocrResult ? "rgba(58,160,216,0.12)" : "linear-gradient(135deg,var(--pu),var(--tl))",
               color: ocrResult ? "var(--tl)" : "#fff",
               fontSize:13, fontWeight:700, fontFamily:"'Noto Sans JP',sans-serif",
               border: ocrResult ? "1.5px solid var(--tl)" : "none",
-              opacity: scanning ? 0.6 : 1,
+              opacity: (scanning||retrying) ? 0.6 : 1,
             }}>
             {scanning ? "🔄 AI解析中..." :
-             ocrResult ? `🔄 再解析する（写真${photos.filter(Boolean).length}枚）` :
+             ocrResult ? `🔄 全写真を再解析する（写真${photos.filter(Boolean).length}枚）` :
              `🤖 登録された全写真をAI解析する（写真${photos.filter(Boolean).length}枚）`}
           </button>
         )}
@@ -8274,9 +8441,88 @@ function JukyushaTab({u, user, store}) {
         </div>
       </div>
 
+      {/* ── 写真ごとのOCR解析結果ステータス（OCR実行後に表示） ── */}
+      {rawResults.length > 0 && (
+        <div style={{background:"var(--bg)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginBottom:8}}>📊 写真ごとの解析結果</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {rawResults.map((r,i) => (
+              <div key={i} style={{
+                display:"flex",alignItems:"center",justifyContent:"space-between",
+                background:"var(--wh)",border:`1px solid ${r.success?"rgba(44,170,96,0.25)":"rgba(224,56,56,0.25)"}`,
+                borderRadius:8,padding:"6px 10px",
+              }}>
+                <span style={{fontSize:12,fontWeight:700}}>写真{r.photo}枚目</span>
+                <span style={{
+                  fontSize:10,padding:"2px 8px",borderRadius:8,fontWeight:700,
+                  background: r.success ? "rgba(44,170,96,0.15)" : "rgba(224,56,56,0.12)",
+                  color: r.success ? "var(--gr)" : "var(--ro)",
+                }}>
+                  {r.success ? "✅ 解析成功" : "❌ 解析失敗"}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* ── 失敗した写真のみ再解析ボタン ── */}
+          {rawResults.some(r => !r.success) && (
+            <div style={{marginTop:10}}>
+              {/* 失敗原因ヒント */}
+              <div style={{
+                background:"rgba(224,168,40,0.12)",border:"1px solid rgba(224,168,40,0.35)",
+                borderRadius:8,padding:"7px 10px",fontSize:11,color:"#7a5800",marginBottom:8,
+              }}>
+                📌 <strong>解析失敗の主な原因：</strong>写真が暗い・斜め・文字が切れている可能性があります
+              </div>
+              <button
+                onClick={retryFailedOcr}
+                disabled={retrying || scanning}
+                style={{
+                  width:"100%",padding:"10px 14px",borderRadius:9,
+                  cursor:(retrying||scanning)?"not-allowed":"pointer",
+                  background: retrying ? "rgba(58,160,216,0.1)" : "linear-gradient(135deg,#e07820,#e0a020)",
+                  color: retrying ? "var(--tl)" : "#fff",
+                  fontSize:12,fontWeight:700,fontFamily:"'Noto Sans JP',sans-serif",
+                  border: retrying ? "1.5px solid var(--tl)" : "none",
+                  opacity:(retrying||scanning)?0.7:1,
+                }}>
+                {retrying
+                  ? "🔄 再解析中... しばらくお待ちください"
+                  : `🔁 失敗した写真のみ再解析する（${rawResults.filter(r=>!r.success).length}枚）`}
+              </button>
+              {retryCount > 0 && (
+                <div style={{fontSize:10,color:"var(--tx3)",marginTop:4,textAlign:"center"}}>
+                  再解析実行回数: {retryCount}回
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 再解析中ローディング */}
+          {retrying && (
+            <div style={{
+              marginTop:10,padding:"10px 14px",borderRadius:9,
+              background:"rgba(58,160,216,0.08)",border:"1px solid rgba(58,160,216,0.2)",
+              textAlign:"center",fontSize:12,color:"var(--tl)",fontWeight:700,
+            }}>
+              <span style={{marginRight:6,display:"inline-block",animation:"spin 1s linear infinite"}}>🔄</span>
+              {rawResults.filter(r=>!r.success).length}枚の写真をAI再解析中です...
+            </div>
+          )}
+        </div>
+      )}
+
       {/* エラー / 成功メッセージ */}
-      {ocrError && <div style={{background:"rgba(224,168,40,0.15)",border:"1px solid rgba(224,168,40,0.4)",borderRadius:9,padding:"10px 12px",fontSize:12,color:"#8a6200",marginBottom:12}}>⚠️ {ocrError}</div>}
-      {ocrResult && !ocrError && <div style={{background:"rgba(44,170,96,0.1)",border:"1px solid rgba(44,170,96,0.3)",borderRadius:9,padding:"8px 12px",fontSize:11,color:"var(--gr2)",marginBottom:12}}>✅ AI解析完了。内容を確認して保存してください。</div>}
+      {ocrError && (
+        <div style={{background:"rgba(224,168,40,0.15)",border:"1px solid rgba(224,168,40,0.4)",borderRadius:9,padding:"10px 12px",fontSize:12,color:"#8a6200",marginBottom:12,whiteSpace:"pre-line"}}>
+          ⚠️ {ocrError}
+        </div>
+      )}
+      {ocrResult && !ocrError && (
+        <div style={{background:"rgba(44,170,96,0.1)",border:"1px solid rgba(44,170,96,0.3)",borderRadius:9,padding:"8px 12px",fontSize:11,color:"var(--gr2)",marginBottom:12}}>
+          ✅ AI解析完了{retryCount > 0 ? `（${retryCount}回再解析済み）` : ""}。内容を確認して保存してください。
+        </div>
+      )}
 
       {/* ── 入力フォーム（OCR後または手入力） ── */}
       <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:16}}>
@@ -13341,6 +13587,48 @@ function OcrLogTab({store, user}) {
                 ))}
               </div>
             </div>
+
+            {/* 再解析履歴（再解析が1回以上あれば表示） */}
+            {detail.retry_count > 0 && (detail.retry_history||[]).length > 0 && (
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginBottom:8}}>
+                  🔁 再解析履歴（計{detail.retry_count}回）
+                </div>
+                {(detail.retry_history||[]).map((h,i)=>(
+                  <div key={i} style={{
+                    background:"rgba(58,160,216,0.05)",border:"1px solid rgba(58,160,216,0.2)",
+                    borderRadius:9,padding:"10px 12px",marginBottom:8,
+                  }}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                      <span style={{fontSize:12,fontWeight:700}}>第{i+1}回再解析</span>
+                      <span style={{fontSize:10,color:"var(--tx3)"}}>{h.retried_at?.slice(0,16).replace("T"," ")}</span>
+                    </div>
+                    <div style={{fontSize:11,color:"var(--tx2)",marginBottom:4}}>
+                      実行者: {h.retried_by || "—"} ／
+                      対象写真: {(h.retried_photos||[]).map(p=>`写真${p}枚目`).join("・")}
+                    </div>
+                    <div style={{display:"flex",gap:8,marginBottom:6}}>
+                      <span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:"rgba(44,170,96,0.15)",color:"var(--gr)",fontWeight:700}}>
+                        ✅ 成功 {h.retry_success_count||0}枚
+                      </span>
+                      <span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:(h.retry_fail_count||0)>0?"rgba(224,56,56,0.12)":"var(--bg)",color:(h.retry_fail_count||0)>0?"var(--ro)":"var(--tx3)",fontWeight:700}}>
+                        ❌ 失敗 {h.retry_fail_count||0}枚
+                      </span>
+                    </div>
+                    {/* 前後比較 */}
+                    {h.before_merged && h.after_merged && (
+                      <div style={{fontSize:10,color:"var(--tx3)"}}>
+                        <span style={{fontWeight:700,color:"var(--tx2)"}}>追加取得項目: </span>
+                        {Object.keys(h.after_merged)
+                          .filter(k => h.after_merged[k] && !h.before_merged?.[k])
+                          .map(k => k)
+                          .join("・") || "なし（既存値を補完）"}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* フッター */}
             <div style={{padding:"10px 16px",borderTop:"1px solid var(--bd)",flexShrink:0}}>
