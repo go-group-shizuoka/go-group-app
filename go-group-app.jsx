@@ -3287,7 +3287,28 @@ function useStore() {
     sbLoad("jukyusha_docs").then(d=>{ if(d?.length) setJukyushaDocs(d.map(x=>x.data||x)); });
     sbLoad("soudan_genans").then(d=>{ if(d?.length) setSoudanGenans(d.map(x=>x.data||x)); });
     // OCR解析ログ（最新200件）
-    sbLoad("ocr_analysis_logs").then(d=>{ if(d?.length) setOcrLogs(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,200)); });
+    // ⚠️ DBからはsnake_caseで返ってくるため、camelCaseに正規化してからセット
+    // （コードがcamelCaseを参照しているため、混在すると filter/表示が壊れる）
+    sbLoad("ocr_analysis_logs").then(d=>{
+      if(!d?.length) return;
+      const norm = d.map(l=>({
+        ...l,
+        // snake_case → camelCase 正規化（どちらかが既にある場合はそちらを優先）
+        childId:       l.childId       ?? l.child_id       ?? null,
+        childName:     l.childName     ?? l.child_name     ?? null,
+        facilityId:    l.facilityId    ?? l.facility_id    ?? null,
+        documentType:  l.documentType  ?? l.document_type  ?? null,
+        photoCount:    l.photoCount    ?? l.photo_count    ?? 0,
+        successCount:  l.successCount  ?? l.success_count  ?? 0,
+        failedCount:   l.failedCount   ?? l.failed_count   ?? 0,
+        rawOcrResults: l.rawOcrResults ?? l.raw_ocr_results ?? null,
+        mergedResult:  l.mergedResult  ?? l.merged_result  ?? null,
+        errorMessages: l.errorMessages ?? l.error_messages ?? [],
+        createdBy:     l.createdBy     ?? l.created_by     ?? null,
+        createdAt:     l.createdAt     ?? l.created_at     ?? null,
+      }));
+      setOcrLogs(norm.sort((a,b)=>b.createdAt>a.createdAt?1:-1).slice(0,200));
+    });
     // 未分類書類キュー（pending/reviewedを最大100件）
     sbLoad("manual_review_queue").then(d=>{ if(d?.length) setManualReviewQueue(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,100)); });
     // 児童別 AIドキュメントBOX（最新500件）
@@ -9198,6 +9219,27 @@ function JukyushaTab({u, user, store}) {
       }).catch(() => {});
     }
 
+    // ── OCR未実行でも必ずログを保存（手動入力の場合も履歴を残す）──
+    // currentLogId が null = OCR を実行しなかった（手動登録）
+    if (!currentLogId) {
+      const manualLogId = "ocr_manual_" + Date.now();
+      store.addOcrLog({
+        id:           manualLogId,
+        childId:      u.id,
+        childName:    u.name,
+        facilityId:   u.facilityId,
+        documentType: "jukyusha",
+        photoCount:   photos.length,
+        successCount: 0,                       // OCR未実行なので0
+        failedCount:  0,
+        rawOcrResults:null,
+        mergedResult: Object.keys(form).length > 0 ? { ...form } : null,
+        errorMessages:[],
+        createdBy:    user.displayName,
+        createdAt:    new Date().toISOString(),
+        isManualEntry:true,                    // 手動登録フラグ（OCR未実行を明示）
+      });
+    }
     store.showToast("✅ 受給者証を保存しました（" + photos.length + "枚）");
     setMode("list"); setPhotos([]); setOcrResult(null);
   };
@@ -9244,14 +9286,13 @@ function JukyushaTab({u, user, store}) {
         </div>
       )}
 
-      {myDocs.length === 0 && (
+      {myDocs.length === 0 && (store.ocrLogs||[]).filter(l=>(l.childId||l.child_id)===u.id).length===0 && (store.childDocuments||[]).filter(d=>d.childId===u.id&&d.documentType==="jukyusha").length===0 && (
         <div style={{textAlign:"center",padding:"32px 16px",color:"var(--tx3)"}}>
           <div style={{fontSize:32,marginBottom:8}}>📄</div>
           <div style={{fontSize:13}}>受給者証が登録されていません</div>
           <div style={{fontSize:11,marginTop:4}}>「📷 受給者証を撮影・読取」から登録できます</div>
         </div>
       )}
-
       {myDocs.map(doc => {
         const st = jukyushaStatus(doc.expiryDate);
         const isExpanded = expandedDocId === doc.id;
@@ -9335,6 +9376,72 @@ function JukyushaTab({u, user, store}) {
           </div>
         );
       })}
+
+      {/* ── OCR解析履歴（この利用者のみ） ─────────────────── */}
+      {(()=>{
+        // 表記ゆれ対策: スペース・全角スペース除去・小文字化
+        const normN = s => (s||"").replace(/[\s　]/g,"").toLowerCase();
+        const uNorm = normN(u.name);
+        const uJkNo = (u.jukyushaNo||"").replace(/[\s　]/g,"");
+        // ① child_id 一致（優先） → ② child_name 一致（表記ゆれ補完） → ③ 受給者証番号 一致
+        const myOcrLogs = (store.ocrLogs||[]).filter(l=>{
+          const cId = l.childId || l.child_id;
+          if(cId) return cId === u.id;
+          const lName = normN(l.childName || l.child_name || "");
+          if(lName && uNorm && lName === uNorm) return true;
+          const lNo = ((l.mergedResult||{}).jukyushaNo || l.jukyusha_no || "").replace(/[\s　]/g,"");
+          if(lNo && uJkNo && lNo === uJkNo) return true;
+          return false;
+        }).sort((a,b)=>(b.createdAt||"")>(a.createdAt||"")?1:-1).slice(0,20);
+        // child_documents フォールバック（jukyusha 種別のみ）
+        const myChildDocs = (store.childDocuments||[]).filter(d=>d.childId===u.id&&d.documentType==="jukyusha")
+          .sort((a,b)=>(b.createdAt||"")>(a.createdAt||"")?1:-1).slice(0,10);
+        if(myOcrLogs.length===0 && myChildDocs.length===0) return null;
+        return (
+          <div style={{marginTop:20,borderTop:"1px solid var(--bd)",paddingTop:14}}>
+            <div style={{fontSize:12,fontWeight:700,color:"var(--tx2)",marginBottom:10}}>📊 OCR解析履歴（この利用者）</div>
+            {myOcrLogs.length===0&&<div style={{fontSize:11,color:"var(--tx3)",marginBottom:8}}>OCRログなし（↓ AIドキュメントBOXの登録情報）</div>}
+            {myOcrLogs.map(log=>(
+              <div key={log.id} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:8,padding:"8px 12px",marginBottom:6}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6,flexWrap:"wrap"}}>
+                  <div>
+                    <span style={{fontSize:11,fontWeight:700,color:"var(--tl)"}}>
+                      {({jukyusha:"受給者証",soudan:"相談支援原案"}[log.documentType]||log.documentType||"—")}
+                      {log.isManualEntry&&<span style={{fontSize:9,marginLeft:4,color:"var(--tx3)"}}>（手動）</span>}
+                    </span>
+                    <span style={{fontSize:10,color:"var(--tx3)",marginLeft:8,fontFamily:"'DM Mono',monospace"}}>
+                      {(log.createdAt||"").slice(0,16).replace("T"," ")||"—"}
+                    </span>
+                  </div>
+                  <div style={{display:"flex",gap:4,flexShrink:0,flexWrap:"wrap"}}>
+                    {(log.successCount||0)>0&&<span style={{fontSize:10,padding:"2px 6px",borderRadius:6,background:"rgba(44,170,96,0.15)",color:"var(--gr)",fontWeight:700}}>✅ 成功{log.successCount}枚</span>}
+                    {(log.failedCount||0)>0&&<span style={{fontSize:10,padding:"2px 6px",borderRadius:6,background:"rgba(220,53,69,0.12)",color:"#dc3545",fontWeight:700}}>❌ 失敗{log.failedCount}枚</span>}
+                    {log.isManualEntry&&<span style={{fontSize:10,padding:"2px 6px",borderRadius:6,background:"rgba(240,112,32,0.12)",color:"var(--am)",fontWeight:700}}>✏️ 手動登録</span>}
+                  </div>
+                </div>
+                {(log.mergedResult||{}).jukyushaNo&&(
+                  <div style={{fontSize:10,color:"var(--tx3)",marginTop:4}}>
+                    🔢 {log.mergedResult.jukyushaNo}
+                    {log.mergedResult.expiryDate&&` ／ 📅 有効期限: ${log.mergedResult.expiryDate}`}
+                  </div>
+                )}
+                <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>記録者: {log.createdBy||"—"}</div>
+              </div>
+            ))}
+            {/* childDocuments フォールバック（ocrLogs に対応エントリがないもの） */}
+            {myChildDocs.filter(cd=>!myOcrLogs.some(l=>l.id===cd.ocrLogId)).map(cd=>(
+              <div key={cd.id} style={{background:"rgba(58,160,216,0.04)",border:"1px dashed var(--bd)",borderRadius:8,padding:"8px 12px",marginBottom:6}}>
+                <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)"}}>📁 AIドキュメントBOX（受給者証）</div>
+                <div style={{fontSize:10,color:"var(--tx3)",marginTop:3}}>
+                  {cd.documentDate||"—"} ／ 有効期限: {cd.expiryDate||"—"}
+                  {(cd.extractedFields||{}).jukyushaNo&&` ／ 🔢 ${cd.extractedFields.jukyushaNo}`}
+                </div>
+                <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>登録者: {cd.uploadedBy||"—"} ／ 信頼度: {cd.matchConfidence||0}%</div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 
@@ -14547,12 +14654,30 @@ function EditModal({rec,user,store,onClose}){
 // ==================== ADMIN ====================
 // ==================== OCR解析履歴タブ ====================
 // 受給者証OCR実行履歴を一覧・詳細表示するコンポーネント
-function OcrLogTab({store, user}) {
+// fName: AdminScreen の氏名絞込フィルターを受け取り（表記ゆれ対応あり）
+function OcrLogTab({store, user, fName=""}) {
   const [detail, setDetail] = useState(null); // 詳細表示中のログ
   const [fFac, setFFac] = useState("all");
 
+  // 表記ゆれ対策: スペース・全角スペース除去・小文字化
+  const normN = s => (s || "").replace(/[\s　]/g, "").toLowerCase();
+  const fNameN = normN(fName);
+
   const logs = (store.ocrLogs || [])
-    .filter(l => fFac === "all" || l.facilityId === fFac)
+    .filter(l => {
+      // 施設フィルター（camelCase/snake_case 両対応）
+      const facId = l.facilityId || l.facility_id;
+      if (fFac !== "all" && facId !== fFac) return false;
+      // 氏名フィルター（AdminScreen から渡された場合）
+      if (fNameN) {
+        const lName = normN(l.childName || l.child_name || "");
+        // child_id 優先 → name 部分一致でフォールバック
+        const childIdMatch = fNameN.length > 0 && l.childId &&
+          (store.dynUsers||[]).some(u=>u.id===l.childId && normN(u.name).includes(fNameN));
+        if (!lName.includes(fNameN) && !childIdMatch) return false;
+      }
+      return true;
+    })
     .slice(0, 200); // 最大200件表示
 
   const docTypeLabel = t => ({jukyusha:"受給者証", soudan:"相談支援原案", yotei:"利用予定表"}[t] || t || "—");
@@ -14584,7 +14709,8 @@ function OcrLogTab({store, user}) {
             {FACILITIES.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
         )}
-        <span style={{fontSize:11,color:"var(--tx3)"}}>全 {logs.length} 件</span>
+        <span style={{fontSize:11,color:"var(--tx3)"}}>全 {logs.length} 件{fNameN&&` (「${fName}」絞込中)`}</span>
+        {fNameN&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:"rgba(58,160,216,0.12)",color:"var(--tl)",fontWeight:700}}>👤 {fName}</span>}
       </div>
 
       {/* ログ一覧 */}
@@ -14592,7 +14718,17 @@ function OcrLogTab({store, user}) {
         <div style={{textAlign:"center",padding:"40px 16px",color:"var(--tx3)"}}>
           <div style={{fontSize:32,marginBottom:8}}>📋</div>
           <div>OCR解析履歴がありません</div>
-          <div style={{fontSize:11,marginTop:4}}>受給者証タブでOCR解析を実行するとここに表示されます</div>
+          <div style={{fontSize:11,marginTop:4}}>
+            {fNameN
+              ? `「${fName}」のOCR解析履歴が見つかりません。受給者証タブでOCR解析を実行してください。`
+              : "受給者証タブでOCR解析を実行するとここに表示されます"}
+          </div>
+          {fNameN&&(
+            <div style={{marginTop:12,fontSize:11,color:"var(--tl)",background:"rgba(58,160,216,0.08)",borderRadius:8,padding:"8px 12px",textAlign:"left"}}>
+              💡 ヒント：受給者証登録時に child_id が記録されていない古いデータは、
+              利用者一覧 → 対象児童 → 受給者証タブ → 再度OCR実行で更新できます。
+            </div>
+          )}
         </div>
       ) : (
         <div className="tw" style={{overflowX:"auto"}}>
@@ -15720,7 +15856,7 @@ function AdminScreen({user,store,onBack}){
       : tab==="unclassified"
       ? <UnclassifiedTab store={store} user={user}/>
       : tab==="ocr_logs"
-      ? <OcrLogTab store={store} user={user}/>
+      ? <OcrLogTab store={store} user={user} fName={fName}/>
       : tab==="history"
         ? <div className="tw"><table className="tbl"><thead><tr><th>修正日時</th><th>修正者</th><th>対象</th><th>修正理由</th></tr></thead><tbody>
             {store.hist.length===0?<tr><td colSpan={4} style={{textAlign:"center",color:"var(--g6)",padding:"28px"}}>修正履歴はありません</td></tr>:store.hist.map(h=><tr key={h.id}><td style={{fontFamily:"'DM Mono',monospace",fontSize:10}}>{h.at}</td><td>{h.by}</td><td>{h.before.staffName||h.before.userName||"-"}</td><td>{h.reason}</td></tr>)}
