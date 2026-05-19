@@ -180,14 +180,10 @@ JSONのみ返してください。説明文は不要です。`,
         messages: [{
           role: "user",
           content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: mediaType,
-                data: imageBase64
-              }
-            },
+            // PDF と 画像 を両対応（mediaType で自動切替）
+            mediaType === "application/pdf"
+              ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: imageBase64 } }
+              : { type: "image",    source: { type: "base64", media_type: mediaType, data: imageBase64 } },
             { type: "text", text: prompt }
           ]
         }]

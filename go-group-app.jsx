@@ -3019,6 +3019,8 @@ function useStore() {
     sbLoad("soudan_genans").then(d=>{ if(d?.length) setSoudanGenans(d.map(x=>x.data||x)); });
     // OCR解析ログ（最新200件）
     sbLoad("ocr_analysis_logs").then(d=>{ if(d?.length) setOcrLogs(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,200)); });
+    // 未分類書類キュー（pending/reviewedを最大100件）
+    sbLoad("manual_review_queue").then(d=>{ if(d?.length) setManualReviewQueue(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,100)); });
   }, []);
   // ─── 訪問先マスタ（保育所等訪問支援） ───
   const [visitDests, setVisitDests] = useState([
@@ -3073,12 +3075,40 @@ function useStore() {
       failed_count:     log.failedCount     || 0,
       raw_ocr_results:  log.rawOcrResults   || null,
       merged_result:    log.mergedResult    || null,
-      error_messages:   log.errorMessages   || [],
-      created_by:       log.createdBy       || null,
-      created_at:       log.createdAt       || new Date().toISOString(),
-      retry_count:      0,
+      error_messages:           log.errorMessages          || [],
+      created_by:               log.createdBy              || null,
+      created_at:               log.createdAt              || new Date().toISOString(),
+      retry_count:              0,
+      predicted_document_type:  log.predictedDocumentType  || null,
+      confidence:               log.confidence             || 0,
+      classification_reason:    log.classificationReason   || null,
     });
   };
+  // ─── 未分類書類キュー ───
+  // confidence < 70% または documentType="unknown" の書類を保留する
+  const [manualReviewQueue, setManualReviewQueue] = useState([]);
+  const addManualReview = item => {
+    setManualReviewQueue(p => [item, ...p]);
+    sbSave("manual_review_queue", {
+      id:             item.id,
+      child_id:       item.childId      || null,
+      child_name:     item.childName    || null,
+      facility_id:    item.facilityId   || null,
+      photo_count:    item.photoCount   || 0,
+      predicted_type: item.predictedType|| "unknown",
+      confidence:     item.confidence   || 0,
+      reason:         item.reason       || null,
+      status:         "pending",
+      ocr_log_id:     item.ocrLogId     || null,
+      created_by:     item.createdBy    || null,
+      created_at:     item.createdAt    || new Date().toISOString(),
+    });
+  };
+  const updManualReview = (id, changes) => {
+    setManualReviewQueue(p => p.map(q => q.id === id ? {...q, ...changes} : q));
+    sbSave("manual_review_queue", { id, ...changes });
+  };
+
   // 再解析時にOCRログを更新（既存行をupsertで上書き）
   const updOcrLog = (id, changes) => {
     setOcrLogs(p => p.map(l => l.id === id ? {...l, ...changes} : l));
@@ -3413,7 +3443,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview};
 }
 
 
@@ -7850,6 +7880,10 @@ function JukyushaTab({u, user, store}) {
   const [currentLogId, setCurrentLogId] = useState(null); // 現在のOCRログID（再解析時に更新用）
   const [retryCount, setRetryCount] = useState(0);         // 累計再解析回数
   const [retryHistory, setRetryHistory] = useState([]);   // 再解析履歴（ログ保存用）
+  // 書類種別自動判定ステート
+  const [classifying, setClassifying] = useState(false);        // 判定中フラグ
+  const [classResult, setClassResult] = useState(null);         // {documentType,confidence,reason,suggestedOcrMode}
+  const [userConfirmedType, setUserConfirmedType] = useState(""); // ユーザーが手動で選択した種別
   // 受給者証カード折りたたみ管理（docId → expanded boolean）
   const [expandedDocId, setExpandedDocId] = useState(null); // null=全部閉じ
   const fileRef2   = useRef(null); // 写真2 カメラ
@@ -7860,27 +7894,35 @@ function JukyushaTab({u, user, store}) {
   const myDocs = (store.jukyushaDocs||[]).filter(d=>d.userId===u.id).sort((a,b)=>b.scanDate>a.scanDate?1:-1);
 
   // ── ファイル選択 → 写真ステートに追加（OCRはまだ実行しない）──
+  // PDF対応: image/* と application/pdf の両方を受け付ける
   const handleFile = async (file, slot=0) => {
     if (!file) return;
     if (!checkFileSize(file)) return; // 5MB上限チェック
+    const isPdf = file.type === "application/pdf";
+    // PDFはプレビューURL（PDF自体）、画像はObjectURL
     const previewUrl = URL.createObjectURL(file);
     // OCR用: オリジナルのbase64（高解像度で精度を確保）
     const base64Raw = await fileToBase64(file);
-    // 保存用: 圧縮済みbase64（最大800×600/JPEG70%）→ Supabase保存量を大幅削減
-    const base64 = await compressBase64(base64Raw);
+    // 保存用: PDFはそのまま / 画像は圧縮済みbase64（Supabase保存量削減）
+    const base64 = isPdf ? base64Raw : await compressBase64(base64Raw);
+    const photo = { previewUrl, base64, base64Raw, mediaType: file.type, isPdf, fileName: file.name };
 
     if (slot === 0) {
       // 写真1枚目: フォームを初期化して写真グリッド（resultモード）へ
       setOcrError("");
       setOcrResult(null);
-      setPhotos([{previewUrl, base64, base64Raw, mediaType: file.type}]);
-      setForm({}); // フォームは空に（AI解析ボタン押下後に入力）
+      setClassResult(null);   // 前回の書類判定結果をリセット
+      setUserConfirmedType(""); // 手動選択もリセット
+      setPhotos([photo]);
+      setForm({});
       setMode("result");
+      // 書類種別を自動判定（バックグラウンドで非同期実行）
+      classifyDocument(photo);
     } else {
       // 写真2・3枚目: ステートに追加（OCRはrunAllOcrで一括実行）
       setPhotos(p => {
         const arr = [...p];
-        arr[slot] = {previewUrl, base64, base64Raw, mediaType: file.type};
+        arr[slot] = photo;
         return arr.slice(0, 3);
       });
     }
@@ -7995,12 +8037,14 @@ function JukyushaTab({u, user, store}) {
       setCurrentLogId(logId);
       setRetryCount(0);
       setRetryHistory([]);
+      // 確定書類種別: ユーザー手動選択 > AI判定 > "jukyusha"（デフォルト）
+      const finalDocType = userConfirmedType || classResult?.documentType || "jukyusha";
       store.addOcrLog({
         id:             logId,
         childId:        u.id,
         childName:      u.name,
         facilityId:     u.facilityId,
-        documentType:   "jukyusha",
+        documentType:   finalDocType,
         photoCount:     targets.length,
         successCount,
         failedCount:    failCount,
@@ -8009,7 +8053,51 @@ function JukyushaTab({u, user, store}) {
         errorMessages,
         createdBy:      user.displayName,
         createdAt:      new Date().toISOString(),
+        // 書類種別自動判定の結果
+        predictedDocumentType: classResult?.documentType    || null,
+        confidence:            classResult?.confidence      || 0,
+        classificationReason:  classResult?.reason          || null,
       });
+    }
+  };
+
+  // ── 書類種別 自動判定（写真1枚目をAIで分析） ──
+  // 書類種別ラベル（日本語表示用）
+  const DOC_TYPE_LABELS = {
+    jukyusha:        "受給者証",
+    isp:             "個別支援計画",
+    monitoring:      "モニタリング記録",
+    service_plan:    "サービス等利用計画",
+    medical_opinion: "医師意見書",
+    assessment:      "アセスメント",
+    support_record:  "支援記録",
+    unknown:         "不明書類",
+  };
+  const classifyDocument = async (photo) => {
+    setClassifying(true);
+    setClassResult(null);
+    try {
+      const res = await fetch("/api/classify", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+          imageBase64: photo.base64Raw,
+          mediaType:   photo.mediaType || "image/jpeg",
+        })
+      });
+      if (!res.ok) throw new Error("判定APIエラー");
+      const data = await res.json();
+      if (data.success && data.classification) {
+        setClassResult(data.classification);
+      } else {
+        // API失敗時は不明扱い
+        setClassResult({ documentType:"unknown", confidence:0, reason:"判定失敗", suggestedOcrMode:"manual" });
+      }
+    } catch(e) {
+      // ネットワーク断等はサイレントに失敗（OCR自体は続行可能）
+      setClassResult({ documentType:"unknown", confidence:0, reason:"ネットワークエラー", suggestedOcrMode:"manual" });
+    } finally {
+      setClassifying(false);
     }
   };
 
@@ -8200,12 +8288,19 @@ function JukyushaTab({u, user, store}) {
           <label htmlFor="jk_alb" style={{padding:"8px 14px",fontSize:12,fontWeight:700,flex:1,minWidth:140,borderRadius:9,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--tl)",background:"rgba(58,160,216,0.08)",color:"var(--tl)",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
             🖼️ アルバムから読取
           </label>
+          {/* PDFアップロード */}
+          <label htmlFor="jk_pdf" style={{padding:"8px 14px",fontSize:12,fontWeight:700,flex:1,minWidth:140,borderRadius:9,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid #e67e22",background:"rgba(230,126,34,0.08)",color:"#e67e22",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+            📄 PDFを読取
+          </label>
         </div>
         {/* カメラ直接起動 */}
         <input id="jk_cam" type="file" accept="image/*" capture="environment" style={{display:"none"}}
           onChange={e=>{ handleFile(e.target.files[0], 0); e.target.value=""; }}/>
         {/* アルバム選択（captureなし） */}
         <input id="jk_alb" type="file" accept="image/*" style={{display:"none"}}
+          onChange={e=>{ handleFile(e.target.files[0], 0); e.target.value=""; }}/>
+        {/* PDF選択 */}
+        <input id="jk_pdf" type="file" accept="application/pdf" style={{display:"none"}}
           onChange={e=>{ handleFile(e.target.files[0], 0); e.target.value=""; }}/>
       </div>
 
@@ -8325,11 +8420,18 @@ function JukyushaTab({u, user, store}) {
       {photos.filter(Boolean).length > 0 && (
         <div style={{display:"flex",gap:8,justifyContent:"center",marginTop:4,flexWrap:"wrap"}}>
           {photos.filter(Boolean).map((p,i)=>(
-            <div key={i} style={{position:"relative"}}>
-              <img src={p.previewUrl}
-                style={{width:70,height:52,objectFit:"cover",borderRadius:8,border:"2px solid var(--tl)",opacity:0.85}}
-                alt={"写真"+(i+1)}/>
-              <div style={{position:"absolute",bottom:3,left:0,right:0,textAlign:"center",fontSize:9,fontWeight:700,color:"#fff",textShadow:"0 1px 3px rgba(0,0,0,0.9)"}}>写真{i+1}</div>
+            <div key={i} style={{position:"relative",width:70,height:52,borderRadius:8,border:"2px solid var(--tl)",overflow:"hidden",flexShrink:0}}>
+              {p.isPdf ? (
+                <div style={{width:"100%",height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"rgba(230,126,34,0.12)"}}>
+                  <div style={{fontSize:22}}>📄</div>
+                  <div style={{fontSize:8,fontWeight:700,color:"#e67e22"}}>PDF</div>
+                </div>
+              ) : (
+                <img src={p.previewUrl}
+                  style={{width:"100%",height:"100%",objectFit:"cover",opacity:0.85}}
+                  alt={"写真"+(i+1)}/>
+              )}
+              <div style={{position:"absolute",bottom:2,left:0,right:0,textAlign:"center",fontSize:9,fontWeight:700,color:"#fff",textShadow:"0 1px 3px rgba(0,0,0,0.9)"}}>{p.isPdf?"PDF":"写真"}{i+1}</div>
             </div>
           ))}
         </div>
@@ -8369,7 +8471,16 @@ function JukyushaTab({u, user, store}) {
               }}>
                 {hasPhoto ? (
                   <>
-                    <img src={photos[i].previewUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} alt={"写真"+(i+1)}/>
+                    {photos[i].isPdf ? (
+                      /* PDFサムネイル: アイコン表示 */
+                      <div style={{width:"100%",height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"rgba(230,126,34,0.08)"}}>
+                        <div style={{fontSize:28,marginBottom:4}}>📄</div>
+                        <div style={{fontSize:9,fontWeight:700,color:"#e67e22",textAlign:"center",padding:"0 4px",wordBreak:"break-all",maxWidth:"100%"}}>PDF</div>
+                        <div style={{fontSize:8,color:"var(--tx3)",textAlign:"center",padding:"0 2px",overflow:"hidden",maxWidth:"100%",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{photos[i].fileName||""}</div>
+                      </div>
+                    ) : (
+                      <img src={photos[i].previewUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} alt={"写真"+(i+1)}/>
+                    )}
                     {/* 削除ボタン */}
                     <button onClick={()=>removePhoto(i)} style={{
                       position:"absolute",top:4,right:4,width:22,height:22,borderRadius:"50%",
@@ -8377,7 +8488,7 @@ function JukyushaTab({u, user, store}) {
                       fontSize:12,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",
                       fontFamily:"'Noto Sans JP',sans-serif"
                     }}>×</button>
-                    <div style={{position:"absolute",bottom:4,left:6,fontSize:10,fontWeight:700,color:"#fff",textShadow:"0 1px 3px rgba(0,0,0,0.8)"}}>写真{i+1}</div>
+                    <div style={{position:"absolute",bottom:4,left:6,fontSize:10,fontWeight:700,color:"#fff",textShadow:"0 1px 3px rgba(0,0,0,0.8)"}}>{photos[i].isPdf?"PDF":"写真"}{i+1}</div>
                   </>
                 ) : canAdd ? (
                   // 追加ボタン（次の枠のみ表示）: カメラ・アルバム 縦並び
@@ -8416,6 +8527,115 @@ function JukyushaTab({u, user, store}) {
           onChange={e=>{ handleFile(e.target.files[0], 1); e.target.value=""; }}/>
         <input ref={fileRef3Alb} type="file" accept="image/*" style={{display:"none"}}
           onChange={e=>{ handleFile(e.target.files[0], 2); e.target.value=""; }}/>
+
+        {/* ── 書類種別 自動判定結果 ── */}
+        {classifying && (
+          <div style={{
+            display:"flex",alignItems:"center",gap:8,padding:"10px 12px",marginTop:10,
+            background:"rgba(58,160,216,0.08)",border:"1px solid rgba(58,160,216,0.25)",borderRadius:9,
+            fontSize:12,color:"var(--tl)",fontWeight:700,
+          }}>
+            <span style={{fontSize:18}}>📋</span> 書類種別を自動判定中...
+          </div>
+        )}
+        {classResult && !classifying && (
+          <div style={{
+            marginTop:10,padding:"12px 14px",
+            background: classResult.confidence>=70 ? "rgba(44,170,96,0.06)" : "rgba(224,168,40,0.09)",
+            border: `1px solid ${classResult.confidence>=70 ? "rgba(44,170,96,0.3)" : "rgba(224,168,40,0.45)"}`,
+            borderRadius:10,
+          }}>
+            {/* ヘッダー */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <span style={{fontSize:12,fontWeight:700,color:"var(--tx2)"}}>📋 書類種別 自動判定</span>
+              {classResult.confidence < 70 && (
+                <span style={{
+                  fontSize:10,padding:"3px 9px",borderRadius:8,fontWeight:700,
+                  background:"rgba(224,168,40,0.2)",color:"#8a5800",border:"1px solid rgba(224,168,40,0.5)",
+                }}>⚠️ 確認が必要</span>
+              )}
+            </div>
+            {/* 判定結果 */}
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:6,alignItems:"center"}}>
+              <span style={{
+                fontSize:12,padding:"4px 12px",borderRadius:9,fontWeight:700,
+                background: classResult.documentType==="unknown"
+                  ? "rgba(224,56,56,0.12)" : "rgba(58,160,216,0.15)",
+                color: classResult.documentType==="unknown" ? "var(--ro)" : "var(--tl)",
+                border: `1px solid ${classResult.documentType==="unknown" ? "rgba(224,56,56,0.3)" : "rgba(58,160,216,0.3)"}`,
+              }}>
+                {DOC_TYPE_LABELS[classResult.documentType] || classResult.documentType}
+              </span>
+              <span style={{
+                fontSize:11,padding:"3px 10px",borderRadius:8,fontWeight:700,
+                background: classResult.confidence>=80 ? "rgba(44,170,96,0.15)"
+                  : classResult.confidence>=70 ? "rgba(58,160,216,0.12)" : "rgba(224,168,40,0.15)",
+                color: classResult.confidence>=80 ? "var(--gr)" : classResult.confidence>=70 ? "var(--tl)" : "#8a5800",
+              }}>
+                信頼度 {classResult.confidence}%
+              </span>
+            </div>
+            <div style={{fontSize:11,color:"var(--tx3)",marginBottom:8,lineHeight:1.5}}>
+              💡 {classResult.reason}
+            </div>
+            {/* 受給者証以外の場合は注意メッセージ */}
+            {classResult.documentType !== "jukyusha" && classResult.documentType !== "unknown" && (
+              <div style={{
+                fontSize:11,padding:"6px 10px",borderRadius:7,marginBottom:8,
+                background:"rgba(224,168,40,0.12)",color:"#7a5800",border:"1px solid rgba(224,168,40,0.3)",
+              }}>
+                ⚠️ この書類は「{DOC_TYPE_LABELS[classResult.documentType]}」と判定されました。<br/>
+                受給者証タブでのOCRを続けることもできます。
+              </div>
+            )}
+            {/* 信頼度70%未満 or 不明 → 手動選択 */}
+            {(classResult.confidence < 70 || classResult.documentType === "unknown") && (
+              <div style={{marginBottom:8}}>
+                <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>
+                  書類種別を選択してください
+                </label>
+                <select
+                  value={userConfirmedType}
+                  onChange={e => setUserConfirmedType(e.target.value)}
+                  className="fsm"
+                  style={{width:"100%",fontSize:12}}>
+                  <option value="">-- 選択してください --</option>
+                  {Object.entries(DOC_TYPE_LABELS).filter(([k])=>k!=="unknown").map(([k,v])=>(
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                  <option value="unknown">不明書類（未分類キューへ）</option>
+                </select>
+              </div>
+            )}
+            {/* 不明・低信頼度 → 未分類キューへ追加ボタン */}
+            {(classResult.documentType === "unknown" || classResult.confidence < 50) && (
+              <button
+                onClick={() => {
+                  store.addManualReview({
+                    id:           "mq_" + Date.now(),
+                    childId:      u.id,
+                    childName:    u.name,
+                    facilityId:   u.facilityId,
+                    photoCount:   photos.filter(Boolean).length,
+                    predictedType: classResult.documentType,
+                    confidence:   classResult.confidence,
+                    reason:       classResult.reason,
+                    ocrLogId:     currentLogId,
+                    createdBy:    user.displayName,
+                    createdAt:    new Date().toISOString(),
+                  });
+                  store.showToast("📋 未分類書類キューに追加しました");
+                }}
+                style={{
+                  width:"100%",padding:"7px 12px",borderRadius:8,fontSize:11,fontWeight:700,
+                  cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",
+                  background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.3)",color:"var(--ro)",
+                }}>
+                📋 未分類書類キューに追加して後で確認
+              </button>
+            )}
+          </div>
+        )}
 
         {/* ── AI解析ボタン（写真があれば表示） ── */}
         {photos.filter(Boolean).length > 0 && (
@@ -13643,9 +13863,190 @@ function OcrLogTab({store, user}) {
   );
 }
 
+// ==================== 未分類書類一覧タブ ====================
+function UnclassifiedTab({store, user}) {
+  const [filterStatus, setFilterStatus] = useState("pending"); // pending | reviewed | resolved | all
+  const [filterFac, setFilterFac] = useState("all");
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [resolveType, setResolveType] = useState("");
+  const [resolveNote, setResolveNote] = useState("");
+
+  // 書類種別ラベル
+  const DOC_TYPE_LABELS = {
+    jukyusha:"受給者証", isp:"個別支援計画", monitoring:"モニタリング記録",
+    service_plan:"サービス等利用計画", medical_opinion:"医師意見書",
+    assessment:"アセスメント", support_record:"支援記録", unknown:"不明書類",
+  };
+
+  // フィルタリング
+  const items = (store.manualReviewQueue||[]).filter(item => {
+    const matchStatus = filterStatus === "all" || item.status === filterStatus;
+    const matchFac = filterFac === "all" || item.facility_id === filterFac || item.facilityId === filterFac;
+    return matchStatus && matchFac;
+  });
+
+  // ステータスバッジ
+  const statusBadge = (s) => {
+    if (s === "pending")  return <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:"rgba(230,126,34,0.15)",color:"#e67e22",border:"1px solid rgba(230,126,34,0.3)"}}>⏳ 未確認</span>;
+    if (s === "reviewed") return <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:"rgba(58,160,216,0.15)",color:"var(--tl)",border:"1px solid rgba(58,160,216,0.3)"}}>🔍 確認中</span>;
+    if (s === "resolved") return <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:"rgba(82,183,136,0.15)",color:"var(--gr)",border:"1px solid rgba(82,183,136,0.3)"}}>✅ 解決済</span>;
+    return null;
+  };
+
+  // 信頼度バッジ
+  const confidenceBadge = (conf) => {
+    const color = conf >= 70 ? "var(--gr)" : conf >= 40 ? "#e67e22" : "var(--ro)";
+    return <span style={{fontSize:10,fontWeight:700,color,fontFamily:"'DM Mono',monospace"}}>{conf}%</span>;
+  };
+
+  // 解決処理
+  const handleResolve = (item) => {
+    if (!resolveType) { alert("書類種別を選択してください"); return; }
+    store.updManualReview(item.id, {
+      status: "resolved",
+      reviewed_by: user.displayName,
+      reviewed_at: new Date().toISOString(),
+      resolved_type: resolveType,
+      notes: resolveNote || null,
+    });
+    setSelectedItem(null);
+    setResolveType("");
+    setResolveNote("");
+  };
+
+  // カウント
+  const pendingCount = (store.manualReviewQueue||[]).filter(i=>i.status==="pending").length;
+
+  return (
+    <div>
+      {/* ヘッダー */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>
+          📋 未分類・要確認書類一覧
+          {pendingCount > 0 && <span style={{marginLeft:8,padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,background:"rgba(230,126,34,0.15)",color:"#e67e22"}}>{pendingCount}件未確認</span>}
+        </div>
+      </div>
+
+      {/* フィルター */}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+        <select style={{padding:"5px 8px",borderRadius:8,fontSize:12,border:"1px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontFamily:"'Noto Sans JP',sans-serif"}}
+          value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}>
+          <option value="pending">未確認</option>
+          <option value="reviewed">確認中</option>
+          <option value="resolved">解決済</option>
+          <option value="all">すべて</option>
+        </select>
+        {user.role === "admin" && (
+          <select style={{padding:"5px 8px",borderRadius:8,fontSize:12,border:"1px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontFamily:"'Noto Sans JP',sans-serif"}}
+            value={filterFac} onChange={e=>setFilterFac(e.target.value)}>
+            <option value="all">全施設</option>
+            {FACILITIES.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        )}
+      </div>
+
+      {/* 一覧 */}
+      {items.length === 0 ? (
+        <div style={{textAlign:"center",padding:"40px 16px",color:"var(--tx3)"}}>
+          <div style={{fontSize:36,marginBottom:10}}>✅</div>
+          <div style={{fontSize:13,fontWeight:700}}>{filterStatus==="pending"?"未確認の書類はありません":"該当する書類はありません"}</div>
+        </div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {items.map(item => (
+            <div key={item.id} style={{background:"var(--bg2)",borderRadius:12,padding:"12px 14px",border:"1px solid var(--bd)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  {/* 上段: 名前・状態 */}
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6}}>
+                    <span style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>{item.child_name||item.childName||"不明"}</span>
+                    {statusBadge(item.status)}
+                    {confidenceBadge(item.confidence||0)}
+                  </div>
+                  {/* 中段: 判定結果 */}
+                  <div style={{fontSize:11,color:"var(--tx2)",marginBottom:4}}>
+                    🤖 AI判定: <strong>{DOC_TYPE_LABELS[item.predicted_type||item.predictedType]||item.predicted_type||"不明"}</strong>
+                    　 📸 {item.photo_count||item.photoCount||0}枚
+                  </div>
+                  {/* 判定理由 */}
+                  {(item.reason) && (
+                    <div style={{fontSize:10,color:"var(--tx3)",marginBottom:4}}>💡 {item.reason}</div>
+                  )}
+                  {/* 確定種別（解決済の場合） */}
+                  {item.status==="resolved" && item.resolved_type && (
+                    <div style={{fontSize:11,fontWeight:700,color:"var(--gr)"}}>
+                      ✅ 確定種別: {DOC_TYPE_LABELS[item.resolved_type]||item.resolved_type}
+                    </div>
+                  )}
+                  {/* 施設・日時 */}
+                  <div style={{fontSize:10,color:"var(--tx3)",marginTop:4}}>
+                    🏢 {FACILITIES.find(f=>f.id===(item.facility_id||item.facilityId))?.name||"不明"}
+                    📅 {item.created_at ? item.created_at.substring(0,16).replace("T"," ") : ""}
+                    👤 {item.created_by||""}
+                  </div>
+                </div>
+                {/* 操作ボタン */}
+                {item.status !== "resolved" && (
+                  <button onClick={()=>{setSelectedItem(item);setResolveType(item.predicted_type||item.predictedType||"");setResolveNote("");}}
+                    style={{padding:"6px 12px",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--tl)",background:"rgba(58,160,216,0.1)",color:"var(--tl)",whiteSpace:"nowrap",flexShrink:0}}>
+                    🔍 確認・解決
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 解決モーダル */}
+      {selectedItem && (
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
+          <div style={{background:"var(--bg2)",borderRadius:16,padding:"20px",maxWidth:420,width:"100%",boxShadow:"0 8px 32px rgba(0,0,0,0.25)"}}>
+            <div style={{fontSize:14,fontWeight:700,color:"var(--tx)",marginBottom:14}}>🔍 書類種別を確定する</div>
+            {/* 対象情報 */}
+            <div style={{background:"var(--bg3)",borderRadius:8,padding:"10px 12px",marginBottom:14,fontSize:12}}>
+              <div><strong>利用者:</strong> {selectedItem.child_name||selectedItem.childName||"不明"}</div>
+              <div><strong>AI判定:</strong> {DOC_TYPE_LABELS[selectedItem.predicted_type||selectedItem.predictedType]||"不明"} ({selectedItem.confidence||0}%)</div>
+              {selectedItem.reason && <div style={{fontSize:11,color:"var(--tx3)",marginTop:4}}>理由: {selectedItem.reason}</div>}
+            </div>
+            {/* 書類種別選択 */}
+            <div style={{marginBottom:10}}>
+              <div style={{fontSize:12,fontWeight:700,color:"var(--tx2)",marginBottom:6}}>✅ 正しい書類種別を選択してください</div>
+              <select style={{width:"100%",padding:"8px 10px",borderRadius:8,fontSize:12,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontFamily:"'Noto Sans JP',sans-serif"}}
+                value={resolveType} onChange={e=>setResolveType(e.target.value)}>
+                <option value="">-- 選択してください --</option>
+                {Object.entries(DOC_TYPE_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            {/* メモ */}
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:12,fontWeight:700,color:"var(--tx2)",marginBottom:6}}>📝 メモ（任意）</div>
+              <textarea style={{width:"100%",padding:"8px 10px",borderRadius:8,fontSize:12,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx)",fontFamily:"'Noto Sans JP',sans-serif",resize:"vertical",minHeight:60,boxSizing:"border-box"}}
+                placeholder="確認メモを入力（任意）" value={resolveNote} onChange={e=>setResolveNote(e.target.value)}/>
+            </div>
+            {/* ボタン */}
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>setSelectedItem(null)}
+                style={{padding:"7px 14px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1px solid var(--bd)",background:"var(--bg)",color:"var(--tx2)"}}>
+                キャンセル
+              </button>
+              <button onClick={()=>handleResolve(selectedItem)}
+                style={{padding:"7px 14px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"none",background:"var(--tl)",color:"#fff"}}>
+                ✅ 解決済にする
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminScreen({user,store,onBack}){
   const [tab,setTab]=useState("staff_in");const [fFac,setFFac]=useState(user.selectedFacilityId||"all");const [fName,setFName]=useState("");const [editRec,setEditRec]=useState(null);
-  const TABS=[{k:"staff_in",l:"出勤"},{k:"staff_out",l:"退勤"},{k:"user_in",l:"来所"},{k:"user_out",l:"退所"},{k:"photo",l:"写真"},{k:"service",l:"サービス記録"},{k:"history",l:"修正履歴"},{k:"ocr_logs",l:"OCR履歴"}];
+  // 未分類書類のpending件数を取得してバッジ表示用に使う
+  const unclassifiedCount = (store.manualReviewQueue||[]).filter(i=>i.status==="pending").length;
+  const TABS=[{k:"staff_in",l:"出勤"},{k:"staff_out",l:"退勤"},{k:"user_in",l:"来所"},{k:"user_out",l:"退所"},{k:"photo",l:"写真"},{k:"service",l:"サービス記録"},{k:"history",l:"修正履歴"},{k:"ocr_logs",l:"OCR履歴"},{k:"unclassified",l:`未分類${unclassifiedCount>0?` (${unclassifiedCount})`:""}` }];
   const fil=store.recs.filter(r=>r.type===tab&&(fFac==="all"||r.facilityId===fFac)&&(fName===""||((r.staffName||r.userName||"").includes(fName))));
   const cnt=t=>store.recs.filter(r=>r.type===t&&(fFac==="all"||r.facilityId===fFac)).length;
   const tl=t=>({staff_in:"出勤",staff_out:"退勤",user_in:"来所",user_out:"退所",photo:"写真",service:"サービス"}[t]||t);
@@ -13667,7 +14068,9 @@ function AdminScreen({user,store,onBack}){
     <div className="tabs">{TABS.map(t=><button key={t.k} className={`tab ${tab===t.k?"on":""}`} onClick={()=>setTab(t.k)}>{t.l}</button>)}</div>
     <div className="frow">{user.role==="admin"&&<select className="fsm" value={fFac} onChange={e=>setFFac(e.target.value)}><option value="all">全施設</option>{FACILITIES.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select>}<input className="fsm" placeholder="氏名で絞込" value={fName} onChange={e=>setFName(e.target.value)}/></div>
     <div className="ebar"><button className="bexp" onClick={csv}>⬇ CSV出力</button></div>
-    {tab==="ocr_logs"
+    {tab==="unclassified"
+      ? <UnclassifiedTab store={store} user={user}/>
+      : tab==="ocr_logs"
       ? <OcrLogTab store={store} user={user}/>
       : tab==="history"
         ? <div className="tw"><table className="tbl"><thead><tr><th>修正日時</th><th>修正者</th><th>対象</th><th>修正理由</th></tr></thead><tbody>
