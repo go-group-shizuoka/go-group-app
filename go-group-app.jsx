@@ -3167,7 +3167,26 @@ function useStore() {
   }));
   const delQualDoc = id => { setQualDocs(p=>p.filter(d=>d.id!==id)); sbDelete("qual_docs",id); };
   const delStaff = id => { setDynStaff(p=>p.filter(s=>s.id!==id)); sbDelete("staff_data",id); };
+  // 物理削除（既存機能・まとめて削除で使用）
   const delUser = id => { setDynUsers(p=>p.filter(u=>u.id!==id)); sbDelete("users_data",id); };
+
+  // ── 論理削除（個別削除ボタンで使用）──
+  // is_deleted=true にするだけで実データは一切消さない
+  // active=false と組み合わせることで全ての業務画面から非表示になる
+  // deleted_at / deleted_by が監査ログ代わりになる
+  const softDeleteUser = (id, deletedBy) => {
+    const now = new Date().toISOString();
+    updUser2(id, {
+      is_deleted:  true,
+      deleted_at:  now,
+      deleted_by:  deletedBy,
+      active:      false,          // 業務画面でも非表示
+    });
+    // グローバルエラーログへ監査記録（管理画面エラーログタブで確認可能）
+    _appendSaveErr("user_delete_audit", id,
+      `利用者削除（論理）: ID=${id} / 削除者=${deletedBy} / 時刻=${now.slice(0,19)}`);
+    console.info(`[GO-GROUP] 利用者論理削除 id=${id} by=${deletedBy}`);
+  };
   const [paidLeaveReqs, setPaidLeaveReqs] = useState([]);
   const addPaidLeaveReq = r => {
     setPaidLeaveReqs(p=>[...p,r]);
@@ -3867,7 +3886,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck,auditSaveError,setAuditSaveError,saveErrors};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,softDeleteUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck,auditSaveError,setAuditSaveError,saveErrors};
 }
 
 
@@ -7855,16 +7874,33 @@ function UserManagement({user,store,onBack}){
   const [hubTab,setHubTab]=useState("facesheet");
   const [bulkMode,setBulkMode]=useState(false); // 一括削除モード
   const [checked,setChecked]=useState([]);       // 選択中の利用者ID
-  const users=store.dynUsers.filter(u=>user.role==="admin"||u.facilityId===user.selectedFacilityId);
+  // is_deleted=true の論理削除済みは一覧に表示しない
+  const users=store.dynUsers.filter(u=>
+    !u.is_deleted &&
+    (user.role==="admin"||u.facilityId===user.selectedFacilityId)
+  );
 
   const isMgr = user.role==="manager"||user.role==="admin";
 
-  // 一括削除実行
+  // 一括削除実行（物理削除：まとめて削除ボタン用）
   const bulkDelete=()=>{
     if(checked.length===0) return;
-    if(!window.confirm(`選択した ${checked.length} 名を完全に削除しますか？\nこの操作は取り消せません。`)) return;
+    if(!window.confirm(`選択した ${checked.length} 名を削除しますか？\n（一括削除はデータを完全に消去します）`)) return;
     checked.forEach(id=>store.delUser(id));
     setChecked([]);setBulkMode(false);
+  };
+
+  // 個別論理削除（1人ずつ削除ボタン用）
+  const handleSoftDelete=(u)=>{
+    if(window.confirm(
+      `「${u.name}」を削除しますか？\n\n` +
+      `✅ 出欠・記録・支援計画・写真・請求データは削除されません\n` +
+      `✅ 削除者・削除日時が記録されます（admin が復元できます）\n` +
+      `⚠ この操作はadminのみが実行できます`
+    )){
+      store.softDeleteUser(u.id, user.displayName);
+      store.showToast(`🗑 「${u.name}」を削除しました（論理削除）`);
+    }
   };
   const toggleCheck=(id)=>setChecked(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
   const checkAll=()=>setChecked(users.map(u=>u.id));
@@ -7933,7 +7969,19 @@ function UserManagement({user,store,onBack}){
                   style={{width:18,height:18,accentColor:"var(--ro)",cursor:"pointer",flexShrink:0}}/>}
                 <div style={{width:40,height:40,borderRadius:"50%",background:u.active===false?"var(--bg2)":"linear-gradient(135deg,var(--tl),var(--gr))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>👤</div>
               </div>
-              {isMgr&&!bulkMode&&<button onClick={e=>{e.stopPropagation();setSelUser(u);setScreen("edit");}} style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx3)"}}>編集</button>}
+              {isMgr&&!bulkMode&&<div style={{display:"flex",gap:4,alignItems:"center"}}>
+                <button onClick={e=>{e.stopPropagation();setSelUser(u);setScreen("edit");}}
+                  style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",border:"1.5px solid var(--bd)",color:"var(--tx3)"}}>
+                  編集
+                </button>
+                {/* 🗑 削除ボタン: admin のみ表示（staff・viewer・manager には非表示） */}
+                {user.role==="admin"&&<button
+                  onClick={e=>{e.stopPropagation();handleSoftDelete(u);}}
+                  title={`「${u.name}」を削除（論理削除）`}
+                  style={{padding:"3px 7px",borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(224,56,56,0.09)",border:"1.5px solid rgba(224,56,56,0.35)",color:"var(--ro)"}}>
+                  🗑
+                </button>}
+              </div>}
             </div>
             <div style={{fontWeight:900,fontSize:14,marginBottom:2,color:u.active===false?"var(--tx3)":"var(--tx)"}}>{u.name}{u.active===false&&<span style={{fontSize:10,color:"var(--bda)",marginLeft:5}}>（無効）</span>}</div>
             <div style={{fontSize:11,color:"var(--tx3)",marginBottom:4}}>{age}歳 ／ {u.diagnosis}</div>
