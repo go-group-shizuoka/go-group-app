@@ -136,7 +136,11 @@ async function sbSave(table, data, { retry = 3 } = {}) {
 
   // ❌ 全リトライ失敗
   _savingIds.delete(saveKey);
-  console.error(`sbSave: 保存失敗 [${table}]:`, lastErr);
+  const errMsg = lastErr?.message || "不明なエラー";
+  // 統一フォーマットでコンソールに記録（監査用）
+  console.error(`[GO-GROUP SAVE ERROR] table=${table} id=${data?.id||"?"} err=${errMsg}`, new Date().toLocaleString("ja-JP"));
+  // グローバルエラーログに追記（管理画面で確認できる）
+  _appendSaveErr(table, data?.id ?? null, errMsg);
   _sbErrCb?.(_sbErrMsg(lastStatus, lastErr?.message), "error");
   return false;
 }
@@ -177,6 +181,139 @@ async function sbDelete(table, id) {
   }
 }
 
+
+// ==================== グローバルエラーログ ====================
+// sbSave失敗・unhandledRejectionをここに蓄積し、管理画面で確認できる
+// 最大100件保持（古いものは自動削除）
+const _saveErrorLog = [];
+let _saveErrLogCb = null; // useStore 起動後に登録される
+
+function _appendSaveErr(table, dataId, message) {
+  const entry = {
+    id: `sav_${Date.now()}_${Math.random().toString(36).slice(2,5)}`,
+    time: new Date().toISOString(),
+    table:  table  || "unknown",
+    dataId: dataId || null,
+    message: message || "不明なエラー",
+  };
+  _saveErrorLog.unshift(entry);
+  if (_saveErrorLog.length > 100) _saveErrorLog.length = 100;
+  // useStoreの saveErrors stateを更新（登録されていれば）
+  _saveErrLogCb?.([..._saveErrorLog]);
+}
+
+// ── グローバル unhandledrejection ──
+// 全ての未処理Promise拒否をキャッチしてトースト＋ログに記録
+// これにより try/catch を書き忘れた箇所の例外も補足される
+if (typeof window !== "undefined") {
+  window.addEventListener("unhandledrejection", (event) => {
+    const msg = event.reason?.message || String(event.reason) || "不明なエラー";
+    console.error("[UnhandledRejection] 未処理の例外を補足:", event.reason);
+    _sbErrCb?.(`予期しないエラーが発生しました。ページを再読み込みしてください。`, "error");
+    _appendSaveErr("unhandled_rejection", null, msg);
+    event.preventDefault(); // ブラウザのデフォルトエラー出力を抑制
+  });
+}
+
+// ==================== React ErrorBoundary ====================
+// コンポーネントのレンダリング中に発生したエラーをキャッチし、
+// 白画面（クラッシュ）の代わりに日本語エラー画面を表示する
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null, errorInfo: null };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("[ErrorBoundary] Reactレンダリングエラー:", error.message, errorInfo.componentStack);
+    _appendSaveErr("react_render", null, error.message);
+    this.setState({ error, errorInfo });
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{padding:32, textAlign:"center", maxWidth:500, margin:"40px auto"}}>
+          <div style={{fontSize:48, marginBottom:12}}>⚠️</div>
+          <div style={{fontSize:17, fontWeight:700, color:"#c0392b", marginBottom:8}}>
+            画面の表示でエラーが発生しました
+          </div>
+          <div style={{fontSize:12, color:"#555", marginBottom:12, lineHeight:1.7}}>
+            {this.state.error.message}
+          </div>
+          <div style={{
+            fontSize:10, color:"#888", marginBottom:20, textAlign:"left",
+            background:"#f7f7f7", padding:"8px 12px", borderRadius:6,
+            maxHeight:120, overflow:"auto", fontFamily:"monospace", whiteSpace:"pre-wrap",
+          }}>
+            {this.state.errorInfo?.componentStack?.slice(0, 400) || ""}
+          </div>
+          <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+            <button
+              onClick={() => this.setState({ error: null, errorInfo: null })}
+              style={{padding:"10px 24px", borderRadius:8, background:"#2563eb",
+                color:"#fff", border:"none", fontSize:14, fontWeight:700, cursor:"pointer"}}>
+              再試行
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              style={{padding:"10px 24px", borderRadius:8, background:"#6b7280",
+                color:"#fff", border:"none", fontSize:14, fontWeight:700, cursor:"pointer"}}>
+              ページ再読込
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ==================== CSVダウンロードヘルパー ====================
+// 全CSVエクスポートはこの関数を経由させる
+// try/catch で例外を一元処理し、失敗時は日本語エラーを表示する
+function downloadCSV(filename, content) {
+  try {
+    if (!content) throw new Error("出力データが空です");
+    const bom  = "﻿"; // Excel用BOM
+    const blob = new Blob([bom + content], { type: "text/csv;charset=utf-8;" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // メモリリーク防止（1秒後にオブジェクトURLを解放）
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return true;
+  } catch(e) {
+    console.error("[CSV出力エラー]", filename, e);
+    _appendSaveErr("csv_export", filename, e.message);
+    _sbErrCb?.(`CSV出力「${filename}」に失敗しました: ${e.message}`, "error");
+    return false;
+  }
+}
+
+// ==================== withTryCatch ====================
+// 非同期UI操作をラップしてエラーを安全にキャッチするヘルパー。
+// try/catch を書き忘れがちな非同期ハンドラに適用する。
+//
+// 使い方:
+//   const handleSave = withTryCatch(async () => {
+//     await doSomething();
+//   }, "保存");
+//   <button onClick={handleSave}>保存</button>
+function withTryCatch(fn, label = "操作", onErr = null) {
+  return async (...args) => {
+    try {
+      return await fn(...args);
+    } catch(e) {
+      console.error(`[${label}エラー]`, e);
+      _appendSaveErr("ui_handler", label, e.message);
+      _sbErrCb?.(`${label}中にエラーが発生しました: ${e.message}`, "error");
+      onErr?.(e);
+    }
+  };
+}
 
 // ==================== MASTER DATA ====================
 const FACILITIES = [
@@ -3316,6 +3453,16 @@ function useStore() {
   // 保存失敗エラーメッセージ（画面バナー用）
   const [auditSaveError, setAuditSaveError] = useState(null);
 
+  // ── グローバル保存エラーログ ──
+  // 全テーブルのsbSave失敗・unhandledRejectionをここに集約する
+  // 管理画面の「エラーログ」タブで確認できる
+  const [saveErrors, setSaveErrors] = useState([]);
+  useEffect(() => {
+    // グローバル変数にコールバックを登録してsbSave失敗を受け取る
+    _saveErrLogCb = (log) => setSaveErrors(log);
+    return () => { _saveErrLogCb = null; };
+  }, []);
+
   // 監査チェック1件を保存（新規 upsert）
   const saveAuditCheck = check => {
     setAuditChecks(p => {
@@ -3699,7 +3846,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck,auditSaveError,setAuditSaveError};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck,auditSaveError,setAuditSaveError,saveErrors};
 }
 
 
@@ -14543,6 +14690,89 @@ function OcrLogTab({store, user}) {
   );
 }
 
+// ==================== 保存エラーログタブ ====================
+// sbSave失敗・unhandledRejection・ReactErrorBoundary で補足したエラーを
+// 時系列で一覧表示する（管理画面 → 🚨エラーログ タブ）
+function SaveErrorLogTab({ store }) {
+  const errors = store.saveErrors || [];
+  const tableLabels = {
+    unhandled_rejection: "未処理例外",
+    react_render:        "Reactレンダリング",
+    csv_export:          "CSV出力",
+    ui_handler:          "UI操作",
+  };
+
+  if (errors.length === 0) {
+    return (
+      <div style={{textAlign:"center", padding:"48px 16px", color:"var(--tx3)"}}>
+        <div style={{fontSize:36, marginBottom:12}}>✅</div>
+        <div style={{fontSize:14, fontWeight:700}}>エラーログはありません</div>
+        <div style={{fontSize:11, marginTop:6}}>全ての保存操作が正常に完了しています</div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* ヘッダー */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <div style={{fontSize:13, fontWeight:700, color:"var(--tx)"}}>
+          🚨 保存エラーログ
+          <span style={{fontSize:10, fontWeight:400, color:"var(--tx3)", marginLeft:8}}>
+            直近{errors.length}件（最大100件）
+          </span>
+        </div>
+        <button
+          onClick={() => downloadCSV(
+            `error_log_${new Date().toISOString().slice(0,10)}.csv`,
+            ["日時,テーブル,ID,エラー内容"].concat(
+              errors.map(e => `"${e.time}","${e.table}","${e.dataId||""}","${e.message}"`)
+            ).join("\n")
+          )}
+          style={{padding:"5px 12px", borderRadius:8, fontSize:11, fontWeight:700,
+            background:"var(--tl)", color:"#fff", border:"none", cursor:"pointer"}}>
+          ⬇ CSV出力
+        </button>
+      </div>
+
+      {/* エラー一覧 */}
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {errors.map(e => (
+          <div key={e.id} style={{
+            background:"rgba(220,38,38,0.06)",
+            border:"1px solid rgba(220,38,38,0.25)",
+            borderRadius:8, padding:"9px 12px",
+          }}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+              <span style={{fontSize:10, fontWeight:700, color:"var(--ro)",
+                background:"rgba(220,38,38,0.12)", padding:"2px 7px", borderRadius:4}}>
+                {tableLabels[e.table] || e.table}
+              </span>
+              {e.dataId && (
+                <span style={{fontSize:10, color:"var(--tx3)", fontFamily:"monospace"}}>
+                  ID: {e.dataId}
+                </span>
+              )}
+              <span style={{fontSize:10, color:"var(--tx3)", marginLeft:"auto"}}>
+                {e.time.replace("T"," ").slice(0,19)}
+              </span>
+            </div>
+            <div style={{fontSize:11, color:"var(--tx)", lineHeight:1.6}}>
+              {e.message}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 注記 */}
+      <div style={{fontSize:10, color:"var(--tx3)", marginTop:12, lineHeight:1.7}}>
+        ※ このログはページ再読み込みでリセットされます。<br/>
+        ※ 深刻なエラーが続く場合は管理者（本部）にお知らせください。
+      </div>
+    </div>
+  );
+}
+
 // ==================== AI監査センター ====================
 // 毎日の自動監査チェック結果を一覧表示・解決管理するコンポーネント
 function AuditCenterTab({store, user}) {
@@ -15358,7 +15588,8 @@ function AdminScreen({user,store,onBack}){
   // 未解決のcritical監査件数（バッジ表示用）
   const auditCriticalCount = (store.auditChecks||[]).filter(c=>c.status==="open"&&c.severity==="critical").length;
   const auditOpenCount = (store.auditChecks||[]).filter(c=>c.status==="open").length;
-  const TABS=[{k:"staff_in",l:"出勤"},{k:"staff_out",l:"退勤"},{k:"user_in",l:"来所"},{k:"user_out",l:"退所"},{k:"photo",l:"写真"},{k:"service",l:"サービス記録"},{k:"history",l:"修正履歴"},{k:"ocr_logs",l:"OCR履歴"},{k:"unclassified",l:`未分類${unclassifiedCount>0?` (${unclassifiedCount})`:""}` },{k:"audit",l:`🔍監査${auditOpenCount>0?` (${auditCriticalCount>0?`🔴${auditCriticalCount}`:auditOpenCount})`:""}` }];
+  const saveErrCount = (store.saveErrors||[]).length;
+  const TABS=[{k:"staff_in",l:"出勤"},{k:"staff_out",l:"退勤"},{k:"user_in",l:"来所"},{k:"user_out",l:"退所"},{k:"photo",l:"写真"},{k:"service",l:"サービス記録"},{k:"history",l:"修正履歴"},{k:"ocr_logs",l:"OCR履歴"},{k:"unclassified",l:`未分類${unclassifiedCount>0?` (${unclassifiedCount})`:""}` },{k:"audit",l:`🔍監査${auditOpenCount>0?` (${auditCriticalCount>0?`🔴${auditCriticalCount}`:auditOpenCount})`:""}` },{k:"error_log",l:`🚨エラーログ${saveErrCount>0?` (${saveErrCount})`:""}` }];
   const fil=store.recs.filter(r=>r.type===tab&&(fFac==="all"||r.facilityId===fFac)&&(fName===""||((r.staffName||r.userName||"").includes(fName))));
   const cnt=t=>store.recs.filter(r=>r.type===t&&(fFac==="all"||r.facilityId===fFac)).length;
   const tl=t=>({staff_in:"出勤",staff_out:"退勤",user_in:"来所",user_out:"退所",photo:"写真",service:"サービス"}[t]||t);
@@ -15382,6 +15613,8 @@ function AdminScreen({user,store,onBack}){
     <div className="ebar"><button className="bexp" onClick={csv}>⬇ CSV出力</button></div>
     {tab==="audit"
       ? <AuditCenterTab store={store} user={user}/>
+      : tab==="error_log"
+      ? <SaveErrorLogTab store={store} user={user}/>
       : tab==="unclassified"
       ? <UnclassifiedTab store={store} user={user}/>
       : tab==="ocr_logs"
@@ -25190,9 +25423,13 @@ export default function App(){
               <div className="top-bar-date">{todayDisplay()}</div>
             </div>
           </div>
-          {/* メインコンテンツ */}
+          {/* メインコンテンツ — ErrorBoundaryでレンダリングエラーを補足 */}
           <div className="main-content">
-            <div className="wrap">{render()}</div>
+            <div className="wrap">
+              <ErrorBoundary>
+                {render()}
+              </ErrorBoundary>
+            </div>
           </div>
         </div>
       </div>
