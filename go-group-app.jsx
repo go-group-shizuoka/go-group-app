@@ -3017,6 +3017,8 @@ function useStore() {
     sbLoad("parent_support_records").then(d=>{ if(d?.length) setParentSupportRecords(d.map(x=>x.data||x)); });
     sbLoad("jukyusha_docs").then(d=>{ if(d?.length) setJukyushaDocs(d.map(x=>x.data||x)); });
     sbLoad("soudan_genans").then(d=>{ if(d?.length) setSoudanGenans(d.map(x=>x.data||x)); });
+    // OCR解析ログ（最新200件）
+    sbLoad("ocr_analysis_logs").then(d=>{ if(d?.length) setOcrLogs(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,200)); });
   }, []);
   // ─── 訪問先マスタ（保育所等訪問支援） ───
   const [visitDests, setVisitDests] = useState([
@@ -3053,6 +3055,29 @@ function useStore() {
   };
   const updJukyushaDoc = (id,ch) => setJukyushaDocs(p=>p.map(d=>{ if(d.id!==id) return d; const u={...d,...ch}; sbSave("jukyusha_docs",{id,facility_id:u.facilityId,user_id:u.userId,expiry_date:u.expiryDate||null,jukyusha_no:u.jukyushaNo||null,status:u.status||"有効",data:u}); return u; }));
   const delJukyushaDoc = id => { setJukyushaDocs(p=>p.filter(d=>d.id!==id)); sbDelete("jukyusha_docs",id); };
+
+  // ─── OCR解析ログ ───
+  // OCR実行のたびに保存（登録完了前でも保存）
+  // raw_ocr_results: 各写真のOCR生結果、merged_result: 全写真マージ後の最終値
+  const [ocrLogs, setOcrLogs] = useState([]);
+  const addOcrLog = log => {
+    setOcrLogs(p=>[log,...p]); // 最新が先頭
+    sbSave("ocr_analysis_logs", {
+      id:               log.id,
+      child_id:         log.childId         || null,
+      child_name:       log.childName       || null,
+      facility_id:      log.facilityId      || null,
+      document_type:    log.documentType    || "jukyusha",
+      photo_count:      log.photoCount      || 0,
+      success_count:    log.successCount    || 0,
+      failed_count:     log.failedCount     || 0,
+      raw_ocr_results:  log.rawOcrResults   || null,
+      merged_result:    log.mergedResult    || null,
+      error_messages:   log.errorMessages   || [],
+      created_by:       log.createdBy       || null,
+      created_at:       log.createdAt       || new Date().toISOString(),
+    });
+  };
 
   // ─── 相談支援原案 ───
   const [soudanGenans, setSoudanGenans] = useState([]);
@@ -3371,7 +3396,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog};
 }
 
 
@@ -7845,9 +7870,16 @@ function JukyushaTab({u, user, store}) {
     setScanning(true);
     setOcrError("");
     setMode("scan"); // ローディング画面へ
+
+    let results = [];
+    let merged = {};
+    let successCount = 0;
+    let failCount = 0;
+    let errorMessages = [];
+
     try {
       // 全写真を並列でOCR実行（1枚失敗しても他を続行）
-      const results = await Promise.allSettled(
+      results = await Promise.allSettled(
         targets.map(photo =>
           fetch("/api/ocr", {
             method: "POST",
@@ -7862,9 +7894,6 @@ function JukyushaTab({u, user, store}) {
       );
 
       // 成功した結果を統合（最初の非null・非空値を採用）
-      let merged = {};
-      let successCount = 0;
-      let failCount = 0;
       for (const result of results) {
         if (result.status === "fulfilled" && result.value?.success && result.value?.data) {
           successCount++;
@@ -7875,6 +7904,11 @@ function JukyushaTab({u, user, store}) {
           });
         } else {
           failCount++;
+          // エラーメッセージ収集
+          const errMsg = result.status === "rejected"
+            ? (result.reason?.message || "ネットワークエラー")
+            : (result.value?.error || "解析失敗");
+          errorMessages.push(errMsg);
         }
       }
 
@@ -7909,6 +7943,8 @@ function JukyushaTab({u, user, store}) {
         });
       }
     } catch(e) {
+      failCount = targets.length;
+      errorMessages = [e.message];
       setOcrError("通信エラー: " + e.message);
       setForm({
         name: u.name || "", jukyushaNo: u.jukyushaNo || "",
@@ -7917,6 +7953,33 @@ function JukyushaTab({u, user, store}) {
     } finally {
       setScanning(false);
       setMode("result"); // OCR完了 → 結果確認画面へ
+
+      // ── OCR解析ログを保存（登録完了前でも・失敗しても必ず保存）──
+      // raw_ocr_results: 各写真の生結果（base64除いて軽量化）
+      const rawForLog = results.map((r, idx) => ({
+        photo: idx + 1,
+        status: r.status,
+        success: r.status === "fulfilled" ? (r.value?.success ?? false) : false,
+        data: r.status === "fulfilled" ? (r.value?.data ?? null) : null,
+        error: r.status === "rejected"
+          ? (r.reason?.message || "ネットワークエラー")
+          : (r.status === "fulfilled" && !r.value?.success ? r.value?.error || "解析失敗" : null),
+      }));
+      store.addOcrLog({
+        id:             "ocr_" + Date.now(),
+        childId:        u.id,
+        childName:      u.name,
+        facilityId:     u.facilityId,
+        documentType:   "jukyusha",
+        photoCount:     targets.length,
+        successCount,
+        failedCount:    failCount,
+        rawOcrResults:  rawForLog,
+        mergedResult:   successCount > 0 ? merged : null,
+        errorMessages,
+        createdBy:      user.displayName,
+        createdAt:      new Date().toISOString(),
+      });
     }
   };
 
@@ -13087,9 +13150,214 @@ function EditModal({rec,user,store,onClose}){
 }
 
 // ==================== ADMIN ====================
+// ==================== OCR解析履歴タブ ====================
+// 受給者証OCR実行履歴を一覧・詳細表示するコンポーネント
+function OcrLogTab({store, user}) {
+  const [detail, setDetail] = useState(null); // 詳細表示中のログ
+  const [fFac, setFFac] = useState("all");
+
+  const logs = (store.ocrLogs || [])
+    .filter(l => fFac === "all" || l.facilityId === fFac)
+    .slice(0, 200); // 最大200件表示
+
+  const docTypeLabel = t => ({jukyusha:"受給者証", soudan:"相談支援原案", yotei:"利用予定表"}[t] || t || "—");
+  const facName = id => FACILITIES.find(f=>f.id===id)?.name || id || "—";
+
+  // mergedResultから取得できたフィールド名を日本語で列挙
+  const getAcquiredFields = (merged) => {
+    if (!merged) return "—";
+    const labels = {
+      name:"氏名", nameKana:"ふりがな", guardianName:"保護者名",
+      jukyushaNo:"受給者証番号", city:"自治体", expiryDate:"有効期限",
+      startDate:"給付開始日", grantDate:"交付日", serviceType:"サービス種別",
+      serviceAmount:"支給量", maxBurden:"上限額", monitoringInterval:"モニタリング期間",
+      specialNotes:"特記事項",
+    };
+    return Object.entries(labels)
+      .filter(([k]) => merged[k] !== null && merged[k] !== "" && merged[k] !== undefined)
+      .map(([,v]) => v)
+      .join("・") || "—";
+  };
+
+  return (
+    <div>
+      {/* フィルター */}
+      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+        {user.role==="admin"&&(
+          <select className="fsm" value={fFac} onChange={e=>setFFac(e.target.value)}>
+            <option value="all">全施設</option>
+            {FACILITIES.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        )}
+        <span style={{fontSize:11,color:"var(--tx3)"}}>全 {logs.length} 件</span>
+      </div>
+
+      {/* ログ一覧 */}
+      {logs.length === 0 ? (
+        <div style={{textAlign:"center",padding:"40px 16px",color:"var(--tx3)"}}>
+          <div style={{fontSize:32,marginBottom:8}}>📋</div>
+          <div>OCR解析履歴がありません</div>
+          <div style={{fontSize:11,marginTop:4}}>受給者証タブでOCR解析を実行するとここに表示されます</div>
+        </div>
+      ) : (
+        <div className="tw" style={{overflowX:"auto"}}>
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>日時</th><th>児童名</th><th>施設</th><th>書類種別</th>
+                <th>枚数</th><th>成功</th><th>失敗</th><th>取得項目</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map(log=>(
+                <tr key={log.id}>
+                  <td style={{fontFamily:"'DM Mono',monospace",fontSize:10,whiteSpace:"nowrap"}}>
+                    {log.createdAt ? log.createdAt.slice(0,16).replace("T"," ") : "—"}
+                  </td>
+                  <td style={{fontWeight:700}}>{log.childName||"—"}</td>
+                  <td style={{fontSize:10,color:"var(--tx3)"}}>{facName(log.facilityId)}</td>
+                  <td><span style={{fontSize:10,padding:"2px 7px",borderRadius:8,background:"rgba(58,160,216,0.12)",color:"var(--tl)",fontWeight:700}}>{docTypeLabel(log.documentType)}</span></td>
+                  <td style={{textAlign:"center"}}>{log.photoCount||0}枚</td>
+                  <td style={{textAlign:"center",color:"var(--gr)",fontWeight:700}}>{log.successCount||0}</td>
+                  <td style={{textAlign:"center",color:log.failedCount>0?"var(--ro)":"var(--tx3)",fontWeight:log.failedCount>0?700:400}}>{log.failedCount||0}</td>
+                  <td style={{fontSize:10,color:"var(--tx2)",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {getAcquiredFields(log.mergedResult)}
+                  </td>
+                  <td>
+                    <button onClick={()=>setDetail(log)}
+                      style={{padding:"3px 9px",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.1)",border:"1.5px solid rgba(58,160,216,0.35)",color:"var(--tl)"}}>
+                      詳細
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* 詳細モーダル */}
+      {detail && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:"var(--wh)",borderRadius:14,width:"100%",maxWidth:560,maxHeight:"85vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 8px 32px rgba(0,0,0,0.3)"}}>
+            {/* ヘッダー */}
+            <div style={{padding:"14px 16px",borderBottom:"1px solid var(--bd)",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:700}}>🔍 OCR解析詳細</div>
+                <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>
+                  {detail.childName} / {docTypeLabel(detail.documentType)} / {detail.createdAt?.slice(0,16).replace("T"," ")}
+                </div>
+              </div>
+              <button onClick={()=>setDetail(null)}
+                style={{padding:"4px 10px",borderRadius:7,border:"1px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",fontSize:13}}>✕</button>
+            </div>
+
+            {/* 本体（スクロール） */}
+            <div style={{overflowY:"auto",flex:1,padding:"14px 16px"}}>
+
+              {/* サマリー */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
+                {[
+                  {l:"写真枚数",v:detail.photoCount+"枚",c:"var(--tl)"},
+                  {l:"成功",v:detail.successCount+"枚",c:"var(--gr)"},
+                  {l:"失敗",v:detail.failedCount+"枚",c:detail.failedCount>0?"var(--ro)":"var(--tx3)"},
+                  {l:"実行者",v:detail.createdBy||"—",c:"var(--tx)"},
+                ].map(s=>(
+                  <div key={s.l} style={{background:"var(--bg)",borderRadius:9,padding:"8px 6px",textAlign:"center",border:"1px solid var(--bd)"}}>
+                    <div style={{fontSize:9,color:"var(--tx3)",marginBottom:3}}>{s.l}</div>
+                    <div style={{fontSize:12,fontWeight:700,color:s.c}}>{s.v}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* エラーメッセージ（失敗時） */}
+              {detail.errorMessages?.length > 0 && (
+                <div style={{background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.3)",borderRadius:9,padding:"8px 12px",marginBottom:12,fontSize:11,color:"var(--ro)"}}>
+                  <div style={{fontWeight:700,marginBottom:4}}>⚠️ エラー内容</div>
+                  {detail.errorMessages.map((e,i)=><div key={i}>・{e}</div>)}
+                </div>
+              )}
+
+              {/* マージ後の最終結果 */}
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginBottom:8}}>📋 マージ後の最終取得結果</div>
+                {detail.mergedResult ? (
+                  <div style={{background:"var(--bg)",border:"1px solid var(--bd)",borderRadius:9,padding:10}}>
+                    {Object.entries({
+                      name:"氏名", nameKana:"ふりがな", guardianName:"保護者名",
+                      jukyushaNo:"受給者証番号", city:"自治体名", expiryDate:"有効期限",
+                      startDate:"給付開始日", grantDate:"交付日", serviceType:"サービス種別",
+                      serviceAmount:"支給量", maxBurden:"上限額(円)", monitoringInterval:"モニタリング期間",
+                      specialNotes:"特記事項",
+                    }).map(([k,l])=>(
+                      <div key={k} style={{display:"flex",gap:8,padding:"4px 0",borderBottom:"1px solid var(--bd)",fontSize:12,alignItems:"flex-start"}}>
+                        <span style={{color:"var(--tx3)",fontSize:10,minWidth:110,flexShrink:0,paddingTop:1}}>{l}</span>
+                        <span style={{
+                          color: detail.mergedResult[k] ? "var(--tx)" : "var(--tx3)",
+                          fontStyle: detail.mergedResult[k] ? "normal" : "italic",
+                          wordBreak:"break-all",
+                        }}>
+                          {detail.mergedResult[k] != null && detail.mergedResult[k] !== "" ? String(detail.mergedResult[k]) : "—"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{color:"var(--tx3)",fontSize:12,fontStyle:"italic"}}>全枚数OCR失敗のため取得結果なし</div>
+                )}
+              </div>
+
+              {/* 写真ごとの生結果 */}
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginBottom:8}}>📷 写真ごとのOCR生結果</div>
+                {(detail.rawOcrResults||[]).map(r=>(
+                  <div key={r.photo} style={{
+                    background: r.success ? "rgba(44,170,96,0.05)" : "rgba(224,56,56,0.05)",
+                    border: `1px solid ${r.success ? "rgba(44,170,96,0.25)" : "rgba(224,56,56,0.25)"}`,
+                    borderRadius:9, padding:"10px 12px", marginBottom:8
+                  }}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:r.success&&r.data?6:0}}>
+                      <span style={{fontSize:12,fontWeight:700}}>写真{r.photo}枚目</span>
+                      <span style={{
+                        fontSize:10,padding:"2px 8px",borderRadius:8,fontWeight:700,
+                        background: r.success ? "rgba(44,170,96,0.18)" : "rgba(224,56,56,0.15)",
+                        color: r.success ? "var(--gr)" : "var(--ro)",
+                      }}>{r.success ? "✅ 成功" : "❌ 失敗"}</span>
+                    </div>
+                    {r.error && <div style={{fontSize:11,color:"var(--ro)",marginTop:4}}>エラー: {r.error}</div>}
+                    {r.success && r.data && (
+                      <div style={{fontSize:10,color:"var(--tx3)",marginTop:4,lineHeight:1.8}}>
+                        {Object.entries(r.data)
+                          .filter(([,v])=>v!==null&&v!=="")
+                          .map(([k,v])=>(
+                            <span key={k} style={{display:"inline-block",background:"var(--bg)",border:"1px solid var(--bd)",borderRadius:5,padding:"1px 6px",margin:"2px 3px 2px 0",color:"var(--tx2)"}}>
+                              {k}: {String(v)}
+                            </span>
+                          ))
+                        }
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* フッター */}
+            <div style={{padding:"10px 16px",borderTop:"1px solid var(--bd)",flexShrink:0}}>
+              <button onClick={()=>setDetail(null)} className="bsave" style={{width:"100%",maxWidth:160,margin:"0 auto",display:"block"}}>
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminScreen({user,store,onBack}){
   const [tab,setTab]=useState("staff_in");const [fFac,setFFac]=useState(user.selectedFacilityId||"all");const [fName,setFName]=useState("");const [editRec,setEditRec]=useState(null);
-  const TABS=[{k:"staff_in",l:"出勤"},{k:"staff_out",l:"退勤"},{k:"user_in",l:"来所"},{k:"user_out",l:"退所"},{k:"photo",l:"写真"},{k:"service",l:"サービス記録"},{k:"history",l:"修正履歴"}];
+  const TABS=[{k:"staff_in",l:"出勤"},{k:"staff_out",l:"退勤"},{k:"user_in",l:"来所"},{k:"user_out",l:"退所"},{k:"photo",l:"写真"},{k:"service",l:"サービス記録"},{k:"history",l:"修正履歴"},{k:"ocr_logs",l:"OCR履歴"}];
   const fil=store.recs.filter(r=>r.type===tab&&(fFac==="all"||r.facilityId===fFac)&&(fName===""||((r.staffName||r.userName||"").includes(fName))));
   const cnt=t=>store.recs.filter(r=>r.type===t&&(fFac==="all"||r.facilityId===fFac)).length;
   const tl=t=>({staff_in:"出勤",staff_out:"退勤",user_in:"来所",user_out:"退所",photo:"写真",service:"サービス"}[t]||t);
@@ -13111,13 +13379,17 @@ function AdminScreen({user,store,onBack}){
     <div className="tabs">{TABS.map(t=><button key={t.k} className={`tab ${tab===t.k?"on":""}`} onClick={()=>setTab(t.k)}>{t.l}</button>)}</div>
     <div className="frow">{user.role==="admin"&&<select className="fsm" value={fFac} onChange={e=>setFFac(e.target.value)}><option value="all">全施設</option>{FACILITIES.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select>}<input className="fsm" placeholder="氏名で絞込" value={fName} onChange={e=>setFName(e.target.value)}/></div>
     <div className="ebar"><button className="bexp" onClick={csv}>⬇ CSV出力</button></div>
-    {tab==="history"?<div className="tw"><table className="tbl"><thead><tr><th>修正日時</th><th>修正者</th><th>対象</th><th>修正理由</th></tr></thead><tbody>
-      {store.hist.length===0?<tr><td colSpan={4} style={{textAlign:"center",color:"var(--g6)",padding:"28px"}}>修正履歴はありません</td></tr>:store.hist.map(h=><tr key={h.id}><td style={{fontFamily:"'DM Mono',monospace",fontSize:10}}>{h.at}</td><td>{h.by}</td><td>{h.before.staffName||h.before.userName||"-"}</td><td>{h.reason}</td></tr>)}
-    </tbody></table></div>
-    :<div className="tw"><table className="tbl"><thead><tr><th>氏名</th><th>施設</th><th>区分</th><th>記録日時</th><th>体温</th>{(tab==="user_in"||tab==="user_out")&&<th>送迎</th>}{tab==="photo"&&<th>活動</th>}{tab==="service"&&<th>様子</th>}<th>写真</th><th>備考</th>{canEdit&&<th>操作</th>}</tr></thead><tbody>
-      {fil.length===0?<tr><td colSpan={10} style={{textAlign:"center",color:"var(--g6)",padding:"28px"}}>記録がありません</td></tr>
-      :fil.map(r=><tr key={r.id}><td style={{fontWeight:700}}>{r.staffName||r.userName||"-"}</td><td style={{fontSize:10,color:"var(--g4)"}}>{r.facilityName}</td><td><span className={`badge ${bc(r.type)}`}>{tl(r.type)}</span></td><td style={{fontFamily:"'DM Mono',monospace",fontSize:10}}>{r.time}</td><td>{r.temp&&r.temp!=="-"?<span style={{fontFamily:"'DM Mono',monospace",color:parseFloat(r.temp)>=37.5?"var(--ro)":"var(--gr)"}}>{r.temp}℃</span>:"-"}</td>{(tab==="user_in"||tab==="user_out")&&<td>{r.transport?<span className={`badge ${r.transport==="あり"?"bg":"ba"}`}>{r.transport}</span>:"-"}</td>}{tab==="photo"&&<td>{r.activity||"-"}</td>}{tab==="service"&&<td style={{fontSize:16}}>{r.mood||"-"}</td>}<td>{r.photo?"✅":"-"}</td><td style={{maxWidth:90,overflow:"hidden",textOverflow:"ellipsis"}}>{r.note||"-"}</td>{canEdit&&<td><button className="bedit" onClick={()=>setEditRec(r)}>修正</button></td>}</tr>)}
-    </tbody></table></div>}
+    {tab==="ocr_logs"
+      ? <OcrLogTab store={store} user={user}/>
+      : tab==="history"
+        ? <div className="tw"><table className="tbl"><thead><tr><th>修正日時</th><th>修正者</th><th>対象</th><th>修正理由</th></tr></thead><tbody>
+            {store.hist.length===0?<tr><td colSpan={4} style={{textAlign:"center",color:"var(--g6)",padding:"28px"}}>修正履歴はありません</td></tr>:store.hist.map(h=><tr key={h.id}><td style={{fontFamily:"'DM Mono',monospace",fontSize:10}}>{h.at}</td><td>{h.by}</td><td>{h.before.staffName||h.before.userName||"-"}</td><td>{h.reason}</td></tr>)}
+          </tbody></table></div>
+        : <div className="tw"><table className="tbl"><thead><tr><th>氏名</th><th>施設</th><th>区分</th><th>記録日時</th><th>体温</th>{(tab==="user_in"||tab==="user_out")&&<th>送迎</th>}{tab==="photo"&&<th>活動</th>}{tab==="service"&&<th>様子</th>}<th>写真</th><th>備考</th>{canEdit&&<th>操作</th>}</tr></thead><tbody>
+            {fil.length===0?<tr><td colSpan={10} style={{textAlign:"center",color:"var(--g6)",padding:"28px"}}>記録がありません</td></tr>
+            :fil.map(r=><tr key={r.id}><td style={{fontWeight:700}}>{r.staffName||r.userName||"-"}</td><td style={{fontSize:10,color:"var(--g4)"}}>{r.facilityName}</td><td><span className={`badge ${bc(r.type)}`}>{tl(r.type)}</span></td><td style={{fontFamily:"'DM Mono',monospace",fontSize:10}}>{r.time}</td><td>{r.temp&&r.temp!=="-"?<span style={{fontFamily:"'DM Mono',monospace",color:parseFloat(r.temp)>=37.5?"var(--ro)":"var(--gr)"}}>{r.temp}℃</span>:"-"}</td>{(tab==="user_in"||tab==="user_out")&&<td>{r.transport?<span className={`badge ${r.transport==="あり"?"bg":"ba"}`}>{r.transport}</span>:"-"}</td>}{tab==="photo"&&<td>{r.activity||"-"}</td>}{tab==="service"&&<td style={{fontSize:16}}>{r.mood||"-"}</td>}<td>{r.photo?"✅":"-"}</td><td style={{maxWidth:90,overflow:"hidden",textOverflow:"ellipsis"}}>{r.note||"-"}</td>{canEdit&&<td><button className="bedit" onClick={()=>setEditRec(r)}>修正</button></td>}</tr>)}
+          </tbody></table></div>
+    }
     {editRec&&<EditModal rec={editRec} user={user} store={store} onClose={()=>setEditRec(null)}/>}
   </div>;
 }
