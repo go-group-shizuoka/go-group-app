@@ -3181,6 +3181,9 @@ function useStore() {
   // 毎日の自動監査結果・解決履歴を管理する
   const [auditChecks, setAuditChecks] = useState([]);
 
+  // 保存失敗エラーメッセージ（画面バナー用）
+  const [auditSaveError, setAuditSaveError] = useState(null);
+
   // 監査チェック1件を保存（新規 upsert）
   const saveAuditCheck = check => {
     setAuditChecks(p => {
@@ -3188,6 +3191,7 @@ function useStore() {
       const key = `${check.checkType}_${check.childId||"_"}`;
       const already = p.some(c => c.status === "open" && `${c.checkType}_${c.childId||"_"}` === key);
       if (already) return p;
+      // Supabaseへ保存（失敗時はauditSaveErrorに記録して画面表示）
       sbSave("audit_checks", {
         id:             check.id,
         check_type:     check.checkType,
@@ -3203,6 +3207,14 @@ function useStore() {
         check_date:     check.checkDate       || new Date().toISOString().slice(0,10),
         created_at:     check.createdAt       || new Date().toISOString(),
         updated_at:     new Date().toISOString(),
+      }).then(ok => {
+        if (!ok) {
+          // 保存失敗：画面上にエラーバナーを表示（toastも sbSave 内で表示済み）
+          setAuditSaveError(
+            `⚠️ 「${check.title}」のSupabase保存に失敗しました。\n` +
+            `通信状況を確認して「▶ 今すぐ実行」で再実行してください。`
+          );
+        }
       });
       return [check, ...p];
     });
@@ -3555,7 +3567,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck,auditSaveError,setAuditSaveError};
 }
 
 
@@ -3838,6 +3850,81 @@ function generateAuditChecks(store, facilityId = "all") {
         `${log.child_name||"不明"}の書類読み取りで${log.failed_count}枚が失敗しています（${(log.created_at||"").slice(0,10)}）`,
         "OCR履歴タブから「再解析」ボタンを使って再試行してください", log.id));
     });
+
+  // ── ⑨ 退所記録なし（過去7日以内の来所日） ──
+  // 来所記録があるのに同日の退所記録が1件もない日をチェック
+  const past7 = [...Array(7)].map((_,i) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    return d.toISOString().slice(0,10);
+  });
+
+  for (const u of users) {
+    const uid  = u.id;
+    const uFac = u.facilityId;
+    const uName = u.name;
+
+    // ⑨ 退所記録なし
+    const noExitDates = past7.filter(date => {
+      const hasIn  = (store.recs||[]).some(r => r.type==="user_in"  && r.userId===uid && (r.time||"").slice(0,10)===date && inFac(r.facilityId));
+      const hasOut = (store.recs||[]).some(r => r.type==="user_out" && r.userId===uid && (r.time||"").slice(0,10)===date && inFac(r.facilityId));
+      return hasIn && !hasOut;
+    });
+    if (noExitDates.length > 0) {
+      checks.push(mkAuditCheck("attendance_no_exit", "warning", uid, uName, uFac,
+        `退所記録が未入力（${noExitDates.length}日）`,
+        `${uName}さんの来所記録はありますが退所記録がない日があります（${noExitDates.join("・")}）`,
+        "退所タブを開き、該当日の退所時間を入力してください（請求・監査に影響します）"));
+    }
+
+    // ⑩ 検温未記録（来所記録の体温が空白）
+    const noTempDates = past7.filter(date => {
+      const rec = (store.recs||[]).find(r =>
+        r.type==="user_in" && r.userId===uid &&
+        (r.time||"").slice(0,10)===date && inFac(r.facilityId)
+      );
+      return rec && (!rec.temp || rec.temp === "");
+    });
+    if (noTempDates.length > 0) {
+      checks.push(mkAuditCheck("temp_missing", "info", uid, uName, uFac,
+        `検温未記録（${noTempDates.length}日）`,
+        `${uName}さんの来所記録に体温が未入力の日があります（${noTempDates.join("・")}）`,
+        "来所記録を編集して体温を入力してください（衛生管理・監査に必要です）"));
+    }
+
+    // ⑪ サービス記録未入力（来所日にサービス記録がない）
+    const noSvcDates = past7.filter(date => {
+      const hasIn  = (store.recs||[]).some(r => r.type==="user_in"  && r.userId===uid && (r.time||"").slice(0,10)===date && inFac(r.facilityId));
+      const hasSvc = (store.recs||[]).some(r => r.type==="service"  && r.userId===uid && (r.time||"").slice(0,10)===date && inFac(r.facilityId));
+      return hasIn && !hasSvc;
+    });
+    if (noSvcDates.length > 0) {
+      checks.push(mkAuditCheck("service_record_missing", "warning", uid, uName, uFac,
+        `サービス記録が未入力（${noSvcDates.length}日）`,
+        `${uName}さんの来所日にサービス記録（活動記録）が作成されていない日があります（${noSvcDates.join("・")}）`,
+        "サービス記録タブからサービス記録を入力してください（給付費算定の根拠書類です）"));
+    }
+  }
+
+  // ⑫ 当月来所ゼロの利用者（月5日以降のみチェック）
+  // アクティブ利用者が今月1件も来所記録がない場合に情報として通知
+  if (now.getDate() >= 5) {
+    const thisYM = now.toISOString().slice(0,7);
+    for (const u of users) {
+      const hasThisMonthRec = (store.recs||[]).some(r =>
+        r.type === "user_in" &&
+        r.userId === u.id &&
+        (r.time||"").slice(0,7) === thisYM &&
+        inFac(r.facilityId)
+      );
+      if (!hasThisMonthRec) {
+        checks.push(mkAuditCheck("billing_no_attendance", "info", u.id, u.name, u.facilityId,
+          `当月の来所記録ゼロ`,
+          `${u.name}さんは今月（${thisYM}）の来所記録が1件もありません`,
+          "欠席・休止中の場合は欠席連絡を記録してください。請求対象外であれば利用状況を確認してください"));
+      }
+    }
+  }
 
   // 重要度順でソート（critical → warning → info）
   return checks.sort((a,b) =>
@@ -14417,6 +14504,32 @@ function AuditCenterTab({store, user}) {
 
   return (
     <div>
+      {/* ── 保存エラーバナー（Supabaseへの保存に失敗した場合のみ表示） ── */}
+      {store.auditSaveError && (
+        <div style={{
+          background:"rgba(224,56,56,0.10)",
+          border:"1.5px solid rgba(224,56,56,0.5)",
+          borderRadius:10,
+          padding:"10px 14px",
+          marginBottom:12,
+          display:"flex",
+          alignItems:"flex-start",
+          gap:8,
+        }}>
+          <span style={{fontSize:16,flexShrink:0}}>🚨</span>
+          <div style={{flex:1,fontSize:11,color:"var(--ro)",lineHeight:1.7,whiteSpace:"pre-wrap"}}>
+            <strong>Supabase保存エラー</strong>{"\n"}
+            {store.auditSaveError}
+          </div>
+          <button
+            onClick={() => store.setAuditSaveError(null)}
+            style={{flexShrink:0,background:"none",border:"none",fontSize:14,cursor:"pointer",
+              color:"var(--ro)",padding:"0 2px",lineHeight:1}}
+            title="エラーを閉じる"
+          >✕</button>
+        </div>
+      )}
+
       {/* ヘッダー */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
         <div style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>
