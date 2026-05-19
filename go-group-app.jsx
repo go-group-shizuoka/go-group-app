@@ -5229,6 +5229,10 @@ function PhotoRecord({user,onBack,store}){
   const [selDate,setSelDate]=useState(todayISO());
   const [viewRec,setViewRec]=useState(null); // 詳細表示中の記録
   const [capImg,setCapImg]=useState(null);   // 撮影した写真のbase64
+  // ── 写真削除機能 ──
+  const [confirmDel,setConfirmDel]=useState(false); // 削除確認ダイアログ表示フラグ
+  const [delTarget,setDelTarget]=useState(null);     // "preview"(未保存) | record.id(保存済み)
+  const [deleting,setDeleting]=useState(false);      // 削除処理中フラグ
   const users=store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false);const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
   const photos=store.recs.filter(r=>r.type==="photo"&&(user.role==="admin"||r.facilityId===user.selectedFacilityId)).sort((a,b)=>b.time>a.time?1:-1);
 
@@ -5262,12 +5266,57 @@ function PhotoRecord({user,onBack,store}){
 
   const reset=()=>{setDone(false);setMode("gallery");setSel(null);setAct("");setCap(false);setCapImg(null);setCmt("");setSelDate(todayISO());setViewRec(null);};
 
+  // ── 写真削除ハンドラ ──
+  // 未保存プレビュー → ステートを消去（ストレージは変更なし）
+  // 保存済み写真    → 論理削除（imgData=null、削除者・削除日時を記録）
+  const handlePhotoDelete=async()=>{
+    if(deleting)return;
+    setDeleting(true);
+    try{
+      if(delTarget==="preview"){
+        // 未保存：プレビューのみ消去
+        setCap(false);setCapImg(null);
+      }else if(delTarget){
+        // 保存済み：論理削除（物理削除は禁止）
+        const upd={photo:false,imgData:null,photo_deleted_at:nowStr(),photo_deleted_by:user.displayName};
+        store.updRec(delTarget,upd,user.displayName,"写真削除");
+        // 表示中のviewRecをリアクティブ更新
+        if(viewRec?.id===delTarget)setViewRec(prev=>prev?{...prev,...upd}:prev);
+      }
+      setConfirmDel(false);setDelTarget(null);
+    }catch(e){
+      console.error("[PhotoRecord] 写真削除エラー:",e.message);
+      _appendSaveErr("photo_delete",delTarget,e.message);
+    }finally{setDeleting(false);}
+  };
+
+  // ── 削除確認ダイアログ（position:fixed で最前面表示） ──
+  const delDialog=confirmDel?<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:"var(--wh)",borderRadius:16,padding:"24px 20px",maxWidth:320,width:"100%",boxShadow:"0 8px 32px rgba(0,0,0,0.22)"}}>
+      <div style={{fontSize:40,textAlign:"center",marginBottom:8}}>🗑️</div>
+      <div style={{fontSize:15,fontWeight:900,color:"var(--tx)",textAlign:"center",marginBottom:8}}>{delTarget==="preview"?"写真を消去しますか？":"保存済み写真を削除しますか？"}</div>
+      <div style={{fontSize:12,color:"var(--tx3)",textAlign:"center",marginBottom:20,lineHeight:1.7}}>
+        {delTarget==="preview"
+          ?"プレビューを消去します。まだ保存されていないため、ストレージへの変更はありません。"
+          :"記録から写真データを削除します（記録テキストは残ります）。\nこの操作は管理者に記録されます。"}
+      </div>
+      <div style={{display:"flex",gap:10}}>
+        <button onClick={()=>{setConfirmDel(false);setDelTarget(null);}} style={{flex:1,padding:"11px",borderRadius:10,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx2)",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>キャンセル</button>
+        <button disabled={deleting} onClick={handlePhotoDelete} style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:"#dc3545",color:"#fff",fontWeight:700,fontSize:13,cursor:deleting?"not-allowed":"pointer",fontFamily:"'Noto Sans JP',sans-serif",opacity:deleting?0.7:1}}>{deleting?"削除中…":"削除する"}</button>
+      </div>
+    </div>
+  </div>:null;
+
   if(done)return <div className="succ"><div className="si">📸</div><div className="st">写真記録完了</div><div className="sd">{sel?.name} さんの「{act}」を記録しました</div><div style={{display:"flex",gap:10,marginTop:12}}><button className="bpri" style={{maxWidth:160}} onClick={reset}>続けて撮影</button><button className="bpri" style={{maxWidth:140,background:"rgba(255,255,255,0.1)"}} onClick={onBack}>ホームへ</button></div></div>;
 
   // ── 詳細表示 ──
-  if(mode==="view"&&viewRec)return <div className="fl-wrap">
+  if(mode==="view"&&viewRec)return <>{delDialog}<div className="fl-wrap">
     <div className="fl-hd"><button className="bback" onClick={()=>setMode("gallery")}>← 戻る</button><div className="fl-title">📸 写真詳細</div>
-      <button onClick={()=>startEdit(viewRec)} style={{marginLeft:"auto",padding:"7px 16px",borderRadius:9,border:"1.5px solid var(--tl)",background:"rgba(58,160,216,0.12)",color:"var(--tl)",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>✏️ 編集</button>
+      <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
+        <button onClick={()=>startEdit(viewRec)} style={{padding:"7px 16px",borderRadius:9,border:"1.5px solid var(--tl)",background:"rgba(58,160,216,0.12)",color:"var(--tl)",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>✏️ 編集</button>
+        {/* 写真削除ボタン：写真がある場合のみ表示、編集権限チェック */}
+        {viewRec.imgData&&canDo(user,"edit")&&<button onClick={()=>{setConfirmDel(true);setDelTarget(viewRec.id);}} style={{padding:"7px 12px",borderRadius:9,border:"1.5px solid #dc3545",background:"rgba(220,53,69,0.1)",color:"#dc3545",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🗑 写真削除</button>}
+      </div>
     </div>
     <div className="fc">
       <div style={{fontSize:18,fontWeight:900,marginBottom:4}}>{viewRec.userName} <span style={{fontSize:13,color:"var(--tl)",fontWeight:700,background:"rgba(58,160,216,0.1)",borderRadius:6,padding:"2px 8px"}}>{viewRec.activity}</span></div>
@@ -5275,13 +5324,17 @@ function PhotoRecord({user,onBack,store}){
       {viewRec.imgData
         ? <img src={viewRec.imgData.startsWith("data:")? viewRec.imgData:"data:image/jpeg;base64,"+viewRec.imgData} alt="写真" style={{width:"100%",maxWidth:400,borderRadius:12,margin:"12px auto",display:"block",objectFit:"contain"}}/>
         : <div style={{fontSize:80,textAlign:"center",margin:"20px 0",opacity:.5}}>📸</div>}
+      {/* 削除済みの場合、監査ログとして削除者・削除日時を表示 */}
+      {viewRec.photo_deleted_at&&<div style={{fontSize:11,color:"#dc3545",marginTop:8,padding:"6px 10px",background:"rgba(220,53,69,0.06)",borderRadius:7,border:"1px solid rgba(220,53,69,0.2)"}}>🗑 写真削除済み（{viewRec.photo_deleted_at?.slice(0,16)} ／ {viewRec.photo_deleted_by}）</div>}
       {viewRec.comment&&<><div className="slbl">コメント</div><div style={{fontSize:13,color:"var(--tx)",lineHeight:1.7,background:"var(--bg2)",borderRadius:8,padding:"10px 12px"}}>{viewRec.comment}</div></>}
       <div style={{fontSize:11,color:"var(--tx3)",marginTop:12}}>記録者: {viewRec.createdBy}</div>
     </div>
-  </div>;
+  </div></>;
 
   // ── 新規・編集フォーム ──
   if(mode==="new"||mode==="edit")return <FlowWrap title={mode==="edit"?"✏️ 写真記録を編集":"📸 写真記録"} onBack={()=>mode==="edit"?setMode("view"):setMode("gallery")}>
+    {/* 削除確認ダイアログ（position:fixed で画面最前面に表示） */}
+    {delDialog}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
       <span style={{fontSize:12,fontWeight:700,color:"var(--tx2)"}}>📅 記録日：</span>
       <input type="date" value={selDate} onChange={e=>setSelDate(e.target.value)} max={todayISO()}
@@ -5294,8 +5347,12 @@ function PhotoRecord({user,onBack,store}){
     <div className="slbl">{mode==="new"?"STEP 2":"STEP 1"} — 活動種別</div><div className="ng">{ACTIVITY_TYPES.map(a=><button key={a} className={`nb ${act===a?"s":""}`} onClick={()=>setAct(a)} style={{fontSize:12}}>{a}</button>)}</div>
     <hr className="div"/><div className="slbl">{mode==="new"?"STEP 3":"STEP 2"} — 写真撮影 <span style={{fontSize:10,color:"var(--tx3)",fontWeight:400}}>（任意）</span></div>
     <Cam cap={cap} onCap={()=>setCap(true)} onCapture={(b64)=>{setCap(true);setCapImg(b64);}}/>
-    {capImg&&<img src={capImg.startsWith("data:")?capImg:"data:image/jpeg;base64,"+capImg} alt="プレビュー" style={{width:"100%",maxWidth:320,borderRadius:10,margin:"8px auto",display:"block",objectFit:"contain",border:"2px solid var(--tl)"}}/>}
-    {!capImg&&mode==="edit"&&viewRec?.imgData&&<img src={viewRec.imgData.startsWith("data:")?viewRec.imgData:"data:image/jpeg;base64,"+viewRec.imgData} alt="既存写真" style={{width:"100%",maxWidth:320,borderRadius:10,margin:"8px auto",display:"block",objectFit:"contain",opacity:0.7,border:"2px dashed var(--bd)"}}/>}
+    {/* 新規撮影/選択したプレビュー → 削除ボタン付き */}
+    {capImg&&<><img src={capImg.startsWith("data:")?capImg:"data:image/jpeg;base64,"+capImg} alt="プレビュー" style={{width:"100%",maxWidth:320,borderRadius:10,margin:"8px auto",display:"block",objectFit:"contain",border:"2px solid var(--tl)"}}/>
+    <button onClick={()=>{setConfirmDel(true);setDelTarget("preview");}} style={{display:"block",margin:"4px auto 8px",padding:"7px 22px",borderRadius:9,background:"rgba(220,53,69,0.1)",border:"1.5px solid #dc3545",color:"#dc3545",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🗑 削除</button></>}
+    {/* 編集モード：既存写真（未差し替え時） → 既存写真削除ボタン付き */}
+    {!capImg&&mode==="edit"&&viewRec?.imgData&&<><img src={viewRec.imgData.startsWith("data:")?viewRec.imgData:"data:image/jpeg;base64,"+viewRec.imgData} alt="既存写真" style={{width:"100%",maxWidth:320,borderRadius:10,margin:"8px auto",display:"block",objectFit:"contain",opacity:0.7,border:"2px dashed var(--bd)"}}/>
+    <button onClick={()=>{setConfirmDel(true);setDelTarget(viewRec.id);}} style={{display:"block",margin:"4px auto 8px",padding:"7px 22px",borderRadius:9,background:"rgba(220,53,69,0.1)",border:"1.5px solid #dc3545",color:"#dc3545",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🗑 既存写真を削除</button></>}
     <hr className="div"/><div className="slbl">コメント（任意）</div><textarea className="fta" placeholder="活動の様子を記入..." value={cmt} onChange={e=>setCmt(e.target.value)}/>
     <button className="bsave" disabled={mode==="new"?(!sel||!act):!act} onClick={save} style={{marginTop:14}}>{mode==="edit"?"変更を保存する":"保存する"}</button>
   </FlowWrap>;
