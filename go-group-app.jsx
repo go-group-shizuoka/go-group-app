@@ -48,25 +48,97 @@ const sb = {
   }
 };
 
+// ==================== 安定化ユーティリティ ====================
+
 // ネットワークエラー通知コールバック（App起動後に登録される）
 let _sbErrCb = null;
 
-// Supabaseへの保存ヘルパー（成功:true / 失敗:false を返す）
-// ※ upsert()はHTTPエラーを throw しないため、ここで ok チェックして明示的に投げる
-async function sbSave(table, data) {
-  try {
-    const r = await sb.from(table).upsert(data);
-    // HTTP 4xx/5xx（RLS違反・GRANT不足・スキーマ不一致等）を検出
-    if (r && typeof r.ok !== "undefined" && !r.ok) {
-      const errText = await r.text().catch(() => "");
-      throw new Error("HTTP " + r.status + ": " + errText);
-    }
-    return true;
-  } catch(e) {
-    console.error("Save error [" + table + "]:", e);
-    _sbErrCb?.("保存に失敗しました。通信状況を確認して、もう一度お試しください。", "error");
+// ── オフライン検知 ──
+// navigator.onLine を初期値に、online/offline イベントで同期
+let _isOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
+if (typeof window !== "undefined") {
+  window.addEventListener("online",  () => {
+    _isOnline = true;
+    _sbErrCb?.("通信が回復しました ✅ 未保存のデータを再保存してください。", "success");
+  });
+  window.addEventListener("offline", () => {
+    _isOnline = false;
+    _sbErrCb?.("📡 オフラインです。通信環境を確認してください。", "error");
+  });
+}
+
+// ── 二重保存防止セット ──
+// 同じ table+id の保存が進行中なら重複実行をスキップする
+const _savingIds = new Set();
+
+// ── Supabaseエラーの日本語マッピング ──
+function _sbErrMsg(status, message) {
+  if (!_isOnline)               return "📡 オフラインです。通信環境を確認してください。";
+  if (status === 401)           return "🔒 認証エラーです。再ログインしてください。";
+  if (status === 403)           return "🔒 保存権限がありません（RLS/GRANT設定を確認）。管理者にお問い合わせください。";
+  if (status === 404)           return "⚠️ 保存先テーブルが見つかりません。管理者に連絡してください。";
+  if (status === 409)           return "⚠️ データが競合しています。ページを再読み込みして再試行してください。";
+  if (status === 422)           return "⚠️ 入力データの形式が正しくありません。内容を確認してください。";
+  if (status >= 500)            return "🔧 サーバーエラーです。しばらく待ってから再試行してください。";
+  if (message?.includes("Failed to fetch")) return "📡 通信に失敗しました。ネットワーク接続を確認してください。";
+  return "保存に失敗しました。通信状況を確認してもう一度お試しください。";
+}
+
+// Supabaseへの保存ヘルパー（成功:true / 失敗:false）
+// retry: 最大リトライ回数（デフォルト3回、指数バックオフ 1s→2s→4s）
+async function sbSave(table, data, { retry = 3 } = {}) {
+  // ① オフライン時は即座に失敗
+  if (!_isOnline) {
+    _sbErrCb?.(_sbErrMsg(0, "offline"), "error");
     return false;
   }
+
+  // ② 二重保存防止（同一 table+id が保存中ならスキップ）
+  const saveKey = `${table}_${data?.id || ""}`;
+  if (saveKey !== `${table}_` && _savingIds.has(saveKey)) {
+    console.warn(`sbSave: 二重保存スキップ [${saveKey}]`);
+    return true; // すでに保存中 → OK扱い
+  }
+  if (saveKey !== `${table}_`) _savingIds.add(saveKey);
+
+  let lastErr = null;
+  let lastStatus = 0;
+
+  for (let attempt = 0; attempt < retry; attempt++) {
+    // 指数バックオフ（1回目はすぐ、2回目は1秒後、3回目は2秒後）
+    if (attempt > 0) {
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+      // リトライ前にもオフラインチェック
+      if (!_isOnline) { lastErr = new Error("offline"); break; }
+    }
+    try {
+      const r = await sb.from(table).upsert(data);
+      if (r && typeof r.ok !== "undefined" && !r.ok) {
+        const errText = await r.text().catch(() => "");
+        lastStatus = r.status;
+        // 4xx はリトライ不要（権限エラー・スキーマ不一致）
+        if (r.status >= 400 && r.status < 500) {
+          lastErr = new Error(`HTTP ${r.status}: ${errText}`);
+          break;
+        }
+        throw new Error(`HTTP ${r.status}: ${errText}`);
+      }
+      // ✅ 保存成功
+      _savingIds.delete(saveKey);
+      return true;
+    } catch(e) {
+      lastErr = e;
+      if (attempt < retry - 1) {
+        console.warn(`sbSave: リトライ ${attempt + 1}/${retry} [${table}]:`, e.message);
+      }
+    }
+  }
+
+  // ❌ 全リトライ失敗
+  _savingIds.delete(saveKey);
+  console.error(`sbSave: 保存失敗 [${table}]:`, lastErr);
+  _sbErrCb?.(_sbErrMsg(lastStatus, lastErr?.message), "error");
+  return false;
 }
 async function sbLoad(table) {
   try {
@@ -127,7 +199,67 @@ const ACCOUNTS = [
   { id: "a9", username: "admin", password: "bells", role: "admin", staffId: null, facilityId: null, displayName: "本部管理者" },
   // 保護者テスト用アカウント（利用者Aの保護者）
   { id: "a10", username: "parent1", password: "parent", role: "parent", childId: "u1", childName: "利用者 A", facilityId: "f1", selectedFacilityId: "f1", displayName: "利用者A 保護者" },
+  // 閲覧専用アカウント（viewer: データ参照のみ、編集・削除・請求不可）
+  { id: "a11", username: "viewer", password: "view", role: "viewer", staffId: null, facilityId: null, displayName: "閲覧専用ユーザー" },
 ];
+
+// ==================== 権限管理ヘルパー ====================
+// role 設計：admin > manager > staff > viewer > parent
+// action に対して該当ロールが実行可能か返す（true=可能）
+//
+// action 一覧:
+//   "edit"     — データの新規作成・更新（staff以上）
+//   "delete"   — データの削除（admin のみ）
+//   "billing"  — 請求データへのアクセス（manager以上）
+//   "personal" — 利用者個人情報の閲覧（staff以上）
+//   "admin"    — 管理画面・全施設操作（admin のみ）
+//   "manager"  — 施設管理業務（manager以上）
+//   "view"     — 閲覧のみ（viewer以上 ＝ parent以外全員）
+function canDo(user, action) {
+  if (!user) return false;
+  const role = user.role || "viewer";
+  switch (action) {
+    case "view":     return ["admin","manager","staff","viewer"].includes(role);
+    case "edit":     return ["admin","manager","staff"].includes(role);
+    case "delete":   return role === "admin";
+    case "billing":  return ["admin","manager"].includes(role);
+    case "personal": return ["admin","manager","staff"].includes(role);
+    case "admin":    return role === "admin";
+    case "manager":  return ["admin","manager"].includes(role);
+    default:         return false;
+  }
+}
+
+// 権限不足時に表示する日本語メッセージ
+function noPermMsg(action) {
+  const msgs = {
+    view:     "この画面を閲覧する権限がありません。",
+    edit:     "編集権限がありません。管理者または施設管理者にお問い合わせください。",
+    delete:   "削除操作は admin 権限のみ実行できます。",
+    billing:  "請求データへのアクセスには manager 以上の権限が必要です。",
+    personal: "利用者個人情報の閲覧には staff 以上の権限が必要です。",
+    admin:    "この操作は admin 権限が必要です。",
+    manager:  "この操作は manager 以上の権限が必要です。",
+  };
+  return msgs[action] || "この操作を行う権限がありません。管理者にお問い合わせください。";
+}
+
+// 権限不足画面（ルーティングで使用）
+function NoPermScreen({ action = "view" }) {
+  return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",
+      justifyContent:"center",minHeight:300,padding:32,textAlign:"center"}}>
+      <div style={{fontSize:48,marginBottom:12}}>🔒</div>
+      <div style={{fontSize:17,fontWeight:700,color:"#c0392b",marginBottom:8}}>
+        アクセス権限がありません
+      </div>
+      <div style={{fontSize:13,color:"#666",maxWidth:320}}>
+        {noPermMsg(action)}
+      </div>
+    </div>
+  );
+}
+
 const ACTIVITY_TYPES = ["個別支援","集団療育","運動療育","言語療育","学習支援","リハビリ","外出支援","イベント","制作活動","その他"];
 const SERVICE_ITEMS = ["着替え支援","排泄支援","食事支援","水分補給","服薬確認","健康観察","個別療育","集団活動","運動・体操","学習支援","創作活動","外出・散歩","コミュニケーション支援","その他"];
 const MOODS = ["😄","🙂","😐","😔","😢"];
@@ -3937,6 +4069,37 @@ function generateAuditChecks(store, facilityId = "all") {
 // 使い方: const imeProps = useImeInput(value, onChange);
 //         <input {...imeProps} className="fi" />
 //         <textarea {...imeProps} className="fta" />
+// ==================== useSaveGuard（連打防止・保存中ローディング） ====================
+// 使い方:
+//   const { saving, run } = useSaveGuard();
+//   <button disabled={saving} onClick={() => run(handleSave)}>
+//     {saving ? "保存中…" : "保存"}
+//   </button>
+//
+// run(fn): fn が完了するまで saving=true を維持し、二重実行を防ぐ
+// onError: 保存失敗時に呼ばれるコールバック（省略可）
+function useSaveGuard({ onError } = {}) {
+  const [saving, setSaving] = useState(false);
+  const runningRef = useRef(false);
+
+  const run = async (fn) => {
+    if (runningRef.current) return; // 連打スキップ
+    runningRef.current = true;
+    setSaving(true);
+    try {
+      await fn();
+    } catch(e) {
+      console.error("useSaveGuard error:", e);
+      onError?.(e);
+    } finally {
+      runningRef.current = false;
+      setSaving(false);
+    }
+  };
+
+  return { saving, run };
+}
+
 function useImeInput(value, onChange) {
   const composingRef = useRef(false);
   return {
@@ -24803,6 +24966,22 @@ export default function App(){
   // ネットワークエラーをトーストで通知できるよう、モジュール変数に登録
   useEffect(()=>{ _sbErrCb=(m,t)=>store.showToast(m,t); },[]);
 
+  // ── オフライン状態管理 ──
+  // navigator.onLine を監視して、通信状態バナーをリアルタイム表示する
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== "undefined" ? navigator.onLine : true
+  );
+  useEffect(() => {
+    const onOnline  = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener("online",  onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online",  onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+
   const logout=()=>{
     localStorage.removeItem('gogroup_user');
     localStorage.removeItem(SESSION_KEY);
@@ -24909,6 +25088,8 @@ export default function App(){
   };
 
   // ロール定数（可読性のため）
+  // viewer: 閲覧専用（編集・削除・請求不可）
+  const ROLE_ALL           = ["admin","manager","staff","viewer"];
   const ROLE_ADMIN         = ["admin"];
   const ROLE_ADMIN_MGR     = ["admin","manager"];
   const ROLE_ADMIN_MGR_STF = ["admin","manager","staff"];
@@ -24978,7 +25159,23 @@ export default function App(){
   return <>
     <style>{CSS}</style>
     <div className="app">
-      <div className="app-shell">
+
+      {/* ── オフラインバナー ──
+          通信が切れた場合に画面最上部に固定表示する。
+          _isOnline (グローバル) と isOnline (state) の両方が false の時のみ表示。 */}
+      {!isOnline && (
+        <div style={{
+          position:"fixed", top:0, left:0, right:0, zIndex:99999,
+          background:"rgba(220,38,38,0.97)", color:"#fff",
+          textAlign:"center", padding:"9px 16px",
+          fontSize:12, fontWeight:700, letterSpacing:0.3,
+          boxShadow:"0 2px 8px rgba(0,0,0,0.25)",
+        }}>
+          📡 オフラインです — 通信環境を確認してください。データの保存は通信回復後に再試行してください。
+        </div>
+      )}
+
+      <div className="app-shell" style={!isOnline ? {marginTop:38} : {}}>
         <Sidebar user={user} screen={screen} onNav={setScreen} onLogout={logout}
           unreadCount={unreadCount} open={sbOpen} onClose={()=>setSbOpen(false)}
           onChangeFacility={fid=>{const u2={...user,selectedFacilityId:fid};setUser(u2);try{localStorage.setItem('gogroup_user',JSON.stringify(u2));}catch(e){}setScreen("home");setSbOpen(false);}}/>
