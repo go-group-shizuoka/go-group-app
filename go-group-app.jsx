@@ -1827,19 +1827,28 @@ function printSales(visibleFacs, vm, kokuho, facilityName) {
 function printDailyReport(report, facilityName) {
   const photoPlaceholders = Array.from({length:6},(_,i)=>{
     const p = report.photos?.[i];
-    const bg = p ? "#e8f4fc" : "#f8f9fa";
-    let inner = "";
-    if(p) {
-      const commentHtml = p.comment ? '<div style="font-size:8pt;color:#666;margin-top:3px">'+p.comment+'</div>' : "";
-      inner = '<div style="font-size:18pt">📸</div>'
-        + '<div style="color:#005a8a;font-weight:700;font-size:9pt;margin-top:4px">'+p.activity+'</div>'
-        + '<div style="font-size:8pt;color:#555;margin-top:2px">'+p.userName+'</div>'
-        + commentHtml;
-    } else {
-      inner = '<div style="font-size:18pt">📷</div><div>写真'+(i+1)+'</div>';
+    // 削除済み・空スロットはプレースホルダー
+    if(!p||p.deleted_at){
+      return '<div style="border:1px solid #ccc;border-radius:6px;overflow:hidden;aspect-ratio:4/3;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f8f9fa;font-size:9pt;color:#999;text-align:center;padding:6px">'
+        +'<div style="font-size:18pt">📷</div><div>写真'+(i+1)+'</div></div>';
     }
-    return '<div style="border:1px solid #ccc;border-radius:6px;overflow:hidden;aspect-ratio:4/3;display:flex;flex-direction:column;align-items:center;justify-content:center;background:'+bg+';font-size:9pt;color:#999;text-align:center;padding:6px">'
-      + inner + '</div>';
+    const commentHtml = p.comment?'<div style="font-size:8pt;color:#666;margin-top:2px">'+p.comment+'</div>':"";
+    // base64画像データがある場合は <img> タグで実画像を表示（印刷対応）
+    if(p.imgData){
+      return '<div style="border:1px solid #ccc;border-radius:6px;overflow:hidden;background:#e8f4fc">'
+        +'<img src="'+p.imgData+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;display:block" alt="'+(p.activity||'写真'+(i+1))+'"/>'
+        +'<div style="padding:4px 6px;font-size:9pt">'
+        +'<div style="color:#005a8a;font-weight:700">'+(p.activity||'')+'</div>'
+        +'<div style="font-size:8pt;color:#555">'+(p.userName||'')+'</div>'
+        +commentHtml+'</div></div>';
+    }
+    // 画像なし・テキストのみ
+    const inner='<div style="font-size:18pt">📸</div>'
+      +'<div style="color:#005a8a;font-weight:700;font-size:9pt;margin-top:4px">'+(p.activity||'')+'</div>'
+      +'<div style="font-size:8pt;color:#555;margin-top:2px">'+(p.userName||'')+'</div>'
+      +commentHtml;
+    return '<div style="border:1px solid #ccc;border-radius:6px;overflow:hidden;aspect-ratio:4/3;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#e8f4fc;font-size:9pt;color:#999;text-align:center;padding:6px">'
+      +inner+'</div>';
   }).join("");
 
   const staffRows = (report.staffList||[]).map(s=>
@@ -2481,7 +2490,7 @@ function useStore() {
   // Supabaseからデータ読み込み
   const loadFromSupabase = async (setRecs, setMsgs, setDailyReports, setDynUsers, setDynStaff) => {
     try {
-      const [recs, msgs, reports, users, staff, svcRecs, claims, locks, auditLogsDb, spPlans, pContacts, stAtt, ispLogs, billItems, addItems, kintaiCorr, tpLogs, anncs, anncReads, survs, survResps, absRpts, staffDocsDb, staffDocAuditDb, staffDocNotifsDb, staffDocRequestsDb, photoAlbumsDb] = await Promise.all([
+      const [recs, msgs, reports, users, staff, svcRecs, claims, locks, auditLogsDb, spPlans, pContacts, stAtt, ispLogs, billItems, addItems, kintaiCorr, tpLogs, anncs, anncReads, survs, survResps, absRpts, staffDocsDb, staffDocAuditDb, staffDocNotifsDb, staffDocRequestsDb, photoAlbumsDb, facilityEventsDb] = await Promise.all([
         sbLoad("records"),
         sbLoad("messages"),
         sbLoad("daily_reports"),
@@ -2509,6 +2518,7 @@ function useStore() {
         sbLoad("staff_doc_notifications"),
         sbLoad("staff_doc_update_requests"),
         sbLoad("photo_albums"),
+        sbLoad("facility_events"),
       ]);
       if(pContacts&&pContacts.length>0) setParentContacts(pContacts.map(r=>({...r,...(r.data||{})})));
       if(stAtt&&stAtt.length>0) setStaffAttendance(stAtt.map(r=>({...r,...(r.data||{})})));
@@ -2576,6 +2586,23 @@ function useStore() {
         createdBy:r.created_by, respondedAt:r.responded_at, responseNote:r.response_note,
         createdAt:r.created_at,
       })));
+      // 施設別イベント・活動カレンダーをロード
+      if(facilityEventsDb&&facilityEventsDb.length>0) setFacilityEvents(facilityEventsDb.map(r=>({
+        ...r,...(r.data||{}),
+        facilityId:  r.facility_id   || (r.data||{}).facilityId   || "",
+        eventDate:   r.event_date    || (r.data||{}).eventDate    || "",
+        title:       r.title         || (r.data||{}).title        || "",
+        description: r.description   || (r.data||{}).description  || "",
+        eventType:   r.event_type    || (r.data||{}).eventType    || "activity",
+        isAllFacilities: r.is_all_facilities ?? (r.data||{}).isAllFacilities ?? false,
+        targetFacilityIds: typeof r.target_facility_ids==="string"
+          ? JSON.parse(r.target_facility_ids||"[]")
+          : (r.target_facility_ids||(r.data||{}).targetFacilityIds||[]),
+        staffId:     r.staff_id      || (r.data||{}).staffId      || "",
+        createdBy:   r.created_by    || (r.data||{}).createdBy    || "",
+        createdAt:   r.created_at    || (r.data||{}).createdAt    || "",
+        updatedAt:   r.updated_at    || (r.data||{}).updatedAt    || "",
+      })));
       // 実績レコードをロード
       if(svcRecs && svcRecs.length>0) setServiceRecs(svcRecs.map(r=>({...r,...(r.data||{})})));
       // 請求履歴・返戻
@@ -2618,7 +2645,35 @@ function useStore() {
       if(users && users.length > 0) setDynUsers(p => {
         const sbIds = users.map(u => u.id);
         const existing = p.filter(u => !sbIds.includes(u.id));
-        return [...existing, ...users.map(u => { const d=u.data||u; return {...d, dob: d.dob||d.birthDate||""}; })];
+        return [...existing, ...users.map(u => {
+          const d = u.data || u;
+          // snake_case DB カラム → camelCase アプリ変数 の正規化
+          // data JSONB に camelCase が入っている場合はそちらを優先する
+          return {
+            ...d,
+            // 必須フィールドの正規化（data JSONB が欠損している旧レコード対応）
+            id:                  d.id                  || u.id,
+            facilityId:          d.facilityId          || u.facility_id          || "",
+            name:                d.name                || u.name                 || "",
+            nameKana:            d.nameKana            || u.name_kana            || "",
+            dob:                 d.dob                 || d.birthDate            || u.birth_date || "",
+            gender:              d.gender              || u.gender               || "",
+            serviceType:         d.serviceType         || u.service_type         || "houkago",
+            diagnosis:           d.diagnosis           || u.diagnosis            || "",
+            disabilityGrade:     d.disabilityGrade     || u.disability_level     || "",
+            consultationOffice:  d.consultationOffice  || u.consultation_office  || "",
+            hasTransport:        d.hasTransport        ?? u.transport_required   ?? false,
+            supportGrade:        d.supportGrade        || u.support_grade        || "",
+            jukyushaNo:          d.jukyushaNo          || u.jukyusha_no          || "",
+            jukyushaExpiry:      d.jukyushaExpiry      || u.jukyusha_expiry      || "",
+            jukyushaCity:        d.jukyushaCity        || u.jukyusha_city        || "",
+            enrollDate:          d.enrollDate          || u.enroll_date          || "",
+            // active: boolean に正規化（DB は true/false/null/"true"/"false" の混在あり）
+            active: d.active === false || d.active === "false" || u.active === false ? false : true,
+            // 論理削除フラグ
+            is_deleted: !!(d.is_deleted || u.is_deleted),
+          };
+        })];
       });
       if(staff && staff.length > 0) setDynStaff(p => {
         const sbIds = staff.map(s => s.id);
@@ -2746,28 +2801,107 @@ function useStore() {
   };
 
   const addRec = r => {
-    setRecs(p=>[...p,r]);
-    sbSave("records", {id: r.id, type: r.type, facility_id: r.facilityId, facility_name: r.facilityName,
-      staff_id: r.staffId||null, staff_name: r.staffName||null,
-      user_id: r.userId||null, user_name: r.userName||null,
-      time: r.time, temp: r.temp||null, transport: r.transport||null,
-      photo: r.photo||false, note: r.note||null, data: r});
+    // ─── 二重来所/退所防止 ───
+    // 同一利用者・同一日付の user_in / user_out が既にあれば警告してスキップ
+    // （showToast/setServiceRecs は後方定義だが、呼び出し時には初期化済みのためクロージャ参照可能）
+    if((r.type==="user_in"||r.type==="user_out")&&r.userId){
+      const {date:chkDate}=parseRecTime(r.time);
+      const dup=recs.find(x=>x.type===r.type&&x.userId===r.userId&&parseRecTime(x.time).date===chkDate);
+      if(dup){
+        showToast(`⚠ ${r.userName||""}さんの${r.type==="user_in"?"来所":"退所"}記録は既に登録されています（${chkDate}）`,"error");
+        _appendSaveErr("dup_guard",r.userId,`二重登録を防止: type=${r.type} / ${r.userName||r.userId} / ${chkDate}`);
+        return;
+      }
+    }
 
-    // ─── 自動連動：来所記録・サービス記録 → 出欠管理に「出席」を自動反映 ───
-    // 利用者来所(user_in) or サービス記録(service) が登録されたら、
-    // その日の出欠を自動で「出席」にセットする（手動で3回入力しなくて済む）
-    if((r.type==="user_in"||r.type==="service")&&r.userId&&r.time){
-      const {date:autoDate}=parseRecTime(r.time);
+    setRecs(p=>[...p,r]);
+    sbSave("records",{id:r.id,type:r.type,facility_id:r.facilityId,facility_name:r.facilityName,
+      staff_id:r.staffId||null,staff_name:r.staffName||null,
+      user_id:r.userId||null,user_name:r.userName||null,
+      time:r.time,temp:r.temp||null,transport:r.transport||null,
+      photo:r.photo||false,note:r.note||null,data:r});
+
+    // ─── 自動連動①：来所記録(user_in) → 出欠管理 + 実績管理 ───
+    // 来所ボタン押下 → att="出席" + serviceRec.actual_start + attendance_status="attended" を一括更新
+    if(r.type==="user_in"&&r.userId&&r.time){
+      const {date:autoDate,time:autoTime}=parseRecTime(r.time);
       if(autoDate){
-        // 既に「出席」なら上書きしない。未定・予定の場合のみ出席に更新
+        // ① att（出欠管理）を「出席」に更新（既確定なら上書きしない）
         setAtt2(p=>{
           const cur=(p[r.userId]||{})[autoDate];
-          if(cur==="出席"||cur==="欠席") return p; // 既に確定済みなら変えない
+          if(cur==="出席"||cur==="欠席") return p;
           const next={...p,[r.userId]:{...(p[r.userId]||{}),[autoDate]:"出席"}};
-          // Supabaseにも保存
           sbSave("att_data",{id:r.userId+"_"+autoDate,user_id:r.userId,att_date:autoDate,status:"出席",data:{userId:r.userId,date:autoDate,status:"出席"}});
           return next;
         });
+        // ② serviceRecs（実績管理）に来所時刻・出席ステータスを反映
+        setServiceRecs(p=>{
+          const ex=p.find(x=>x.child_id===r.userId&&x.visit_date===autoDate);
+          if(ex){
+            // 既存レコードがある場合：来所打刻が未記録のときのみ更新
+            if(ex.actual_start) return p;
+            const upd={...ex,actual_start:autoTime,attendance_status:"attended",updated_at:nowStr()};
+            sbSave("service_records",{id:upd.id,child_id:upd.child_id,facility_id:upd.facility_id,
+              visit_date:upd.visit_date,actual_start:upd.actual_start,actual_end:upd.actual_end||null,
+              attendance_status:upd.attendance_status,pickup_completed:upd.pickup_completed||false,
+              dropoff_completed:upd.dropoff_completed||false,service_type:upd.service_type||null,
+              memo:upd.memo||null,staff_id:upd.staff_id||null,data:upd});
+            return p.map(x=>(x.child_id===r.userId&&x.visit_date===autoDate)?upd:x);
+          }
+          // 既存レコードがない場合：新規作成
+          const newRec={id:r.userId+"_"+autoDate,child_id:r.userId,child_name:r.userName,
+            facility_id:r.facilityId,visit_date:autoDate,planned_start:null,planned_end:null,
+            actual_start:autoTime,actual_end:null,attendance_status:"attended",
+            pickup_completed:false,dropoff_completed:false,
+            service_type:"放課後等デイサービス",memo:null,staff_id:null,
+            created_at:new Date().toISOString()};
+          sbSave("service_records",{id:newRec.id,child_id:newRec.child_id,facility_id:newRec.facility_id,
+            visit_date:newRec.visit_date,actual_start:newRec.actual_start,actual_end:null,
+            attendance_status:newRec.attendance_status,pickup_completed:false,dropoff_completed:false,
+            service_type:newRec.service_type,memo:null,staff_id:null,data:newRec});
+          return [...p,newRec];
+        });
+        // ③ 監査ログ（来所連動）
+        _appendSaveErr("attendance_sync",r.userId,
+          `来所→出席・実績自動反映: ${r.userName||r.userId} / ${autoDate} ${autoTime} / 担当:${r.createdBy||""}`);
+      }
+    }
+
+    // ─── 自動連動②：サービス記録(service) → 出欠管理 ───
+    // 活動記録登録時も出席に反映（既存動作を継承）
+    if(r.type==="service"&&r.userId&&r.time){
+      const {date:autoDate}=parseRecTime(r.time);
+      if(autoDate){
+        setAtt2(p=>{
+          const cur=(p[r.userId]||{})[autoDate];
+          if(cur==="出席"||cur==="欠席") return p;
+          const next={...p,[r.userId]:{...(p[r.userId]||{}),[autoDate]:"出席"}};
+          sbSave("att_data",{id:r.userId+"_"+autoDate,user_id:r.userId,att_date:autoDate,status:"出席",data:{userId:r.userId,date:autoDate,status:"出席"}});
+          return next;
+        });
+      }
+    }
+
+    // ─── 自動連動③：退所記録(user_out) → 実績管理（退所時刻を反映）───
+    // 退所ボタン押下 → serviceRec.actual_end を自動更新
+    if(r.type==="user_out"&&r.userId&&r.time){
+      const {date:autoDate,time:autoTime}=parseRecTime(r.time);
+      if(autoDate){
+        setServiceRecs(p=>{
+          const ex=p.find(x=>x.child_id===r.userId&&x.visit_date===autoDate);
+          if(!ex) return p; // serviceRecがなければスキップ（退所だけで来所なしはあり得ないが安全側）
+          if(ex.actual_end) return p; // 既に退所打刻済みならスキップ
+          const upd={...ex,actual_end:autoTime,updated_at:nowStr()};
+          sbSave("service_records",{id:upd.id,child_id:upd.child_id,facility_id:upd.facility_id,
+            visit_date:upd.visit_date,actual_start:upd.actual_start||null,actual_end:upd.actual_end,
+            attendance_status:upd.attendance_status,pickup_completed:upd.pickup_completed||false,
+            dropoff_completed:upd.dropoff_completed||false,service_type:upd.service_type||null,
+            memo:upd.memo||null,staff_id:upd.staff_id||null,data:upd});
+          return p.map(x=>(x.child_id===r.userId&&x.visit_date===autoDate)?upd:x);
+        });
+        // 監査ログ（退所連動）
+        _appendSaveErr("attendance_sync",r.userId,
+          `退所→実績自動反映: ${r.userName||r.userId} / ${autoDate} ${autoTime} / 担当:${r.createdBy||""}`);
       }
     }
   };
@@ -2793,7 +2927,24 @@ function useStore() {
   const getShift = (sid,date) => shifts[sid]?.[date]||"none";
   const setAtt = (uid,date,status) => {
     setAtt2(p=>({...p,[uid]:{...(p[uid]||{}),[date]:status}}));
-    sbSave("att_data", {id:uid+"_"+date, user_id:uid, att_date:date, status, data:{userId:uid,date,status}});
+    sbSave("att_data",{id:uid+"_"+date,user_id:uid,att_date:date,status,data:{userId:uid,date,status}});
+    // ─── 出欠管理 → 実績管理に自動連動 ───
+    // 出欠ステータスを手動変更した場合、対応する serviceRec が存在するときのみ同期する
+    // （facilityIdが不明なため、既存レコードがない場合は作成しない）
+    if(status==="出席"||status==="欠席"){
+      const svcStatus=status==="出席"?"attended":"absent";
+      setServiceRecs(p=>{
+        const ex=p.find(x=>x.child_id===uid&&x.visit_date===date);
+        if(!ex) return p; // 対応するserviceRecがなければスキップ
+        const upd={...ex,attendance_status:svcStatus,updated_at:nowStr()};
+        sbSave("service_records",{id:upd.id,child_id:upd.child_id,facility_id:upd.facility_id,
+          visit_date:upd.visit_date,actual_start:upd.actual_start||null,actual_end:upd.actual_end||null,
+          attendance_status:upd.attendance_status,pickup_completed:upd.pickup_completed||false,
+          dropoff_completed:upd.dropoff_completed||false,service_type:upd.service_type||null,
+          memo:upd.memo||null,staff_id:upd.staff_id||null,data:upd});
+        return p.map(x=>(x.child_id===uid&&x.visit_date===date)?upd:x);
+      });
+    }
   };
   const getAtt = (uid,date) => att[uid]?.[date]||"未定";
   const addMsg = m => {
@@ -3071,23 +3222,44 @@ function useStore() {
     setDailyReports(p=>[...p.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId)),r]);
     sbSave("daily_reports", {id: r.date+"_"+r.facilityId, facility_id: r.facilityId, date: r.date, data: r});
   };
-  const addUser = u => {
-    setDynUsers(p=>[...p,u]);
-    // 明示カラム + JSONB data で保存（国保請求・監査・ISP連携に対応）
-    sbSave("users_data", {
-      id:              u.id,
-      facility_id:     u.facilityId,
-      name:            u.name || null,
-      name_kana:       u.nameKana || null,
-      jukyusha_no:     u.jukyushaNo || null,
-      jukyusha_expiry: u.jukyushaExpiry || null,
-      jukyusha_city:   u.jukyushaCity || null,
-      service_type:    u.serviceType || "放デイ",
-      active:          u.active !== false,
-      enroll_date:     u.enrollDate || null,
-      updated_at:      new Date().toISOString(),
-      data:            u
+  // addUser: 新規利用者を登録する（ローカルstate + Supabase）
+  // ・async化して保存結果を待ち、失敗時は rollback + throw でUIにエラーを伝える
+  // ・children テーブル互換のカラムを必ず保存（child_id=id として統一）
+  const addUser = async u => {
+    // ①ローカルstateに即時追加（楽観的UI更新）
+    setDynUsers(p => [...p, u]);
+    // ②Supabaseに保存（必須カラムを全て明示的に設定）
+    const now = new Date().toISOString();
+    const ok = await sbSave("users_data", {
+      id:                  u.id,
+      // children テーブル互換カラム
+      child_id:            u.id,
+      facility_id:         u.facilityId        || null,
+      name:                u.name              || null,
+      name_kana:           u.nameKana          || null,
+      birth_date:          u.dob               || null,
+      gender:              u.gender            || null,
+      jukyusha_no:         u.jukyushaNo        || null,
+      jukyusha_expiry:     u.jukyushaExpiry    || null,
+      jukyusha_city:       u.jukyushaCity      || null,
+      service_type:        u.serviceType       || "houkago",
+      diagnosis:           u.diagnosis         || null,
+      disability_level:    u.disabilityGrade   || null,
+      consultation_office: u.consultationOffice|| null,
+      transport_required:  u.hasTransport      || false,
+      support_grade:       u.supportGrade      || null,
+      active:              u.active !== false,
+      enroll_date:         u.enrollDate        || null,
+      created_at:          now,
+      updated_at:          now,
+      data:                u,
     });
+    if (!ok) {
+      // ③保存失敗: ローカルstateをロールバック（二重登録防止）
+      setDynUsers(p => p.filter(x => x.id !== u.id));
+      throw new Error("Supabaseへの保存に失敗しました。通信状況を確認してください。");
+    }
+    return u;
   };
   // updUser2: 利用者情報を更新する（ローカルstate + Supabase）
   // ・state updater 内で sbSave を呼ぶと React strict mode で2回実行されてしまうため
@@ -3876,6 +4048,51 @@ function useStore() {
   };
   const isMonthLocked = (facilityId, serviceMonth) => !!(monthlyLocks[facilityId+"_"+serviceMonth]?.is_locked);
 
+  // ─── 施設別イベント・活動カレンダー ───
+  const [facilityEvents, setFacilityEvents] = useState([]);
+
+  /**
+   * 施設イベントを保存（新規 or 更新）
+   * @param {object} ev - イベントオブジェクト（id必須）
+   */
+  const saveFacilityEvent = ev => {
+    const now = new Date().toISOString();
+    const rec = { ...ev, updatedAt: now };
+    setFacilityEvents(p => {
+      const ex = p.find(x => x.id === rec.id);
+      return ex ? p.map(x => x.id === rec.id ? { ...x, ...rec } : x) : [...p, rec];
+    });
+    // Supabaseに保存（snake_caseカラム + dataバックアップ）
+    sbSave("facility_events", {
+      id:                    rec.id,
+      facility_id:           rec.facilityId           || null,
+      event_date:            rec.eventDate            || null,
+      title:                 rec.title                || "",
+      description:           rec.description          || null,
+      event_type:            rec.eventType            || "activity",
+      is_all_facilities:     rec.isAllFacilities      || false,
+      target_facility_ids:   JSON.stringify(rec.targetFacilityIds||[]),
+      staff_id:              rec.staffId              || null,
+      created_by:            rec.createdBy            || null,
+      updated_at:            now,
+      data:                  rec,
+    });
+  };
+
+  /**
+   * 施設イベントを論理削除（物理削除しない）
+   * @param {string} id
+   * @param {string} deletedBy
+   */
+  const delFacilityEvent = (id, deletedBy) => {
+    const now = new Date().toISOString();
+    setFacilityEvents(p => p.map(x => x.id === id
+      ? { ...x, is_deleted: true, deleted_at: now, deleted_by: deletedBy }
+      : x
+    ));
+    sbSave("facility_events", { id, is_deleted: true, deleted_at: now, deleted_by: deletedBy });
+  };
+
   // ─── 監査ログ（ローカル状態） ───
   const [auditLogs, setAuditLogs2] = useState([]);
 
@@ -3886,7 +4103,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,softDeleteUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck,auditSaveError,setAuditSaveError,saveErrors};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,softDeleteUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck,auditSaveError,setAuditSaveError,saveErrors,facilityEvents,saveFacilityEvent,delFacilityEvent};
 }
 
 
@@ -4611,26 +4828,171 @@ function StaffClockIn({user,onBack,store}){
   </div>;
 }
 function StaffClockOut({user,onBack,store}){
-  const [sel,setSel]=useState(null);const [cap,setCap]=useState(false);const [temp,setTemp]=useState("");const [note,setNote]=useState("");const [time,setTime]=useState(nowHM());const [done,setDone]=useState(false);const [saved,setSaved]=useState("");
+  // ── state 定義（Hooks は必ずトップレベルに置く）──
+  const [sel,setSel]=useState(null);
+  const [cap,setCap]=useState(false);
+  const [temp,setTemp]=useState("");
+  const [note,setNote]=useState("");
+  const [time,setTime]=useState(nowHM());
+  const [done,setDone]=useState(false);
+  const [saved,setSaved]=useState("");
+  const [saving,setSaving]=useState(false);       // 連打防止
+  const [saveErr,setSaveErr]=useState("");         // エラーメッセージ
+  const [existingRec,setExistingRec]=useState(null); // 既存の退勤レコード（nullなら新規）
   const [selDate,setSelDate]=useState(todayISO()); // 日付選択（過去日対応）
-  const staff=store.dynStaff.filter(s=>s.facilityId===user.selectedFacilityId&&s.active!==false);const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
-  const save=()=>{const t=buildDTForDate(selDate,time);store.addRec({id:genId(),type:"staff_out",staffId:sel.id,staffName:sel.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:t,temp:temp||"-",photo:true,note,createdBy:user.displayName,history:[]});setSaved(t);setDone(true);};
-  if(done)return <div className="succ"><div className="si">👋</div><div className="st">退勤登録完了</div><div className="sd">{sel?.name} さんの退勤を記録しました</div><div className="sm">{saved}</div><button className="bpri" style={{maxWidth:200,marginTop:8}} onClick={onBack}>ホームに戻る</button></div>;
+
+  const staff=store.dynStaff.filter(s=>s.facilityId===user.selectedFacilityId&&s.active!==false);
+  const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
+
+  // ── 既存退勤レコードを検索してフォームに反映するヘルパー ──
+  // staff_id + record_date で store.recs を検索し、あればフォームを上書き
+  const loadExisting=(staffId,date)=>{
+    const ex=store.recs.find(r=>
+      r.type==="staff_out"&&
+      r.staffId===staffId&&
+      parseRecTime(r.time).date===date
+    );
+    if(ex){
+      // 既存レコードあり → フォームに既存データを反映（修正モード）
+      setExistingRec(ex);
+      setTime(parseRecTime(ex.time).time||nowHM());
+      setTemp(ex.temp&&ex.temp!=="-"?ex.temp:"");
+      setNote(ex.note||"");
+      setCap(!!ex.photo);
+    }else{
+      // 既存レコードなし → フォームを初期状態に（新規登録モード）
+      setExistingRec(null);
+      setTime(nowHM());
+      setTemp("");
+      setNote("");
+      setCap(false);
+    }
+    setSaveErr("");
+  };
+
+  // 職員を選択したとき → 既存記録を検索
+  const selectStaff=(s)=>{
+    setSel(s);
+    loadExisting(s.id,selDate);
+  };
+
+  // 日付を変更したとき → 職員が選択済みなら既存記録を再検索
+  const changeDate=(newDate)=>{
+    setSelDate(newDate);
+    if(sel) loadExisting(sel.id,newDate);
+  };
+
+  // ── 保存処理（既存レコードがあれば UPDATE、なければ INSERT）──
+  const save=async()=>{
+    if(!sel||!time||saving) return;
+    setSaving(true);
+    setSaveErr("");
+    try{
+      const t=buildDTForDate(selDate,time);
+      if(existingRec){
+        // ── UPDATE: 既存レコードを上書き（二重退勤を作らない）──
+        store.updRec(
+          existingRec.id,
+          {time:t, temp:temp||"-", photo:cap||existingRec.photo||false, note, updatedBy:user.displayName},
+          user.displayName,
+          "退勤時刻修正"
+        );
+        setSaved(t);
+        store.showToast?.("✅ 退勤記録を更新しました");
+      }else{
+        // ── INSERT: 新規退勤レコードを追加 ──
+        store.addRec({
+          id:genId(), type:"staff_out",
+          staffId:sel.id, staffName:sel.name,
+          facilityId:user.selectedFacilityId, facilityName:fac?.name,
+          time:t, temp:temp||"-", photo:cap, note,
+          createdBy:user.displayName, history:[]
+        });
+        setSaved(t);
+        store.showToast?.("✅ 退勤を記録しました");
+      }
+      setDone(true);
+    }catch(e){
+      // 保存失敗時は画面にエラーを表示（データは変更されない）
+      setSaveErr(`保存に失敗しました: ${e.message||"不明なエラー"}`);
+      console.error("[StaffClockOut] 保存エラー:",e);
+    }finally{
+      setSaving(false);
+    }
+  };
+
+  // ── 完了画面 ──
+  if(done)return(
+    <div className="succ">
+      <div className="si">👋</div>
+      <div className="st">退勤登録完了</div>
+      <div className="sd">{sel?.name} さんの退勤を記録しました</div>
+      <div className="sm">{saved}</div>
+      <button className="bpri" style={{maxWidth:200,marginTop:8}} onClick={onBack}>ホームに戻る</button>
+    </div>
+  );
+
+  // ── メイン画面 ──
   return <FlowWrap title="🟡 職員 退勤" onBack={onBack}>
+
     {/* 日付選択 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
       <span style={{fontSize:12,fontWeight:700,color:"var(--tx2)"}}>📅 記録日：</span>
-      <input type="date" value={selDate} onChange={e=>setSelDate(e.target.value)} max={todayISO()}
+      <input type="date" value={selDate} onChange={e=>changeDate(e.target.value)} max={todayISO()}
         style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid var(--bd)",fontSize:13,fontWeight:700,fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",color:"var(--tx)"}}/>
       {selDate!==todayISO()&&<span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>⚠ 過去日付の記録</span>}
       {selDate===todayISO()&&<span style={{fontSize:11,color:"var(--gr)",fontWeight:700}}>本日</span>}
     </div>
-    <div className="slbl">STEP 1 — 職員を選択</div><div className="ng">{staff.map(s=><button key={s.id} className={`nb ${sel?.id===s.id?"s":""}`} onClick={()=>setSel(s)}>{s.name}</button>)}</div>
-    <hr className="div"/><div className="slbl">STEP 2 — 退勤時刻</div><div className="tr"><TimePicker value={time} onChange={setTime} label="退勤時刻"/></div>
-    <hr className="div"/><div className="slbl">STEP 3 — 写真撮影</div><Cam cap={cap} onCap={()=>setCap(true)}/>
-    <hr className="div"/><div className="slbl">STEP 4 — 体温（任意）</div><div className="tr"><input className="ti" type="number" placeholder="36.5" step="0.1" value={temp} onChange={e=>setTemp(e.target.value)}/><span className="tunit">℃</span></div>
-    <hr className="div"/><div className="slbl">備考（任意）</div><textarea className="fta" value={note} onChange={e=>setNote(e.target.value)}/>
-    <button className="bsave" disabled={!sel||!time} onClick={save} style={{marginTop:14}}>保存する</button>
+
+    {/* 既存レコードがある場合：修正モードのお知らせ */}
+    {existingRec&&sel&&<div style={{background:"rgba(255,160,0,0.1)",border:"1px solid rgba(255,160,0,0.35)",borderRadius:10,padding:"9px 14px",marginBottom:10,fontSize:12,color:"var(--am)",fontWeight:700}}>
+      ✏️ {sel.name}さんの退勤記録（{parseRecTime(existingRec.time).time}）が既にあります。修正して保存できます。
+    </div>}
+
+    {/* エラー表示 */}
+    {saveErr&&<div style={{background:"rgba(224,56,56,0.1)",border:"1px solid rgba(224,56,56,0.35)",borderRadius:10,padding:"9px 14px",marginBottom:10,fontSize:12,color:"var(--ro)",fontWeight:700}}>
+      ❌ {saveErr}
+    </div>}
+
+    {/* STEP 1: 職員選択（selectStaff 経由で既存記録も同時読み込み）*/}
+    <div className="slbl">STEP 1 — 職員を選択</div>
+    <div className="ng">
+      {staff.map(s=>{
+        // 当日すでに退勤済みの職員にバッジを表示
+        const hasDep=store.recs.some(r=>r.type==="staff_out"&&r.staffId===s.id&&parseRecTime(r.time).date===selDate);
+        return(
+          <button key={s.id} className={`nb ${sel?.id===s.id?"s":""}`} onClick={()=>selectStaff(s)}
+            style={{position:"relative"}}>
+            {s.name}
+            {hasDep&&<span style={{position:"absolute",top:2,right:4,fontSize:8,color:"var(--am)",fontWeight:900}}>✓退勤済</span>}
+          </button>
+        );
+      })}
+    </div>
+
+    <hr className="div"/>
+    <div className="slbl">STEP 2 — 退勤時刻{existingRec?" （既存: "+parseRecTime(existingRec.time).time+"）":""}</div>
+    <div className="tr"><TimePicker value={time} onChange={setTime} label="退勤時刻"/></div>
+
+    <hr className="div"/>
+    <div className="slbl">STEP 3 — 写真撮影</div>
+    <Cam cap={cap} onCap={()=>setCap(true)}/>
+
+    <hr className="div"/>
+    <div className="slbl">STEP 4 — 体温（任意）</div>
+    <div className="tr">
+      <input className="ti" type="number" placeholder="36.5" step="0.1" value={temp} onChange={e=>setTemp(e.target.value)}/>
+      <span className="tunit">℃</span>
+    </div>
+
+    <hr className="div"/>
+    <div className="slbl">備考（任意）</div>
+    <textarea className="fta" value={note} onChange={e=>setNote(e.target.value)}/>
+
+    {/* 保存ボタン — 既存あり→「更新する」、新規→「保存する」*/}
+    <button className="bsave" disabled={!sel||!time||saving} onClick={save} style={{marginTop:14}}>
+      {saving?"保存中...":existingRec?"✏️ 退勤記録を更新する":"保存する"}
+    </button>
   </FlowWrap>;
 }
 function UserArrive({user,onBack,store,filterIds}){
@@ -7628,6 +7990,7 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
   const upd = (k,v) => setForm(p=>({...p,[k]:v}));
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false); // 保存連打防止
+  const [saveErr, setSaveErr] = useState("");  // 保存エラーメッセージ
 
   const validate = () => {
     const e = {};
@@ -7639,11 +8002,39 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
     return Object.keys(e).length === 0;
   };
 
-  const handleSave = () => {
+  // handleSave: async化して保存エラーを画面に表示する
+  const handleSave = async () => {
     if(saving) return;
     if(!validate()) return;
+    setSaveErr("");
+
+    // ── 重複氏名チェック（新規登録時のみ）──
+    if(!isEdit) {
+      const dup = (store.dynUsers||[]).find(u=>!u.is_deleted&&u.name===form.name?.trim());
+      if(dup) {
+        const facName = FACILITIES.find(f=>f.id===dup.facilityId)?.name || dup.facilityId || "不明な施設";
+        const proceed = window.confirm(
+          `「${form.name}」は既に「${facName}」に登録されています。\n` +
+          `（ID: ${dup.id}）\n\n` +
+          `同一氏名で新規登録を続けますか？`
+        );
+        if(!proceed) return;
+      }
+    }
+
     setSaving(true);
-    onSave(form);
+    try {
+      await onSave(form);
+      // 成功時: onSave 側で画面遷移するため、ここでは何もしない
+    } catch(e) {
+      // 保存失敗: エラーメッセージを表示してボタンを再度有効化
+      setSaveErr(
+        "保存に失敗しました。\n" +
+        "通信状況を確認してもう一度お試しください。\n" +
+        (e.message ? `（詳細: ${e.message}）` : "")
+      );
+      setSaving(false);
+    }
   };
 
   // FormSection・FormFieldは外部定義を使用
@@ -7846,9 +8237,20 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
         </div>
       </div>}
 
+      {/* 保存エラーバナー */}
+      {saveErr && (
+        <div style={{background:"#fef2f2",border:"1.5px solid rgba(224,56,56,0.5)",borderRadius:10,
+                     padding:"12px 16px",marginBottom:12,color:"var(--ro)",fontSize:13,
+                     whiteSpace:"pre-wrap",lineHeight:1.6}}>
+          ⚠️ {saveErr}
+        </div>
+      )}
+
       <div style={{display:"flex",gap:10,paddingBottom:32}}>
         <button className="bsave" style={{background:"var(--bg)",color:"var(--tx2)",border:"1.5px solid var(--bd)"}} onClick={onBack} disabled={saving}>キャンセル</button>
-        <button className="bsave" style={{flex:2,opacity:saving?0.6:1}} onClick={handleSave} disabled={saving}>{saving?"⏳ 保存中…":(isEdit?"変更を保存する":"登録する")}</button>
+        <button className="bsave" style={{flex:2,opacity:saving?0.6:1}} onClick={handleSave} disabled={saving}>
+          {saving ? "⏳ 保存中…" : (isEdit ? "変更を保存する" : "✅ 登録する")}
+        </button>
       </div>
     </div>
   );
@@ -8033,20 +8435,26 @@ function UserManagement({user,store,onBack}){
     return <RegisterUser
       init={init} isEdit={isEdit} user={user} store={store}
       onBack={()=>setScreen("list")}
-      onSave={(u)=>{
+      onSave={async (u)=>{
         if(isEdit){
-          // ローカル state を即時更新 + Supabase に非同期保存
+          // 編集: ローカル state を即時更新 + Supabase に非同期保存
           store.updUser2(u.id, u);
-          // selUser も最新に更新（hub/edit 画面で古いデータが表示されないよう）
           setSelUser(u);
           store.showToast("✅ 利用者情報を保存しました");
+          setScreen("list");
         } else {
-          // 意味のあるID: U-GH-0001 形式で採番
+          // ── 新規登録 ──
+          // ID採番: U-GH-0001 形式
           const newId = genUserId(u.facilityId||user.selectedFacilityId, store.dynUsers);
-          store.addUser({...u, id: newId});
+          const newUser = {...u, id: newId};
+          // await で保存結果を待つ（失敗時は throw → RegisterUser側でキャッチ）
+          await store.addUser(newUser);
           store.showToast("✅ 利用者を登録しました");
+          // ── 登録成功後: フェイスシート作成へ誘導 ──
+          setSelUser(newUser);
+          setHubTab("facesheet");
+          setScreen("hub");
         }
-        setScreen("list");
       }}
     />;
   }
@@ -15986,6 +16394,18 @@ function DailyReport({user,store,onBack}){
       detail:[s.supportNote,s.bodyNote].filter(Boolean).join(" / "),
       staff:s.createdBy||""
     }));
+    // ─── 施設カレンダーの活動予定を自動反映 ───
+    const calActivities=(store.facilityEvents||[])
+      .filter(ev=>!ev.is_deleted&&ev.eventDate===date&&(ev.facilityId===fid||ev.isAllFacilities))
+      .sort((a,b)=>a.eventDate>b.eventDate?1:-1)
+      .map(ev=>({
+        time:ev.startTime||"",
+        title:(ev.isAllFacilities?"【全施設】":"")+ev.title,
+        detail:ev.description||"",
+        staff:ev.staffId?(store.dynStaff.find(s=>s.id===ev.staffId)?.name||ev.staffId):"",
+        fromCalendar:true,
+        calEventId:ev.id,
+      }));
     // デフォルト活動テンプレート
     const defaultActivities=[
       {time:"14:00",title:"来所・体温チェック",detail:"利用者の来所確認・健康観察を実施",staff:""},
@@ -15993,7 +16413,12 @@ function DailyReport({user,store,onBack}){
       {time:"15:30",title:"",detail:"",staff:""},
       {time:"17:00",title:"退所準備",detail:"",staff:""},
     ];
-    const activities=serviceActivities.length>0?[...serviceActivities,{time:"",title:"",detail:"",staff:""}]:defaultActivities;
+    // 優先順: サービス記録 > カレンダー予定 > デフォルト
+    const activities=serviceActivities.length>0
+      ? [...serviceActivities,...calActivities,{time:"",title:"",detail:"",staff:""}]
+      : calActivities.length>0
+        ? [...calActivities,{time:"",title:"",detail:"",staff:""}]
+        : defaultActivities;
 
     // ─── ISP短期目標を各ユーザーに自動注入 ───
     const ISP_ACTIVE = ["staff_checked","cdsm_approved","manager_confirmed","parent_explained","parent_consented","finalized"];
@@ -16037,6 +16462,102 @@ function DailyReport({user,store,onBack}){
   const updPhoto=(i,k,v)=>setRep(p=>{const ph=[...(p.photos||Array(6).fill(null))];ph[i]={...(ph[i]||{}), [k]:v};return {...p,photos:ph};});
   const addActivity=()=>setRep(p=>({...p,activities:[...p.activities,{time:"",title:"",detail:"",staff:""}]}));
   const removeActivity=(i)=>setRep(p=>({...p,activities:p.activities.filter((_,idx)=>idx!==i)}));
+
+  // ── 活動写真 取り込み機能（Hooks はトップレベルに必須）──
+  const photoFileRef=useRef(null);                         // hidden file input
+  const [photoTargetIdx,setPhotoTargetIdx]=useState(null); // 取り込み先スロット番号
+  const [importModal,setImportModal]=useState(false);       // 写真記録取り込みモーダル
+  const [importConfirm,setImportConfirm]=useState(null);    // 個人情報確認: {rec}
+  const [photoSaveErr,setPhotoSaveErr]=useState("");         // エラーメッセージ
+  const [photoUploading,setPhotoUploading]=useState(false);  // 二重アップロード防止
+  const [photoPickerModal,setPhotoPickerModal]=useState(null); // 写真選択モーダルのスロット番号（null or 0〜5）
+  // ★ iOS対応: refでスロット番号を同期管理（React stateは非同期なので input.click()と競合する）
+  const photoTargetIdxRef=useRef(null);
+
+  // 現在の写真データから空きスロット番号を返す（0〜5、満杯なら -1）
+  const nextEmptySlot=(photos)=>(photos||Array(6).fill(null)).findIndex((p,i)=>i<6&&(!p||(!p.imgData&&!p.activity&&!p.deleted_at)));
+
+  // ファイル選択ハンドラ（カメラ撮影・アルバム選択 共用）
+  // ★ iOS対応: refとstateの両方を確認。refはスロットメニュー経由、stateはトップボタン経由。
+  const handlePhotoFile=(e)=>{
+    const file=e.target.files?.[0];
+    // refが設定されていればrefを優先（iOS対応）、なければstateを使用
+    const targetIdx=photoTargetIdxRef.current!==null?photoTargetIdxRef.current:photoTargetIdx;
+    if(!file||targetIdx===null||photoUploading) return;
+    setPhotoUploading(true);
+    setPhotoSaveErr("");
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      const imgData=ev.target.result;
+      setRep(p=>{
+        const ph=[...(p.photos||Array(6).fill(null))];
+        ph[targetIdx]={...(ph[targetIdx]||{}),imgData,uploaded_by:user.displayName,created_at:new Date().toISOString()};
+        return {...p,photos:ph};
+      });
+      setPhotoUploading(false);
+      setPhotoTargetIdx(null);
+      photoTargetIdxRef.current=null; // refもリセット
+      if(photoFileRef.current) photoFileRef.current.value="";
+    };
+    reader.onerror=()=>{
+      setPhotoSaveErr("ファイルの読み込みに失敗しました");
+      setPhotoUploading(false);
+      setPhotoTargetIdx(null);
+      photoTargetIdxRef.current=null;
+      if(photoFileRef.current) photoFileRef.current.value="";
+    };
+    try{reader.readAsDataURL(file);}
+    catch(err){setPhotoSaveErr(`写真の取り込みに失敗しました: ${err.message||"不明なエラー"}`);setPhotoUploading(false);}
+  };
+
+  // 写真スロットを開く（idx: 対象スロット番号、capture: "environment"|""）
+  // ★ setTimeoutなし: iOS Safari は setTimeout 内の input.click() をブロックするため
+  const openPhotoSlot=(idx,capture)=>{
+    if(photoUploading) return;
+    const cur=rep.photos||[];
+    const filled=cur.filter(p=>p?.imgData&&!p?.deleted_at).length;
+    if(filled>=6){setPhotoSaveErr("最大6枚まで登録できます");return;}
+    const target=idx>=0?idx:nextEmptySlot(cur);
+    if(target===-1){setPhotoSaveErr("写真スロットが満杯です（最大6枚）");return;}
+    setPhotoSaveErr("");
+    setPhotoTargetIdx(target);
+    photoTargetIdxRef.current=target; // refを同期更新（iOS対応）
+    if(photoFileRef.current){
+      if(capture) photoFileRef.current.setAttribute("capture","environment");
+      else photoFileRef.current.removeAttribute("capture");
+      photoFileRef.current.click(); // user gesture 内で同期呼び出し
+    }
+  };
+
+  // 写真を削除（論理削除：imgData をクリアし deleted_at を記録）
+  const deletePhoto=(idx)=>{
+    setRep(p=>{
+      const ph=[...(p.photos||Array(6).fill(null))];
+      if(ph[idx]) ph[idx]={...ph[idx],imgData:null,deleted_at:new Date().toISOString(),deleted_by:user.displayName};
+      return {...p,photos:ph};
+    });
+  };
+
+  // 写真記録から取り込み（個人情報が含まれる場合は確認ダイアログを表示）
+  const importFromPhotoRecord=(rec)=>{
+    if(rec.userName&&rec.userName.trim()) setImportConfirm({rec});
+    else doImportPhotoRecord(rec);
+  };
+  const doImportPhotoRecord=(rec)=>{
+    const slot=nextEmptySlot(rep.photos);
+    if(slot===-1){setPhotoSaveErr("写真スロットが満杯です（最大6枚）");setImportModal(false);setImportConfirm(null);return;}
+    setRep(p=>{
+      const ph=[...(p.photos||Array(6).fill(null))];
+      ph[slot]={...(ph[slot]||{}),imgData:rec.imgData||null,activity:rec.activity||"",userName:rec.userName||"",
+        comment:rec.comment||rec.note||"",source:"photo_record",sourceRecId:rec.id,
+        uploaded_by:user.displayName,created_at:new Date().toISOString()};
+      return {...p,photos:ph};
+    });
+    setImportModal(false);
+    setImportConfirm(null);
+    store.showToast?.("✅ 写真を取り込みました");
+  };
+
   const save=(status)=>{
     const r={...rep,status,savedAt:nowStr()};
     store.addDailyReport(r);
@@ -16204,14 +16725,42 @@ function DailyReport({user,store,onBack}){
         {a.staff&&<span style={{fontSize:11,color:"var(--tx3)",whiteSpace:"nowrap"}}>{a.staff}</span>}
       </div>)}
     </div>}
-    {/* 活動写真 */}
-    {(viewRep.photos||[]).filter(Boolean).length>0&&<div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
-      <div style={{fontSize:10,fontWeight:700,color:"var(--pu)",letterSpacing:2,marginBottom:10}}>活動写真 ({(viewRep.photos||[]).filter(p=>p?.activity).length}枚)</div>
+    {/* 活動写真（詳細表示）実画像・テキストのみ写真・空スロット を3種類で表示 */}
+    {(viewRep.photos||[]).some(p=>p&&(p?.activity||p?.imgData)&&!p?.deleted_at)&&<div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
+      <div style={{fontSize:10,fontWeight:700,color:"var(--pu)",letterSpacing:2,marginBottom:10}}>
+        活動写真 ({(viewRep.photos||[]).filter(p=>p&&(p?.activity||p?.imgData)&&!p?.deleted_at).length}枚)
+      </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-        {Array.from({length:6},(_,i)=>{const p=(viewRep.photos||[])[i];return <div key={i} style={{aspectRatio:"4/3",borderRadius:9,border:"1px solid var(--bd)",background:p?.activity?"rgba(58,160,216,0.12)":"var(--bg)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,padding:8}}>
-          {p?.activity?<><div style={{fontSize:26}}>📸</div><div style={{fontSize:11,fontWeight:700,color:"var(--tl)",textAlign:"center"}}>{p.activity}</div><div style={{fontSize:10,color:"var(--tx3)"}}>{p.userName}</div>{p.comment&&<div style={{fontSize:10,color:"var(--tx3)",textAlign:"center"}}>{p.comment}</div>}</>
-          :<><div style={{fontSize:22,opacity:.3}}>📷</div><div style={{fontSize:10,color:"var(--bda)"}}>写真{i+1}</div></>}
-        </div>;})}
+        {Array.from({length:6},(_,i)=>{
+          const p=(viewRep.photos||[])[i];
+          const hasImg=!!(p?.imgData&&!p?.deleted_at);
+          const hasText=!!(p?.activity&&!p?.deleted_at);
+          return(
+            <div key={i} style={{borderRadius:9,border:`1px solid ${hasImg||hasText?"var(--tl)":"var(--bd)"}`,background:hasImg?"#000":hasText?"rgba(58,160,216,0.08)":"var(--bg)",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,minHeight:80}}>
+              {hasImg
+                ?<>
+                  <img src={p.imgData} style={{width:"100%",aspectRatio:"4/3",objectFit:"cover",display:"block"}} alt={p.activity||"写真"+(i+1)}/>
+                  <div style={{padding:"5px 8px",width:"100%",boxSizing:"border-box",background:"var(--wh)"}}>
+                    {p.activity&&<div style={{fontSize:11,fontWeight:700,color:"var(--tl)",textAlign:"center"}}>{p.activity}</div>}
+                    {p.userName&&<div style={{fontSize:10,color:"var(--tx3)",textAlign:"center"}}>{p.userName}</div>}
+                    {p.comment&&<div style={{fontSize:10,color:"var(--tx3)",textAlign:"center"}}>{p.comment}</div>}
+                  </div>
+                </>
+                :hasText
+                  ?<div style={{padding:8,textAlign:"center"}}>
+                    <div style={{fontSize:24}}>📸</div>
+                    <div style={{fontSize:11,fontWeight:700,color:"var(--tl)"}}>{p.activity}</div>
+                    {p.userName&&<div style={{fontSize:10,color:"var(--tx3)"}}>{p.userName}</div>}
+                    {p.comment&&<div style={{fontSize:10,color:"var(--tx3)"}}>{p.comment}</div>}
+                  </div>
+                  :<div style={{padding:8,textAlign:"center",opacity:.35}}>
+                    <div style={{fontSize:20}}>📷</div>
+                    <div style={{fontSize:10,color:"var(--tx3)"}}>写真{i+1}</div>
+                  </div>
+              }
+            </div>
+          );
+        })}
       </div>
     </div>}
     {viewRep.incidentDetail&&<div style={{background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.4)",borderRadius:11,padding:14,marginBottom:10}}><div style={{fontSize:10,fontWeight:700,color:"var(--ro)",letterSpacing:2,marginBottom:7}}>⚠ 特記事項・ヒヤリハット</div><div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.7}}>{viewRep.incidentDetail}</div></div>}
@@ -16289,20 +16838,277 @@ function DailyReport({user,store,onBack}){
         {["時刻","活動名","内容・詳細","担当者",""].map((h,i)=><div key={i} style={{fontSize:10,color:"var(--tx3)",textAlign:"center"}}>{h}</div>)}
       </div>
     </div>
-    {/* 活動写真（4〜6枚） */}
+    {/* ── 活動写真（最大6枚）──
+        各スロットは <button> でタップ可能。タップするとボトムシートモーダルが開く。
+        カメラ撮影・アルバム選択・写真記録取り込みに対応。imgData(base64)で保存。 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
-      <div style={{fontSize:10,fontWeight:700,color:"var(--pu)",letterSpacing:2,marginBottom:10}}>活動写真（最大6枚）<span style={{fontSize:10,color:"var(--tx3)",fontWeight:400}}> ※写真記録から自動取込・手動入力も可</span></div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-        {Array.from({length:6},(_,i)=>{const p=(rep.photos||[])[i]||{};return <div key={i} style={{border:"1.5px dashed var(--bd)",borderRadius:9,padding:10,background:p.activity?"rgba(58,160,216,0.1)":"var(--bg)"}}>
-          <div style={{aspectRatio:"4/3",background:p.activity?"rgba(58,160,216,0.12)":"var(--bg2)",borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:p.activity?28:22,marginBottom:7,opacity:p.activity?1:.5}}>
-            {p.activity?"📸":"📷"}
-          </div>
-          <input className="fi" value={p.activity||""} placeholder="活動名" onChange={e=>updPhoto(i,"activity",e.target.value)} style={{fontSize:11,padding:"5px 8px",marginBottom:5}}/>
-          <input className="fi" value={p.userName||""} placeholder="利用者名" onChange={e=>updPhoto(i,"userName",e.target.value)} style={{fontSize:11,padding:"5px 8px",marginBottom:5}}/>
-          <input className="fi" value={p.comment||""} placeholder="コメント" onChange={e=>updPhoto(i,"comment",e.target.value)} style={{fontSize:11,padding:"5px 8px"}}/>
-        </div>;})}
+
+      {/* ★ 隠しファイル入力（カメラ・アルバム共用）— ref で click() を発火させる */}
+      <input ref={photoFileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handlePhotoFile}/>
+
+      {/* ヘッダー行：件数 + 一括追加ボタン */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+        <div style={{fontSize:10,fontWeight:700,color:"var(--pu)",letterSpacing:2}}>
+          活動写真（{(rep.photos||[]).filter(p=>p?.imgData&&!p?.deleted_at).length} / 6枚）
+        </div>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          <button type="button" disabled={photoUploading}
+            onClick={()=>openPhotoSlot(nextEmptySlot(rep.photos),"environment")}
+            style={{padding:"5px 10px",borderRadius:8,border:"1.5px solid var(--tl)",background:"rgba(58,160,216,0.1)",color:"var(--tl)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",whiteSpace:"nowrap",opacity:photoUploading?.5:1}}>
+            📷 カメラ撮影
+          </button>
+          <button type="button" disabled={photoUploading}
+            onClick={()=>openPhotoSlot(nextEmptySlot(rep.photos),"")}
+            style={{padding:"5px 10px",borderRadius:8,border:"1.5px solid var(--tl)",background:"rgba(58,160,216,0.1)",color:"var(--tl)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",whiteSpace:"nowrap",opacity:photoUploading?.5:1}}>
+            🖼 アルバム
+          </button>
+          <button type="button" disabled={photoUploading}
+            onClick={()=>{setPhotoSaveErr("");setImportModal(true);}}
+            style={{padding:"5px 10px",borderRadius:8,border:"1.5px solid #9b59b6",background:"rgba(155,89,182,0.1)",color:"#7d3c98",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",whiteSpace:"nowrap",opacity:photoUploading?.5:1}}>
+            📁 取り込み
+          </button>
+        </div>
       </div>
-    </div>
+
+      {/* エラー表示 */}
+      {photoSaveErr&&<div style={{background:"rgba(224,56,56,0.1)",border:"1px solid rgba(224,56,56,0.35)",borderRadius:8,padding:"7px 12px",marginBottom:10,fontSize:12,color:"var(--ro)",fontWeight:700}}>❌ {photoSaveErr}</div>}
+
+      {/* ★ 写真グリッド（3列 × 2行 = 最大6枚）
+          各スロットは <button type="button"> でタップ可能にする。
+          div+onClick ではなく button 要素を使うことでスマホタップを保証する。 */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+        {Array.from({length:6},(_,i)=>{
+          const p=(rep.photos||[])[i]||{};
+          const hasImg=!!(p.imgData&&!p.deleted_at);
+          const hasText=!!(p.activity&&!p.deleted_at);
+          const filledCount=(rep.photos||[]).filter(q=>q?.imgData&&!q?.deleted_at).length;
+          return(
+            <div key={i} style={{
+              border:`1.5px ${hasImg?"solid var(--tl)":hasText?"solid rgba(58,160,216,0.4)":"dashed var(--bd)"}`,
+              borderRadius:9,padding:8,
+              background:hasImg||hasText?"rgba(58,160,216,0.06)":"var(--bg)",
+            }}>
+              {/* ★ button要素：クリック可能なプレビューエリア
+                  div+onClick はスマホで発火しない場合があるため button を使う */}
+              <button
+                type="button"
+                disabled={photoUploading}
+                onClick={()=>{
+                  if(filledCount>=6&&!hasImg){setPhotoSaveErr("最大6枚まで登録できます");return;}
+                  setPhotoSaveErr("");
+                  setPhotoPickerModal(i); // ボトムシートモーダルを開く
+                }}
+                style={{
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  width:"100%",aspectRatio:"4/3",
+                  borderRadius:7,marginBottom:6,
+                  border:"none",padding:0,
+                  background:"var(--bg2)",
+                  overflow:"hidden",
+                  cursor:photoUploading?"not-allowed":"pointer",
+                  position:"relative",
+                  minHeight:60,
+                  WebkitTapHighlightColor:"rgba(58,160,216,0.2)",
+                }}>
+                {hasImg
+                  ?<>
+                    <img src={p.imgData} style={{width:"100%",height:"100%",objectFit:"cover",display:"block",pointerEvents:"none"}} alt={p.activity||"写真"+(i+1)}/>
+                    <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"3px 0",background:"rgba(0,0,0,0.45)",fontSize:9,color:"#fff",textAlign:"center",letterSpacing:.5,pointerEvents:"none"}}>
+                      タップして変更
+                    </div>
+                  </>
+                  :<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,pointerEvents:"none"}}>
+                    <span style={{fontSize:26,lineHeight:1}}>📷</span>
+                    <span style={{fontSize:10,color:"var(--tl)",fontWeight:700}}>写真{i+1}</span>
+                    <span style={{fontSize:9,color:"var(--tx3)"}}>タップして追加</span>
+                  </div>
+                }
+              </button>
+
+              {/* 削除ボタン */}
+              {(hasImg||hasText)&&(
+                <button type="button"
+                  onClick={()=>{if(window.confirm(`写真${i+1}を削除しますか？\n（削除者・日時が記録されます）`)) deletePhoto(i);}}
+                  style={{width:"100%",padding:"4px 0",borderRadius:6,background:"rgba(224,56,56,0.12)",border:"1px solid rgba(224,56,56,0.35)",color:"var(--ro)",fontSize:11,fontWeight:700,cursor:"pointer",marginBottom:5,display:"block"}}>
+                  🗑 削除
+                </button>
+              )}
+
+              {/* テキスト入力（活動名・利用者名・コメント）*/}
+              <input className="fi" value={p.activity||""} placeholder="活動名"
+                onChange={e=>updPhoto(i,"activity",e.target.value)}
+                style={{fontSize:11,padding:"5px 8px",marginBottom:4}}/>
+              <input className="fi" value={p.userName||""} placeholder="利用者名"
+                onChange={e=>updPhoto(i,"userName",e.target.value)}
+                style={{fontSize:11,padding:"5px 8px",marginBottom:4}}/>
+              <input className="fi" value={p.comment||""} placeholder="コメント"
+                onChange={e=>updPhoto(i,"comment",e.target.value)}
+                style={{fontSize:11,padding:"5px 8px"}}/>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ★ 写真選択ボトムシートモーダル
+          スロットをタップすると画面下からスライドアップ。
+          position:fixed + zIndex:9800 で確実に最前面に表示。
+          backdrop タップで閉じる。 */}
+      {photoPickerModal!==null&&(
+        <div
+          onClick={()=>setPhotoPickerModal(null)}
+          style={{
+            position:"fixed",inset:0,
+            background:"rgba(0,0,0,0.5)",
+            zIndex:9800,
+            display:"flex",alignItems:"flex-end",justifyContent:"center",
+          }}>
+          <div
+            onClick={e=>e.stopPropagation()}
+            style={{
+              background:"var(--wh)",
+              borderRadius:"18px 18px 0 0",
+              padding:"22px 20px 44px",
+              width:"100%",maxWidth:500,
+              boxShadow:"0 -8px 30px rgba(0,0,0,0.2)",
+            }}>
+            {/* ドラッグハンドル */}
+            <div style={{width:40,height:4,borderRadius:2,background:"var(--bd)",margin:"0 auto 16px"}}/>
+            <div style={{fontSize:14,fontWeight:800,color:"var(--tx)",textAlign:"center",marginBottom:20}}>
+              📷 写真{photoPickerModal+1} を追加
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              {/* 📷 カメラで撮影 */}
+              <button type="button"
+                onClick={()=>{
+                  const idx=photoPickerModal;
+                  setPhotoPickerModal(null);   // モーダルを閉じる（re-renderは後）
+                  photoTargetIdxRef.current=idx; // refを同期更新（iOSのクロージャ対策）
+                  setPhotoTargetIdx(idx);
+                  if(photoFileRef.current){
+                    photoFileRef.current.setAttribute("capture","environment");
+                    photoFileRef.current.value=""; // 同一ファイルの再選択を可能にする
+                    photoFileRef.current.click(); // user gesture内で同期呼び出し
+                  }
+                }}
+                style={{padding:"16px 20px",borderRadius:14,background:"var(--tl)",border:"none",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",display:"flex",alignItems:"center",gap:14,textAlign:"left"}}>
+                <span style={{fontSize:24,lineHeight:1}}>📷</span>
+                <div><div>カメラで撮影</div><div style={{fontSize:11,fontWeight:400,opacity:.85,marginTop:2}}>その場で写真を撮る</div></div>
+              </button>
+              {/* 🖼 アルバムから選択 */}
+              <button type="button"
+                onClick={()=>{
+                  const idx=photoPickerModal;
+                  setPhotoPickerModal(null);
+                  photoTargetIdxRef.current=idx;
+                  setPhotoTargetIdx(idx);
+                  if(photoFileRef.current){
+                    photoFileRef.current.removeAttribute("capture");
+                    photoFileRef.current.value="";
+                    photoFileRef.current.click();
+                  }
+                }}
+                style={{padding:"16px 20px",borderRadius:14,background:"rgba(58,160,216,0.12)",border:"1.5px solid var(--tl)",color:"var(--tl)",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",display:"flex",alignItems:"center",gap:14,textAlign:"left"}}>
+                <span style={{fontSize:24,lineHeight:1}}>🖼</span>
+                <div><div>アルバムから選択</div><div style={{fontSize:11,fontWeight:400,opacity:.8,marginTop:2}}>保存済みの写真を使う</div></div>
+              </button>
+              {/* 📁 写真記録から取り込み */}
+              <button type="button"
+                onClick={()=>{
+                  setPhotoPickerModal(null);
+                  setPhotoSaveErr("");
+                  setImportModal(true);
+                }}
+                style={{padding:"16px 20px",borderRadius:14,background:"rgba(155,89,182,0.1)",border:"1.5px solid #9b59b6",color:"#7d3c98",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",display:"flex",alignItems:"center",gap:14,textAlign:"left"}}>
+                <span style={{fontSize:24,lineHeight:1}}>📁</span>
+                <div><div>写真記録から取り込み</div><div style={{fontSize:11,fontWeight:400,opacity:.8,marginTop:2}}>同日の写真記録を使う</div></div>
+              </button>
+              {/* キャンセル */}
+              <button type="button"
+                onClick={()=>setPhotoPickerModal(null)}
+                style={{padding:"14px",borderRadius:14,background:"var(--bg2)",border:"1px solid var(--bd)",color:"var(--tx2)",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",marginTop:4}}>
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 写真記録 取り込みモーダル ──
+          同日・同施設の type=photo レコードを一覧表示 */}
+      {importModal&&(()=>{
+        const photoRecs=store.recs.filter(r=>
+          r.type==="photo"&&
+          r.facilityId===user.selectedFacilityId&&
+          matchDate(r.time,rep.date)&&
+          !r.photo_deleted_at&&
+          r.imgData  // 実際の画像データがあるもののみ
+        );
+        return(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+            <div style={{background:"var(--wh)",borderRadius:14,padding:20,width:"100%",maxWidth:480,maxHeight:"80vh",overflowY:"auto",boxShadow:"0 8px 32px rgba(0,0,0,0.25)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div style={{fontSize:14,fontWeight:800,color:"var(--tx)"}}>📁 写真記録から取り込み</div>
+                <button onClick={()=>setImportModal(false)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"var(--tx3)",lineHeight:1,padding:"2px 6px"}}>×</button>
+              </div>
+              <div style={{fontSize:11,color:"var(--tx3)",marginBottom:12}}>
+                {rep.date}・{fac?.name||""} の写真記録（{photoRecs.length}件）
+              </div>
+              {photoRecs.length===0
+                ?<div style={{textAlign:"center",padding:"32px 0",color:"var(--tx3)",fontSize:13}}>
+                  この日の写真記録が見つかりません<br/>
+                  <span style={{fontSize:11}}>「写真記録」画面から先に登録してください</span>
+                </div>
+                :<div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+                  {photoRecs.map(r=>(
+                    <div key={r.id}
+                      style={{border:"1px solid var(--bd)",borderRadius:10,overflow:"hidden",cursor:"pointer",transition:"border-color .15s"}}
+                      onClick={()=>importFromPhotoRecord(r)}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor="var(--tl)"}
+                      onMouseLeave={e=>e.currentTarget.style.borderColor="var(--bd)"}>
+                      <div style={{aspectRatio:"4/3",overflow:"hidden"}}>
+                        <img src={r.imgData} style={{width:"100%",height:"100%",objectFit:"cover"}} alt={r.activity||"写真"}/>
+                      </div>
+                      <div style={{padding:"7px 10px"}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"var(--tx)",marginBottom:2}}>{r.activity||r.note||"無題"}</div>
+                        {r.userName&&<div style={{fontSize:10,color:"var(--tl)"}}>{r.userName}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              }
+              <button onClick={()=>setImportModal(false)}
+                style={{width:"100%",marginTop:16,padding:"11px",borderRadius:10,background:"var(--bg2)",border:"1px solid var(--bd)",fontSize:13,fontWeight:700,cursor:"pointer",color:"var(--tx2)",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                閉じる
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── 個人情報確認ダイアログ ── */}
+      {importConfirm&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:"var(--wh)",borderRadius:14,padding:22,width:"100%",maxWidth:360,boxShadow:"0 8px 32px rgba(0,0,0,0.25)"}}>
+            <div style={{fontSize:14,fontWeight:800,color:"var(--tx)",marginBottom:12}}>⚠ 個人情報を含む写真</div>
+            <div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.75,marginBottom:16}}>
+              この写真には <strong style={{color:"var(--tl)"}}>{importConfirm.rec.userName}</strong> さんが写っています。<br/>
+              業務日報（印刷・共有対象）に取り込みますか？
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setImportConfirm(null)}
+                style={{flex:1,padding:"11px",borderRadius:10,background:"var(--bg2)",border:"1px solid var(--bd)",fontSize:13,fontWeight:700,cursor:"pointer",color:"var(--tx2)",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                キャンセル
+              </button>
+              <button onClick={()=>doImportPhotoRecord(importConfirm.rec)}
+                style={{flex:1,padding:"11px",borderRadius:10,background:"rgba(58,160,216,0.15)",border:"1.5px solid var(--tl)",fontSize:13,fontWeight:700,cursor:"pointer",color:"var(--tl)",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                取り込む
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>{/* /活動写真 */}
     {/* テキスト項目 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:10,fontWeight:700,color:"var(--ro)",letterSpacing:2,marginBottom:6}}>⚠ 特記事項・ヒヤリハット</div>
@@ -17460,6 +18266,7 @@ function HomeScreen({user,onNav,store}){
     {id:"jisseki",     icon:"📋",title:"実績管理",        desc:"当日来所・打刻",      cls:"c8"},
     {id:"support_plan",icon:"📄",title:"個別支援計画",    desc:"5領域・AI補助・監査",  cls:"c3"},
     {id:"schedule_ocr",icon:"🗓️",title:"予定表 読み取り",desc:"カメラでOCR自動登録",cls:"c6"},
+    {id:"activity_calendar",icon:"📅",title:"活動カレンダー",  desc:"店舗別イベント・一括通知",  cls:"c6"},
     {id:"parent_connect",icon:"📢",title:"連絡センター",      desc:"お知らせ・アンケート・欠席",cls:"c5"},
     {id:"transport_live",icon:"🚌",title:"送迎ライブ追跡",   desc:"乗車確認・遅延メモ",    cls:"c9"},
     {id:"kintai_dash",   icon:"⏱",title:"勤怠ダッシュボード",desc:"出勤・36協定・修正申請",cls:"c8"},
@@ -24865,6 +25672,576 @@ function ScheduleOCRScreen({user, store, onBack}){
   </div>;
 }
 
+// ==================== 活動・イベントカレンダー（店舗別管理）====================
+// 店舗ごとの活動予定・イベントを登録・管理し、業務日報へ自動反映する
+function ActivityCalendarScreen({ user, store, onBack }) {
+  const FACILITIES_LIST = [
+    { id: "f1", name: "GO HOME" },
+    { id: "f2", name: "GO ROOM" },
+    { id: "f3", name: "GO TOWN 1ST" },
+    { id: "f4", name: "GO TOWN 2ND" },
+  ];
+  const isAdmin  = user.role === "admin";
+  const isMgr    = user.role === "admin" || user.role === "manager";
+  // admin は全施設閲覧可、それ以外は所属施設のみ
+  const defaultFac = isAdmin ? "all" : (user.selectedFacilityId || "f1");
+  const today = todayISO();
+
+  // ── 状態 ──
+  const [tab,        setTab]        = useState("calendar"); // calendar | events | notify
+  const [selFac,     setSelFac]     = useState(defaultFac);
+  const [viewMonth,  setViewMonth]  = useState(() => {
+    const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() + 1 };
+  });
+  const [selDate,    setSelDate]    = useState(today);
+
+  // イベント編集フォーム
+  const emptyForm = { title:"", description:"", eventType:"activity", startTime:"",
+                      isAllFacilities:false, targetFacilityIds:[] };
+  const [showForm,   setShowForm]   = useState(false);
+  const [editTarget, setEditTarget] = useState(null); // null=新規, id=編集
+  const [form,       setForm]       = useState(emptyForm);
+  const [formErr,    setFormErr]    = useState("");
+  const [saving,     setSaving]     = useState(false);
+
+  // 一括通知
+  const [notifyFac,     setNotifyFac]     = useState(user.selectedFacilityId || "f1");
+  const [notifyTitle,   setNotifyTitle]   = useState("");
+  const [notifyBody,    setNotifyBody]    = useState("");
+  const [notifyConfirm, setNotifyConfirm] = useState(false);
+  const [notifyErr,     setNotifyErr]     = useState("");
+  const [notifySaving,  setNotifySaving]  = useState(false);
+
+  // ── 表示対象イベントフィルター ──
+  const visibleEvents = (store.facilityEvents || []).filter(ev => {
+    if (ev.is_deleted) return false;
+    // 施設フィルター
+    if (selFac === "all") {
+      // admin: 全施設
+      if (!isAdmin) {
+        const myFac = user.selectedFacilityId;
+        return ev.facilityId === myFac || ev.isAllFacilities ||
+          (ev.targetFacilityIds || []).includes(myFac);
+      }
+      return true;
+    }
+    return ev.facilityId === selFac || ev.isAllFacilities ||
+      (ev.targetFacilityIds || []).includes(selFac);
+  });
+
+  // 月別 / 日別
+  const monthKey = `${viewMonth.y}-${String(viewMonth.m).padStart(2,"0")}`;
+  const monthEvents = visibleEvents.filter(ev => (ev.eventDate || "").startsWith(monthKey));
+  const dateEvents  = visibleEvents.filter(ev => ev.eventDate === selDate);
+
+  // カレンダー日付一覧（当月）
+  const daysInMonth = new Date(viewMonth.y, viewMonth.m, 0).getDate();
+  const firstDow    = new Date(viewMonth.y, viewMonth.m - 1, 1).getDay();
+  const calDays     = [];
+  for (let i = 0; i < firstDow; i++) calDays.push(null);
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${viewMonth.y}-${String(viewMonth.m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    calDays.push(ds);
+  }
+
+  // ── 保存 ──
+  const saveEvent = async () => {
+    setFormErr("");
+    if (!form.title.trim()) { setFormErr("タイトルを入力してください"); return; }
+    if (!selDate)            { setFormErr("日付を選択してください"); return; }
+    if (!form.isAllFacilities && !selFac)
+      { setFormErr("施設を選択してください"); return; }
+    setSaving(true);
+    try {
+      const id = editTarget || genId();
+      store.saveFacilityEvent({
+        id,
+        facilityId:          form.isAllFacilities ? null : (selFac === "all" ? null : selFac),
+        eventDate:           selDate,
+        title:               form.title.trim(),
+        description:         form.description.trim(),
+        eventType:           form.eventType,
+        startTime:           form.startTime,
+        isAllFacilities:     form.isAllFacilities,
+        targetFacilityIds:   form.isAllFacilities ? FACILITIES_LIST.map(f => f.id) : (form.targetFacilityIds||[]),
+        staffId:             user.id || "",
+        createdBy:           user.displayName || "",
+        createdAt:           editTarget
+          ? (visibleEvents.find(x=>x.id===editTarget)?.createdAt || new Date().toISOString())
+          : new Date().toISOString(),
+      });
+      store.showToast(editTarget ? "✅ イベントを更新しました" : "✅ イベントを登録しました");
+      setShowForm(false); setEditTarget(null); setForm(emptyForm);
+    } catch(e) {
+      setFormErr("保存に失敗しました: " + (e.message || e));
+    }
+    setSaving(false);
+  };
+
+  // ── 削除（論理削除）──
+  const deleteEvent = (id) => {
+    if (!window.confirm("このイベントを削除してもよいですか？")) return;
+    store.delFacilityEvent(id, user.displayName);
+    store.showToast("🗑 イベントを削除しました");
+  };
+
+  // ── 一括通知送信 ──
+  const sendNotify = async () => {
+    setNotifyErr("");
+    if (!notifyTitle.trim() || !notifyBody.trim()) {
+      setNotifyErr("タイトルと本文を入力してください"); return;
+    }
+    setNotifySaving(true);
+    try {
+      // 対象施設の保護者に向けてお知らせを作成
+      const targetFacIds = notifyFac === "all"
+        ? FACILITIES_LIST.map(f => f.id)
+        : [notifyFac];
+      const children = store.dynUsers.filter(u =>
+        u.active !== false && targetFacIds.includes(u.facilityId));
+      for (const fid of targetFacIds) {
+        const facChildren = children.filter(c => c.facilityId === fid);
+        if (facChildren.length === 0) continue;
+        store.saveAnnouncement({
+          id:          genId(),
+          facilityId:  fid,
+          title:       notifyTitle.trim(),
+          body:        notifyBody.trim(),
+          category:    "行事予定",
+          isUrgent:    false,
+          targetIds:   facChildren.map(c => c.id),
+          createdBy:   user.displayName,
+          createdAt:   todayISO(),
+        });
+      }
+      store.showToast("✅ 一括通知を送信しました");
+      setNotifyTitle(""); setNotifyBody(""); setNotifyConfirm(false);
+    } catch(e) {
+      setNotifyErr("送信に失敗しました: " + (e.message || e));
+    }
+    setNotifySaving(false);
+  };
+
+  // イベントタイプ表示
+  const EVENT_TYPE_LABEL = {
+    activity: "活動",
+    event:    "イベント",
+    holiday:  "休業日",
+    other:    "その他",
+  };
+  const EVENT_TYPE_COLOR = {
+    activity: "#3aa0d8",
+    event:    "#a78bfa",
+    holiday:  "#e03838",
+    other:    "#888",
+  };
+
+  return (
+    <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 0 80px 0" }}>
+      {/* ヘッダー */}
+      <div className="hh">
+        <button className="back-btn" onClick={onBack}>←</button>
+        <div>
+          <div className="ht">活動カレンダー</div>
+          <div className="hs">店舗別イベント・活動管理</div>
+        </div>
+      </div>
+
+      {/* 施設フィルター */}
+      <div style={{ display:"flex", gap:6, padding:"10px 12px", flexWrap:"wrap",
+                    background:"var(--bg2)", borderBottom:"1px solid var(--bd)" }}>
+        {(isAdmin ? [{ id:"all", name:"全施設" }] : []).concat(FACILITIES_LIST).map(f => (
+          <button key={f.id}
+            onClick={() => setSelFac(f.id)}
+            style={{ padding:"4px 12px", borderRadius:20, border:"1px solid var(--tl)",
+                     background: selFac===f.id ? "var(--tl)" : "white",
+                     color: selFac===f.id ? "white" : "var(--tl)",
+                     fontSize:13, cursor:"pointer", fontWeight:selFac===f.id?"bold":"normal" }}>
+            {f.name}
+          </button>
+        ))}
+      </div>
+
+      {/* タブ */}
+      <div style={{ display:"flex", borderBottom:"2px solid var(--bd)", background:"white" }}>
+        {[["calendar","📅 活動カレンダー"],["events","🗓 イベント管理"],["notify","📢 一括通知"]].map(([k,lbl])=>(
+          <button key={k} onClick={()=>setTab(k)}
+            style={{ flex:1, padding:"10px 4px", border:"none", background:"transparent",
+                     color: tab===k ? "var(--tl)" : "var(--tx3)",
+                     fontWeight: tab===k ? "bold" : "normal",
+                     borderBottom: tab===k ? "3px solid var(--tl)" : "3px solid transparent",
+                     fontSize:13, cursor:"pointer" }}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {/* ─── タブ: 活動カレンダー ─── */}
+      {tab === "calendar" && (
+        <div style={{ padding:12 }}>
+          {/* 月ナビ */}
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+            <button onClick={()=>setViewMonth(p=>{ const d=new Date(p.y,p.m-2,1); return{y:d.getFullYear(),m:d.getMonth()+1}; })}
+              style={{ padding:"4px 12px", borderRadius:8, border:"1px solid var(--bd)", background:"white", cursor:"pointer" }}>◀</button>
+            <span style={{ fontWeight:"bold", fontSize:16 }}>{viewMonth.y}年{viewMonth.m}月</span>
+            <button onClick={()=>setViewMonth(p=>{ const d=new Date(p.y,p.m,1); return{y:d.getFullYear(),m:d.getMonth()+1}; })}
+              style={{ padding:"4px 12px", borderRadius:8, border:"1px solid var(--bd)", background:"white", cursor:"pointer" }}>▶</button>
+          </div>
+
+          {/* カレンダーグリッド */}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:12 }}>
+            {["日","月","火","水","木","金","土"].map(d=>(
+              <div key={d} style={{ textAlign:"center", fontSize:11, color:"var(--tx3)", padding:"2px 0",
+                                    fontWeight:"bold" }}>{d}</div>
+            ))}
+            {calDays.map((ds,i)=>{
+              if(!ds) return <div key={"e"+i}/>;
+              const evs=monthEvents.filter(ev=>ev.eventDate===ds);
+              const isToday=ds===today;
+              const isSel=ds===selDate;
+              return (
+                <div key={ds} onClick={()=>setSelDate(ds)}
+                  style={{ minHeight:48, padding:2, borderRadius:6, cursor:"pointer",
+                           background: isSel?"var(--tl)":isToday?"#e8f4fc":"white",
+                           color: isSel?"white":"inherit",
+                           border: isToday&&!isSel?"2px solid var(--tl)":"1px solid var(--bd)" }}>
+                  <div style={{ fontSize:11, textAlign:"right", fontWeight:isToday?"bold":"normal" }}>
+                    {parseInt(ds.split("-")[2])}
+                  </div>
+                  {evs.slice(0,2).map(ev=>(
+                    <div key={ev.id} style={{ fontSize:9, borderRadius:3, padding:"1px 2px", marginTop:1,
+                                              background: isSel?"rgba(255,255,255,0.3)":EVENT_TYPE_COLOR[ev.eventType]||"#3aa0d8",
+                                              color: isSel?"white":"white",
+                                              overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      {ev.title}
+                    </div>
+                  ))}
+                  {evs.length>2&&<div style={{fontSize:8,color:isSel?"white":"var(--tx3)"}}>+{evs.length-2}</div>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 選択日のイベント一覧 */}
+          <div style={{ background:"var(--bg2)", borderRadius:8, padding:12 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+              <span style={{ fontWeight:"bold", fontSize:14 }}>{selDate} の予定</span>
+              {isMgr && (
+                <button onClick={()=>{ setForm(emptyForm); setEditTarget(null); setShowForm(true); }}
+                  style={{ padding:"4px 12px", background:"var(--tl)", color:"white",
+                           border:"none", borderRadius:6, fontSize:12, cursor:"pointer" }}>
+                  ＋ 追加
+                </button>
+              )}
+            </div>
+            {dateEvents.length === 0
+              ? <div style={{ color:"var(--tx3)", fontSize:13, textAlign:"center", padding:"16px 0" }}>この日の予定はありません</div>
+              : dateEvents.map(ev => (
+                  <div key={ev.id} style={{ background:"white", borderRadius:8, padding:10, marginBottom:8,
+                                            borderLeft:`4px solid ${EVENT_TYPE_COLOR[ev.eventType]||"#3aa0d8"}` }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                      <div>
+                        <span style={{ fontSize:11, background:EVENT_TYPE_COLOR[ev.eventType]||"#3aa0d8",
+                                       color:"white", borderRadius:4, padding:"1px 6px", marginRight:6 }}>
+                          {EVENT_TYPE_LABEL[ev.eventType]||ev.eventType}
+                        </span>
+                        {ev.isAllFacilities && (
+                          <span style={{ fontSize:11, background:"#a78bfa", color:"white",
+                                         borderRadius:4, padding:"1px 6px", marginRight:6 }}>全施設</span>
+                        )}
+                        <span style={{ fontWeight:"bold", fontSize:14 }}>{ev.title}</span>
+                        {ev.startTime && <span style={{ color:"var(--tx3)", fontSize:12, marginLeft:6 }}>{ev.startTime}</span>}
+                      </div>
+                      {isMgr && (
+                        <div style={{ display:"flex", gap:4 }}>
+                          <button onClick={()=>{
+                            setForm({ title:ev.title, description:ev.description||"",
+                                      eventType:ev.eventType||"activity", startTime:ev.startTime||"",
+                                      isAllFacilities:ev.isAllFacilities||false,
+                                      targetFacilityIds:ev.targetFacilityIds||[] });
+                            setEditTarget(ev.id); setSelDate(ev.eventDate); setShowForm(true);
+                          }} style={{ padding:"2px 8px", fontSize:11, border:"1px solid var(--bd)",
+                                      borderRadius:4, cursor:"pointer", background:"white" }}>✏️</button>
+                          <button onClick={()=>deleteEvent(ev.id)}
+                            style={{ padding:"2px 8px", fontSize:11, border:"1px solid #e03838",
+                                     borderRadius:4, cursor:"pointer", background:"white", color:"#e03838" }}>🗑</button>
+                        </div>
+                      )}
+                    </div>
+                    {ev.description && (
+                      <div style={{ fontSize:12, color:"var(--tx2)", marginTop:4 }}>{ev.description}</div>
+                    )}
+                    {ev.facilityId && !ev.isAllFacilities && (
+                      <div style={{ fontSize:11, color:"var(--tx3)", marginTop:2 }}>
+                        📍 {FACILITIES_LIST.find(f=>f.id===ev.facilityId)?.name || ev.facilityId}
+                      </div>
+                    )}
+                  </div>
+                ))
+            }
+          </div>
+        </div>
+      )}
+
+      {/* ─── タブ: イベント管理 ─── */}
+      {tab === "events" && (
+        <div style={{ padding:12 }}>
+          {isMgr && (
+            <button onClick={()=>{ setForm(emptyForm); setEditTarget(null); setShowForm(true); }}
+              style={{ width:"100%", padding:"10px", background:"var(--tl)", color:"white",
+                       border:"none", borderRadius:8, fontSize:14, cursor:"pointer", marginBottom:12 }}>
+              ＋ 新しいイベントを登録
+            </button>
+          )}
+          {visibleEvents.filter(ev=>ev.eventDate>=today).sort((a,b)=>a.eventDate>b.eventDate?1:-1).length === 0
+            ? <div style={{ color:"var(--tx3)", textAlign:"center", padding:24 }}>
+                登録済みのイベントはありません
+              </div>
+            : visibleEvents
+                .filter(ev => ev.eventDate >= today)
+                .sort((a,b) => a.eventDate > b.eventDate ? 1 : -1)
+                .map(ev => (
+                  <div key={ev.id} style={{ background:"white", border:"1px solid var(--bd)",
+                                            borderRadius:8, padding:12, marginBottom:8,
+                                            borderLeft:`4px solid ${EVENT_TYPE_COLOR[ev.eventType]||"#3aa0d8"}` }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                      <div>
+                        <div style={{ fontWeight:"bold", fontSize:14 }}>{ev.title}</div>
+                        <div style={{ fontSize:12, color:"var(--tx3)", marginTop:2 }}>
+                          📅 {ev.eventDate}
+                          {ev.startTime && <span style={{marginLeft:6}}>⏰ {ev.startTime}</span>}
+                          <span style={{ marginLeft:8, background:EVENT_TYPE_COLOR[ev.eventType]||"#3aa0d8",
+                                         color:"white", borderRadius:4, padding:"0 5px", fontSize:11 }}>
+                            {EVENT_TYPE_LABEL[ev.eventType]||ev.eventType}
+                          </span>
+                          {ev.isAllFacilities && (
+                            <span style={{ marginLeft:4, background:"#a78bfa", color:"white",
+                                           borderRadius:4, padding:"0 5px", fontSize:11 }}>全施設</span>
+                          )}
+                          {!ev.isAllFacilities && ev.facilityId && (
+                            <span style={{ marginLeft:4, color:"var(--tx3)", fontSize:11 }}>
+                              📍{FACILITIES_LIST.find(f=>f.id===ev.facilityId)?.name||ev.facilityId}
+                            </span>
+                          )}
+                        </div>
+                        {ev.description && (
+                          <div style={{ fontSize:12, color:"var(--tx2)", marginTop:4 }}>{ev.description}</div>
+                        )}
+                      </div>
+                      {isMgr && (
+                        <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+                          <button onClick={()=>{
+                            setForm({ title:ev.title, description:ev.description||"",
+                                      eventType:ev.eventType||"activity", startTime:ev.startTime||"",
+                                      isAllFacilities:ev.isAllFacilities||false,
+                                      targetFacilityIds:ev.targetFacilityIds||[] });
+                            setEditTarget(ev.id); setSelDate(ev.eventDate); setShowForm(true);
+                          }} style={{ padding:"4px 10px", fontSize:12, border:"1px solid var(--bd)",
+                                      borderRadius:6, cursor:"pointer" }}>✏️ 編集</button>
+                          <button onClick={()=>deleteEvent(ev.id)}
+                            style={{ padding:"4px 10px", fontSize:12, border:"1px solid #e03838",
+                                     borderRadius:6, cursor:"pointer", color:"#e03838" }}>🗑</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+          }
+        </div>
+      )}
+
+      {/* ─── タブ: 一括通知 ─── */}
+      {tab === "notify" && (
+        <div style={{ padding:12 }}>
+          {!isMgr
+            ? <div style={{ color:"var(--tx3)", textAlign:"center", padding:24 }}>
+                一括通知はマネージャー以上が利用できます
+              </div>
+            : (
+              <div style={{ background:"white", border:"1px solid var(--bd)", borderRadius:8, padding:16 }}>
+                <div style={{ fontWeight:"bold", fontSize:15, marginBottom:12 }}>保護者への一括通知</div>
+
+                {/* 送信対象施設 */}
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:13, fontWeight:"bold", marginBottom:4 }}>送信対象施設</div>
+                  <select value={notifyFac} onChange={e=>setNotifyFac(e.target.value)}
+                    style={{ width:"100%", padding:"8px", borderRadius:6, border:"1px solid var(--bd)", fontSize:14 }}>
+                    {isAdmin && <option value="all">全施設</option>}
+                    {FACILITIES_LIST.map(f => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                  <div style={{ fontSize:11, color:"var(--tx3)", marginTop:2 }}>
+                    対象: {(() => {
+                      const facIds = notifyFac === "all" ? FACILITIES_LIST.map(f=>f.id) : [notifyFac];
+                      const cnt = store.dynUsers.filter(u=>u.active!==false&&facIds.includes(u.facilityId)).length;
+                      return `${cnt}名の保護者`;
+                    })()}
+                  </div>
+                </div>
+
+                {/* タイトル */}
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:13, fontWeight:"bold", marginBottom:4 }}>タイトル</div>
+                  <input value={notifyTitle} onChange={e=>setNotifyTitle(e.target.value)}
+                    placeholder="例: 5月の行事予定について"
+                    style={{ width:"100%", padding:"8px", borderRadius:6, border:"1px solid var(--bd)",
+                             fontSize:14, boxSizing:"border-box" }}/>
+                </div>
+
+                {/* 本文 */}
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:13, fontWeight:"bold", marginBottom:4 }}>本文</div>
+                  <textarea value={notifyBody} onChange={e=>setNotifyBody(e.target.value)}
+                    placeholder="保護者への通知内容を入力してください"
+                    rows={5}
+                    style={{ width:"100%", padding:"8px", borderRadius:6, border:"1px solid var(--bd)",
+                             fontSize:14, resize:"vertical", boxSizing:"border-box" }}/>
+                </div>
+
+                {notifyErr && (
+                  <div style={{ background:"#fef2f2", border:"1px solid #fca5a5", borderRadius:6,
+                                padding:"8px 12px", color:"#e03838", fontSize:13, marginBottom:10 }}>
+                    ⚠ {notifyErr}
+                  </div>
+                )}
+
+                <button onClick={()=>setNotifyConfirm(true)}
+                  disabled={notifySaving}
+                  style={{ width:"100%", padding:"12px", background:"var(--tl)", color:"white",
+                           border:"none", borderRadius:8, fontSize:15, cursor:"pointer",
+                           opacity: notifySaving ? 0.6 : 1 }}>
+                  📢 送信内容を確認する
+                </button>
+              </div>
+            )
+          }
+        </div>
+      )}
+
+      {/* ─── イベント編集フォーム（モーダル）─── */}
+      {showForm && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:9000,
+                      display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+          <div style={{ background:"white", borderRadius:12, padding:20, width:"100%", maxWidth:480,
+                        maxHeight:"90vh", overflowY:"auto" }}>
+            <div style={{ fontWeight:"bold", fontSize:16, marginBottom:12 }}>
+              {editTarget ? "イベントを編集" : "イベントを追加"} ({selDate})
+            </div>
+
+            {/* タイトル */}
+            <div style={{ marginBottom:10 }}>
+              <div style={{ fontSize:13, fontWeight:"bold", marginBottom:3 }}>タイトル <span style={{color:"red"}}>*</span></div>
+              <input value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))}
+                placeholder="例: 水遊び・工作・遠足"
+                style={{ width:"100%", padding:"8px", borderRadius:6, border:"1px solid var(--bd)",
+                         fontSize:14, boxSizing:"border-box" }}/>
+            </div>
+
+            {/* 種別 */}
+            <div style={{ marginBottom:10 }}>
+              <div style={{ fontSize:13, fontWeight:"bold", marginBottom:3 }}>種別</div>
+              <select value={form.eventType} onChange={e=>setForm(p=>({...p,eventType:e.target.value}))}
+                style={{ width:"100%", padding:"8px", borderRadius:6, border:"1px solid var(--bd)", fontSize:14 }}>
+                <option value="activity">活動</option>
+                <option value="event">イベント</option>
+                <option value="holiday">休業日</option>
+                <option value="other">その他</option>
+              </select>
+            </div>
+
+            {/* 開始時間 */}
+            <div style={{ marginBottom:10 }}>
+              <div style={{ fontSize:13, fontWeight:"bold", marginBottom:3 }}>開始時間（任意）</div>
+              <input type="time" value={form.startTime}
+                onChange={e=>setForm(p=>({...p,startTime:e.target.value}))}
+                style={{ padding:"8px", borderRadius:6, border:"1px solid var(--bd)", fontSize:14 }}/>
+            </div>
+
+            {/* 全施設共通 */}
+            <div style={{ marginBottom:10 }}>
+              <label style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer" }}>
+                <input type="checkbox" checked={form.isAllFacilities}
+                  onChange={e=>setForm(p=>({...p,isAllFacilities:e.target.checked}))}
+                  style={{ width:18, height:18 }}/>
+                <span style={{ fontSize:14, fontWeight:"bold" }}>全施設共通イベント</span>
+              </label>
+              <div style={{ fontSize:11, color:"var(--tx3)", marginTop:2, marginLeft:26 }}>
+                チェックすると全施設の日報・カレンダーに表示されます
+              </div>
+            </div>
+
+            {/* 説明 */}
+            <div style={{ marginBottom:12 }}>
+              <div style={{ fontSize:13, fontWeight:"bold", marginBottom:3 }}>説明・メモ</div>
+              <textarea value={form.description}
+                onChange={e=>setForm(p=>({...p,description:e.target.value}))}
+                placeholder="活動の内容・注意事項など"
+                rows={3}
+                style={{ width:"100%", padding:"8px", borderRadius:6, border:"1px solid var(--bd)",
+                         fontSize:14, resize:"vertical", boxSizing:"border-box" }}/>
+            </div>
+
+            {formErr && (
+              <div style={{ background:"#fef2f2", border:"1px solid #fca5a5", borderRadius:6,
+                            padding:"8px 12px", color:"#e03838", fontSize:13, marginBottom:10 }}>
+                ⚠ {formErr}
+              </div>
+            )}
+
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>{ setShowForm(false); setEditTarget(null); setForm(emptyForm); setFormErr(""); }}
+                style={{ flex:1, padding:"10px", border:"1px solid var(--bd)", borderRadius:8,
+                         background:"white", fontSize:14, cursor:"pointer" }}>
+                キャンセル
+              </button>
+              <button onClick={saveEvent} disabled={saving}
+                style={{ flex:2, padding:"10px", background:"var(--tl)", color:"white",
+                         border:"none", borderRadius:8, fontSize:14, cursor:"pointer",
+                         opacity: saving ? 0.6 : 1 }}>
+                {saving ? "保存中..." : (editTarget ? "✏️ 更新する" : "✅ 登録する")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── 一括通知 確認ダイアログ ─── */}
+      {notifyConfirm && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:9001,
+                      display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+          <div style={{ background:"white", borderRadius:12, padding:20, width:"100%", maxWidth:420 }}>
+            <div style={{ fontWeight:"bold", fontSize:16, marginBottom:12, color:"var(--ro)" }}>
+              ⚠️ 送信確認
+            </div>
+            <div style={{ fontSize:14, marginBottom:8 }}>以下の内容を保護者へ送信します。</div>
+            <div style={{ background:"var(--bg2)", borderRadius:8, padding:12, marginBottom:12 }}>
+              <div style={{ fontWeight:"bold" }}>{notifyTitle}</div>
+              <div style={{ fontSize:13, marginTop:4, color:"var(--tx2)", whiteSpace:"pre-wrap" }}>{notifyBody}</div>
+              <div style={{ fontSize:12, color:"var(--tx3)", marginTop:8 }}>
+                送信先: {notifyFac==="all" ? "全施設" : FACILITIES_LIST.find(f=>f.id===notifyFac)?.name}
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>setNotifyConfirm(false)}
+                style={{ flex:1, padding:"10px", border:"1px solid var(--bd)", borderRadius:8,
+                         background:"white", fontSize:14, cursor:"pointer" }}>
+                キャンセル
+              </button>
+              <button onClick={sendNotify} disabled={notifySaving}
+                style={{ flex:2, padding:"10px", background:"var(--ro)", color:"white",
+                         border:"none", borderRadius:8, fontSize:14, cursor:"pointer",
+                         opacity: notifySaving ? 0.6 : 1 }}>
+                {notifySaving ? "送信中..." : "📢 送信する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ScheduleScreen({ user, store, onBack }) {
   const today = new Date();
   const [vm, setVm] = useState({ y: today.getFullYear(), m: today.getMonth() + 1 });
@@ -25628,6 +27005,7 @@ export default function App(){
     case "messages":         return guard(ROLE_ADMIN_MGR_STF,<ParentMessages user={user} store={store} onBack={()=>setScreen("home")}/>);
     case "daily":            return guard(ROLE_ADMIN_MGR_STF,<DailyReport user={user} store={store} onBack={()=>setScreen("home")}/>);
     case "schedule":         return guard(ROLE_ADMIN_MGR_STF,<ScheduleScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
+    case "activity_calendar":return guard(ROLE_ADMIN_MGR_STF,<ActivityCalendarScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
     case "jisseki":          return guard(ROLE_ADMIN_MGR_STF,<JissekiScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
     case "transport":        return guard(ROLE_ADMIN_MGR_STF,<TransportScreen user={user} store={store} onBack={()=>setScreen("home")}/>);
     case "transport_live":   return guard(ROLE_ADMIN_MGR_STF,<TransportLiveScreen user={user} store={store} onNav={setScreen} onBack={()=>setScreen("home")}/>);
