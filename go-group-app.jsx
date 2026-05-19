@@ -52,9 +52,15 @@ const sb = {
 let _sbErrCb = null;
 
 // Supabaseへの保存ヘルパー（成功:true / 失敗:false を返す）
+// ※ upsert()はHTTPエラーを throw しないため、ここで ok チェックして明示的に投げる
 async function sbSave(table, data) {
   try {
-    await sb.from(table).upsert(data);
+    const r = await sb.from(table).upsert(data);
+    // HTTP 4xx/5xx（RLS違反・GRANT不足・スキーマ不一致等）を検出
+    if (r && typeof r.ok !== "undefined" && !r.ok) {
+      const errText = await r.text().catch(() => "");
+      throw new Error("HTTP " + r.status + ": " + errText);
+    }
     return true;
   } catch(e) {
     console.error("Save error [" + table + "]:", e);
@@ -1833,7 +1839,7 @@ select.fi option{background:var(--bg2);color:var(--tx);}
 .ct{font-size:13px;font-weight:700;color:var(--tx);}
 .cd2{font-size:10px;color:var(--tx3);line-height:1.4;}
 /* ===== PAGE LAYOUT ===== */
-.fl-wrap{padding:0 0 30px;}
+.fl-wrap{padding:0 0 80px;} /* 下部ナビ（高さ60px）＋余白を確保してiPhoneで干渉しない */
 .fl-hd{display:flex;align-items:center;gap:10px;margin-bottom:16px;}
 .bback{padding:7px 13px;background:var(--wh);border:1.5px solid var(--bd);border-radius:7px;color:var(--tx2);font-size:12px;cursor:pointer;font-family:'Noto Sans JP',sans-serif;box-shadow:var(--sh);}
 .bback:hover{border-color:var(--ac);color:var(--ac);}
@@ -2241,7 +2247,25 @@ function useStore() {
       if(billItems&&billItems.length>0) setBillingItems(billItems.map(r=>({...r,...(r.data||{})})));
       if(addItems&&addItems.length>0) setAdditionItems(addItems.map(r=>({...r,...(r.data||{})})));
       if(kintaiCorr&&kintaiCorr.length>0) setKintaiCorrections(kintaiCorr.map(r=>({...r,...(r.data||{})})));
-      if(tpLogs&&tpLogs.length>0) setTransportLogs(tpLogs.map(r=>({...r,...(r.data||{})})));
+      // transport_logs のロード: snake_case カラムを camelCase に正規化して両方アクセスできるようにする
+      // logDate が r.data.logDate にない旧レコードは r.log_date から補完する
+      if(tpLogs&&tpLogs.length>0) setTransportLogs(tpLogs.map(r=>{
+        const d = r.data||{};
+        return {
+          ...r, ...d,
+          // camelCase で確実にアクセスできるよう正規化
+          logDate:    d.logDate    || r.log_date    || "",
+          childId:    d.childId    || r.child_id    || "",
+          childName:  d.childName  || r.child_name  || "",
+          facilityId: d.facilityId || r.facility_id || "",
+          routeId:    d.routeId    || r.route_id    || null,
+          routeName:  d.routeName  || r.route_name  || null,
+          plannedTime:d.plannedTime|| r.planned_time|| null,
+          actualTime: d.actualTime || r.actual_time || null,
+          incidentNote:d.incidentNote||r.incident_note||null,
+          delayMin:   d.delayMin   || r.delay_min   || 0,
+        };
+      }));
       if(anncs&&anncs.length>0) setAnnouncements(anncs.map(r=>({...r,...(r.data||{}),targetIds:typeof r.target_ids==="string"?JSON.parse(r.target_ids||"[]"):r.target_ids||[]})));
       if(anncReads&&anncReads.length>0) setAnnouncementReads(anncReads.map(r=>({...r,...(r.data||{})})));
       if(survs&&survs.length>0) setSurveys(survs.map(r=>({...r,...(r.data||{}),options:typeof r.options==="string"?JSON.parse(r.options||"[]"):r.options||[]})));
@@ -2796,26 +2820,35 @@ function useStore() {
       data:            u
     });
   };
-  const updUser2 = (id,ch) => {
-    setDynUsers(p=>p.map(u=>{
-      if(u.id!==id) return u;
-      const updated = {...u,...ch};
+  // updUser2: 利用者情報を更新する（ローカルstate + Supabase）
+  // ・state updater 内で sbSave を呼ぶと React strict mode で2回実行されてしまうため
+  //   state updater を純粋に保ち、更新後に別途 sbSave を呼ぶ設計にする
+  const updUser2 = (id, ch) => {
+    let updatedUser = null;
+    setDynUsers(p => p.map(u => {
+      if (u.id !== id) return u;
+      const merged = {...u, ...ch};
+      updatedUser = merged;   // state updater 外で使うためキャプチャ
+      return merged;
+    }));
+    // state updater が実行された直後に非同期で Supabase へ保存
+    // （state更新は同期的に確定済みなので、画面は即リフレッシュされる）
+    if (updatedUser) {
       sbSave("users_data", {
         id,
-        facility_id:     updated.facilityId,
-        name:            updated.name || null,
-        name_kana:       updated.nameKana || null,
-        jukyusha_no:     updated.jukyushaNo || null,
-        jukyusha_expiry: updated.jukyushaExpiry || null,
-        jukyusha_city:   updated.jukyushaCity || null,
-        service_type:    updated.serviceType || "放デイ",
-        active:          updated.active !== false,
-        enroll_date:     updated.enrollDate || null,
-        updated_at:      new Date().toISOString(),
-        data:            updated
+        facility_id:       updatedUser.facilityId,
+        name:              updatedUser.name || null,
+        name_kana:         updatedUser.nameKana || null,
+        jukyusha_no:       updatedUser.jukyushaNo || null,
+        jukyusha_expiry:   updatedUser.jukyushaExpiry || null,
+        jukyusha_city:     updatedUser.jukyushaCity || null,
+        service_type:      updatedUser.serviceType || "houkago",
+        active:            updatedUser.active === true || updatedUser.active === "true",
+        enroll_date:       updatedUser.enrollDate || null,
+        updated_at:        new Date().toISOString(),
+        data:              updatedUser,
       });
-      return updated;
-    }));
+    }
   };
   const addStaff = s => {
     setDynStaff(p=>[...p,s]);
@@ -3144,12 +3177,14 @@ function useStore() {
 
   // ─── 送迎ログ（リアルタイム乗降記録）───
   const [transportLogs, setTransportLogs] = useState([]);
-  const saveTransportLog = log => {
+  const saveTransportLog = async log => {
+    // ローカル state を即時更新（楽観的更新）
     setTransportLogs(p => {
       const ex = p.find(x => x.id === log.id);
       return ex ? p.map(x => x.id === log.id ? {...x,...log} : x) : [...p, log];
     });
-    sbSave("transport_logs", {
+    // Supabase 保存（失敗時はトーストで通知）
+    const ok = await sbSave("transport_logs", {
       id: log.id, child_id: log.childId, facility_id: log.facilityId,
       route_id: log.routeId||null, route_name: log.routeName||null,
       log_date: log.logDate, direction: log.direction,
@@ -3158,6 +3193,9 @@ function useStore() {
       vehicle: log.vehicle||null, delay_min: log.delayMin||0,
       incident_note: log.incidentNote||null, data: log,
     });
+    if (!ok) {
+      _sbErrCb?.("送迎データ取得・保存に失敗しました。通信状況を確認してください。", "error");
+    }
   };
 
   // ─── 職員書類管理 ───
@@ -3479,7 +3517,45 @@ function TimePicker({value, onChange, label=""}){
 }
 
 // ==================== COMMON COMPONENTS ====================
-function Cam({cap,onCap}){return <div className={`cam ${cap?"cp":""}`} onClick={onCap}><div className="ci2">{cap?"✅":"📷"}</div><div className="ct2">{cap?"撮影済み（再撮影）":"タップして撮影"}</div></div>;}
+function Cam({cap,onCap,onCapture}){
+  // 一意IDをuseRefで安定生成（label-for連携に使用）
+  const idBase=useRef("cam_"+Math.random().toString(36).slice(2));
+  const camId=idBase.current+"_c";
+  const albId=idBase.current+"_a";
+
+  // ファイル選択後: 圧縮base64変換 → onCap → onCapture
+  const handleFile=async e=>{
+    const f=e.target.files?.[0]; if(!f) return;
+    if(!checkFileSize(f)) return;
+    // OCR等のために高解像度base64も取れるが、Cam出力は圧縮版で統一
+    const b64Raw=await fileToBase64(f);
+    const b64=await compressBase64(b64Raw); // 最大800×600/JPEG70% に圧縮
+    onCap?.();        // cap を true にする
+    onCapture?.(b64); // 圧縮画像データを親へ渡す
+    e.target.value=""; // 同じファイルを再選択できるようにリセット
+  };
+  // ラベル共通スタイル（<label>でfile inputを開く → iOS Safariでも確実に動作）
+  const lblBase={display:"inline-flex",alignItems:"center",gap:5,padding:"8px 14px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--bd)",background:"var(--wh)",color:"var(--tx2)",userSelect:"none"};
+  return(
+    <div className={`cam ${cap?"cp":""}`} style={{cursor:"default"}}>
+      <div className="ci2">{cap?"✅":"📷"}</div>
+      <div className="ct2">{cap?"撮影済み":"写真を追加"}</div>
+      {/* label+input方式: iOSではbutton+js clickよりlabel htmlForの方が確実にpickerが開く */}
+      <div style={{display:"flex",gap:8,justifyContent:"center",marginTop:8,flexWrap:"wrap"}}>
+        <label htmlFor={camId} style={lblBase}>
+          📷 {cap?"撮り直し":"カメラで撮影"}
+        </label>
+        <label htmlFor={albId} style={{...lblBase,borderColor:"var(--tl)",color:"var(--tl)"}}>
+          🖼️ {cap?"選択し直し":"アルバムから選択"}
+        </label>
+      </div>
+      {/* カメラ直接起動（capture="environment"） */}
+      <input id={camId} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handleFile}/>
+      {/* アルバム選択（captureなし → OSがギャラリーを開く） */}
+      <input id={albId} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
+    </div>
+  );
+}
 function FlowWrap({title,onBack,children}){return <div className="fl-wrap"><div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">{title}</div></div><div className="fc">{children}</div></div>;}
 function LoginScreen({onLogin, store}){
   const [un,setUn]=useState(""); const [pw,setPw]=useState(""); const [fac,setFac]=useState("f1"); const [err,setErr]=useState(""); const [loading,setLoading]=useState(false);
@@ -3644,15 +3720,15 @@ function StaffClockOut({user,onBack,store}){
     </div>
     <div className="slbl">STEP 1 — 職員を選択</div><div className="ng">{staff.map(s=><button key={s.id} className={`nb ${sel?.id===s.id?"s":""}`} onClick={()=>setSel(s)}>{s.name}</button>)}</div>
     <hr className="div"/><div className="slbl">STEP 2 — 退勤時刻</div><div className="tr"><TimePicker value={time} onChange={setTime} label="退勤時刻"/></div>
-    <hr className="div"/><div className="slbl">STEP 3 — 写真撮影</div><Cam cap={cap} onCap={()=>setCap(!cap)}/>
+    <hr className="div"/><div className="slbl">STEP 3 — 写真撮影</div><Cam cap={cap} onCap={()=>setCap(true)}/>
     <hr className="div"/><div className="slbl">STEP 4 — 体温（任意）</div><div className="tr"><input className="ti" type="number" placeholder="36.5" step="0.1" value={temp} onChange={e=>setTemp(e.target.value)}/><span className="tunit">℃</span></div>
     <hr className="div"/><div className="slbl">備考（任意）</div><textarea className="fta" value={note} onChange={e=>setNote(e.target.value)}/>
     <button className="bsave" disabled={!sel||!time} onClick={save} style={{marginTop:14}}>保存する</button>
   </FlowWrap>;
 }
-function UserArrive({user,onBack,store}){
+function UserArrive({user,onBack,store,filterIds}){
   // ワンタップ来所記録 — カードをタップ→ボトムシートで即保存
-  const [sheet,setSheet]=useState(null);   // 選択中の利用者
+  const [sheet,setSheet]=useState(null);   // 選択中の利用者（新規来所登録用）
   const [temp,setTemp]=useState("");
   const [tr,setTr]=useState("あり");
   const [note,setNote]=useState("");
@@ -3665,15 +3741,58 @@ function UserArrive({user,onBack,store}){
   const videoRef=useRef(null);
   const streamRef=useRef(null);
 
+  // ── 体温未入力フィルターモード用ステート ──
+  const [teSheet,setTeSheet]=useState(null); // {user, rec} — 体温編集中の利用者+既存記録
+  const [teTemp,setTeTemp]=useState("");
+  const [teDayType,setTeDayType]=useState("放課後");
+  const [teNote,setTeNote]=useState("");
+  const [teSaving,setTeSaving]=useState(false);
+
   const users=store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false);
   const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
   // 選択日に来所済みのID
   const arrivedIds=[...new Set(store.recs.filter(r=>isDateRec(r,selDate)&&r.type==="user_in"&&(r.facilityId===user.selectedFacilityId||user.role==="admin")).map(r=>r.userId))];
 
+  // filterIdsが指定されている場合はフィルターモード（体温未入力修正）
+  const isFilterMode = !!(filterIds && filterIds.length > 0);
+  // フィルターモード時: filterIds対象かつ本日の来所記録に体温がまだ空の利用者だけ動的表示
+  const filteredTempUsers = isFilterMode
+    ? users.filter(u=>{
+        if(!filterIds.includes(u.id)) return false;
+        const rec=store.recs.find(r=>r.type==="user_in"&&r.userId===u.id&&isTodayRec(r)&&(r.facilityId===user.selectedFacilityId||user.role==="admin"));
+        return rec && (!rec.temp||rec.temp==="");
+      })
+    : [];
+
   const openSheet=(u)=>{
     setSheet(u);setTemp("");setTr("あり");setNote("");setTime(nowHM());setDayType("放課後");
   };
   const closeSheet=()=>setSheet(null);
+
+  // ── 体温編集モーダルを開く（既存の来所記録を編集）──
+  const openTempEdit=(u)=>{
+    const rec=store.recs.find(r=>r.type==="user_in"&&r.userId===u.id&&isTodayRec(r)&&(r.facilityId===user.selectedFacilityId||user.role==="admin"));
+    if(!rec){store.showToast?.("来所記録が見つかりません","error");return;}
+    setTeSheet({user:u,rec});
+    setTeTemp(rec.temp||"");
+    setTeDayType(rec.dayType||"放課後");
+    setTeNote(rec.note||"");
+  };
+  const closeTempEdit=()=>{setTeSheet(null);setTeSaving(false);};
+
+  // 体温編集を保存（既存レコードをUPDATE）
+  const saveTempEdit=()=>{
+    if(!teSheet||teSaving) return;
+    setTeSaving(true);
+    store.updRec(
+      teSheet.rec.id,
+      {temp:teTemp, dayType:teDayType, note:teNote},
+      user.displayName,
+      "体温未入力の事後入力"
+    );
+    closeTempEdit();
+    store.showToast?.("✅ 体温を保存しました");
+  };
 
   const save=()=>{
     if(!sheet) return;
@@ -3714,8 +3833,8 @@ function UserArrive({user,onBack,store}){
     setScanning(false);
   };
 
-  // 完了画面
-  if(done)return <div className="succ">
+  // 完了画面（通常モードのみ）
+  if(done&&!isFilterMode)return <div className="succ">
     <div className="si">🌟</div>
     <div className="st">来所登録完了</div>
     <div className="sd">{done} さんの来所を記録しました</div>
@@ -3726,42 +3845,82 @@ function UserArrive({user,onBack,store}){
   </div>;
 
   return <div className="fl-wrap">
-    <div className="fl-hd"><button className="bback" onClick={onBack}>← 戻る</button><div className="fl-title">🌟 利用者 来所</div></div>
-    {/* 日付選択（当日以外も記録可能） */}
-    <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-      <span style={{fontSize:12,fontWeight:700,color:"var(--tx2)"}}>📅 記録日：</span>
-      <input type="date" value={selDate} onChange={e=>setSelDate(e.target.value)} max={todayISO()}
-        style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid var(--bd)",fontSize:13,fontWeight:700,fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",color:"var(--tx)"}}/>
-      {selDate!==todayISO()&&<span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>⚠ 過去日付の記録</span>}
-      {selDate===todayISO()&&<span style={{fontSize:11,color:"var(--gr)",fontWeight:700}}>本日</span>}
+    <div className="fl-hd">
+      <button className="bback" onClick={onBack}>← 戻る</button>
+      <div className="fl-title">
+        {isFilterMode ? "🌡️ 体温 未入力 — 修正" : "🌟 利用者 来所"}
+      </div>
     </div>
 
-    {/* QRスキャン */}
-    {!scanning
-      ? <button className="qr-scan-btn" onClick={startScan}>📷 QRコードでスキャン（ワンタップ）</button>
-      : <div style={{position:"relative",borderRadius:14,overflow:"hidden",border:"2px solid var(--tl)",marginBottom:14}}>
-          <video ref={videoRef} style={{width:"100%",maxHeight:220,objectFit:"cover",display:"block"}} playsInline muted/>
-          <button onClick={stopScan} style={{position:"absolute",top:8,right:8,padding:"6px 14px",borderRadius:8,border:"none",background:"rgba(0,0,0,0.65)",color:"#fff",fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>✕ 停止</button>
-          <div style={{position:"absolute",bottom:8,left:0,right:0,textAlign:"center",color:"var(--tl)",fontSize:12,fontWeight:700,textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>QRコードをカメラに向けてください</div>
+    {/* ── フィルターモード：体温未入力の利用者だけ表示 ── */}
+    {isFilterMode ? (<>
+      {/* 案内バナー */}
+      <div style={{background:"rgba(255,140,0,0.1)",border:"1.5px solid var(--am)",borderRadius:10,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:18}}>🌡️</span>
+        <div>
+          <div style={{fontSize:13,fontWeight:700,color:"var(--am)"}}>体温が未入力の利用者を表示しています</div>
+          <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>カードをタップして体温を入力してください</div>
         </div>
-    }
-    {scanErr&&<div style={{fontSize:11,color:"var(--ro)",marginBottom:10,textAlign:"center"}}>{scanErr}</div>}
+      </div>
 
-    <div style={{fontSize:11,color:"var(--tx3)",marginBottom:12,textAlign:"center"}}>— または下のカードをタップ —</div>
+      {/* 全員完了 */}
+      {filteredTempUsers.length===0 ? (
+        <div style={{textAlign:"center",padding:"40px 20px",color:"var(--tx2)"}}>
+          <div style={{fontSize:40,marginBottom:10}}>✅</div>
+          <div style={{fontSize:16,fontWeight:700,color:"var(--gr)",marginBottom:6}}>全員の体温入力が完了しました！</div>
+          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:20}}>お疲れさまです。</div>
+          <button className="bpri" style={{maxWidth:200}} onClick={onBack}>← ホームへ戻る</button>
+        </div>
+      ) : (
+        <div className="tap-card-grid">
+          {filteredTempUsers.map(u=>(
+            <div key={u.id} className="tap-card" onClick={()=>openTempEdit(u)}
+              style={{borderColor:"var(--am)",background:"rgba(255,140,0,0.06)",cursor:"pointer"}}>
+              <div className="tap-card-avatar">👤</div>
+              <div className="tap-card-name">{u.name}</div>
+              <div className="tap-card-status" style={{color:"var(--am)"}}>🌡️ 体温を入力</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>) : (<>
+      {/* ── 通常モード ── */}
+      {/* 日付選択（当日以外も記録可能） */}
+      <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <span style={{fontSize:12,fontWeight:700,color:"var(--tx2)"}}>📅 記録日：</span>
+        <input type="date" value={selDate} onChange={e=>setSelDate(e.target.value)} max={todayISO()}
+          style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid var(--bd)",fontSize:13,fontWeight:700,fontFamily:"'Noto Sans JP',sans-serif",background:"var(--bg)",color:"var(--tx)"}}/>
+        {selDate!==todayISO()&&<span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>⚠ 過去日付の記録</span>}
+        {selDate===todayISO()&&<span style={{fontSize:11,color:"var(--gr)",fontWeight:700}}>本日</span>}
+      </div>
 
-    {/* 利用者カードグリッド */}
-    <div className="tap-card-grid">
-      {users.map(u=>{
-        const arrived=arrivedIds.includes(u.id);
-        return <div key={u.id} className={`tap-card${arrived?" arrived":""}`} onClick={()=>!arrived&&openSheet(u)}>
-          <div className="tap-card-avatar">👤</div>
-          <div className="tap-card-name">{u.name}</div>
-          <div className="tap-card-status" style={{color:arrived?"var(--gr)":"var(--ac)"}}>{arrived?"✓ 来所済":"タップで記録"}</div>
-        </div>;
-      })}
-    </div>
+      {/* QRスキャン */}
+      {!scanning
+        ? <button className="qr-scan-btn" onClick={startScan}>📷 QRコードでスキャン（ワンタップ）</button>
+        : <div style={{position:"relative",borderRadius:14,overflow:"hidden",border:"2px solid var(--tl)",marginBottom:14}}>
+            <video ref={videoRef} style={{width:"100%",maxHeight:220,objectFit:"cover",display:"block"}} playsInline muted/>
+            <button onClick={stopScan} style={{position:"absolute",top:8,right:8,padding:"6px 14px",borderRadius:8,border:"none",background:"rgba(0,0,0,0.65)",color:"#fff",fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>✕ 停止</button>
+            <div style={{position:"absolute",bottom:8,left:0,right:0,textAlign:"center",color:"var(--tl)",fontSize:12,fontWeight:700,textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>QRコードをカメラに向けてください</div>
+          </div>
+      }
+      {scanErr&&<div style={{fontSize:11,color:"var(--ro)",marginBottom:10,textAlign:"center"}}>{scanErr}</div>}
 
-    {/* ボトムシート */}
+      <div style={{fontSize:11,color:"var(--tx3)",marginBottom:12,textAlign:"center"}}>— または下のカードをタップ —</div>
+
+      {/* 利用者カードグリッド */}
+      <div className="tap-card-grid">
+        {users.map(u=>{
+          const arrived=arrivedIds.includes(u.id);
+          return <div key={u.id} className={`tap-card${arrived?" arrived":""}`} onClick={()=>!arrived&&openSheet(u)}>
+            <div className="tap-card-avatar">👤</div>
+            <div className="tap-card-name">{u.name}</div>
+            <div className="tap-card-status" style={{color:arrived?"var(--gr)":"var(--ac)"}}>{arrived?"✓ 来所済":"タップで記録"}</div>
+          </div>;
+        })}
+      </div>
+    </>)}
+
+    {/* ── 新規来所登録ボトムシート（通常モード）── */}
     {sheet&&<div className="bsheet-overlay" onClick={closeSheet}>
       <div className="bsheet" onClick={e=>e.stopPropagation()}>
         <div className="bsheet-hd">
@@ -3815,6 +3974,67 @@ function UserArrive({user,onBack,store}){
         </button>
       </div>
     </div>}
+
+    {/* ── 体温編集ボトムシート（フィルターモード）── */}
+    {teSheet&&<div className="bsheet-overlay" onClick={closeTempEdit}>
+      <div className="bsheet" onClick={e=>e.stopPropagation()}>
+        <div className="bsheet-hd">
+          <div>
+            <div className="bsheet-title">🌡️ {teSheet.user.name}</div>
+            <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>
+              来所記録の体温を入力してください
+              {teSheet.rec.time&&<span style={{marginLeft:8,color:"var(--tx3)"}}>（来所: {teSheet.rec.time.slice(11,16)||""}）</span>}
+            </div>
+          </div>
+          <button className="bsheet-close" onClick={closeTempEdit}>×</button>
+        </div>
+
+        {/* 記録日（読み取り専用） */}
+        <div className="bsheet-field">
+          <div className="bsheet-label">記録日</div>
+          <div style={{fontSize:13,color:"var(--tx2)",padding:"6px 0",fontWeight:600}}>
+            {(()=>{const p=parseRecTime(teSheet.rec.time);return p.date||todayISO();})()}
+          </div>
+        </div>
+
+        {/* 体温 */}
+        <div className="bsheet-field">
+          <div className="bsheet-label">体温　<span style={{fontSize:10,fontWeight:400,color:"var(--tx3)"}}>タップで即入力</span></div>
+          <div className="temp-grid">
+            {[["36.0",""],["36.5",""],["37.0","t-warn"],["37.5","t-danger"]].map(([v,cls])=>(
+              <button key={v} className={`temp-btn ${cls} ${teTemp===v?"t-on":""}`} onClick={()=>setTeTemp(v)}>{v}</button>
+            ))}
+          </div>
+          <input className="temp-manual" type="number" placeholder="その他（手入力）" step="0.1" min="35" max="42"
+            value={teTemp} onChange={e=>setTeTemp(e.target.value)}/>
+          {teTemp&&parseFloat(teTemp)>=37.5&&<div style={{fontSize:11,color:"var(--ro)",fontWeight:700,marginTop:4}}>⚠ 発熱注意（37.5℃以上）— 保護者連絡を検討してください</div>}
+        </div>
+
+        {/* 日区分（来所状態） */}
+        <div className="bsheet-field">
+          <div className="bsheet-label">来所状態（日区分）</div>
+          <div className="bsheet-toggle">
+            {["放課後","休日"].map(v=><button key={v} className={teDayType===v?"on":""} onClick={()=>setTeDayType(v)}>
+              {v==="休日"?"🎌 休日":"🏫 放課後"}
+            </button>)}
+          </div>
+        </div>
+
+        {/* 備考 */}
+        <div className="bsheet-field">
+          <div className="bsheet-label">備考（任意）</div>
+          <textarea className="fta" style={{minHeight:56}} value={teNote} onChange={e=>setTeNote(e.target.value)} placeholder="特記事項があれば入力"/>
+        </div>
+
+        <button className="bsave"
+          disabled={!teTemp||teSaving}
+          style={{marginTop:4,background:teTemp&&parseFloat(teTemp)>=37.5?"rgba(224,56,56,0.7)":undefined,
+            opacity:!teTemp||teSaving?0.5:1}}
+          onClick={saveTempEdit}>
+          {teSaving ? "保存中..." : `✓ ${teSheet.user.name} の体温を保存する`}
+        </button>
+      </div>
+    </div>}
   </div>;
 }
 function UserDepart({user,onBack,store}){
@@ -3836,7 +4056,7 @@ function UserDepart({user,onBack,store}){
     <hr className="div"/><div className="slbl">STEP 2 — 日区分</div>
     <div className="togr">{["放課後","休日"].map(v=><button key={v} className={`tg ${dayType===v?"on":""}`} onClick={()=>setDayType(v)}>{v==="休日"?"🎌 休日":"🏫 放課後"}</button>)}</div>
     <hr className="div"/><div className="slbl">STEP 3 — 退所時刻</div><div className="tr"><TimePicker value={time} onChange={setTime} label="退所時刻"/></div>
-    <hr className="div"/><div className="slbl">STEP 4 — 写真（任意）</div><Cam cap={cap} onCap={()=>setCap(!cap)}/>
+    <hr className="div"/><div className="slbl">STEP 4 — 写真（任意）</div><Cam cap={cap} onCap={()=>setCap(true)}/>
     <hr className="div"/><div className="slbl">STEP 5 — 送迎</div><div className="togr">{["あり","なし"].map(v=><button key={v} className={`tg ${tr===v?"on":""}`} onClick={()=>setTr(v)}>送迎{v}</button>)}</div>
     <hr className="div"/><div className="slbl">備考（任意）</div><textarea className="fta" value={note} onChange={e=>setNote(e.target.value)}/>
     <button className="bsave" disabled={!sel||!time} onClick={save} style={{marginTop:14}}>保存する</button>
@@ -4141,19 +4361,21 @@ function PhotoRecord({user,onBack,store}){
   const [sel,setSel]=useState(null);const [act,setAct]=useState("");const [cap,setCap]=useState(false);const [cmt,setCmt]=useState("");const [done,setDone]=useState(false);
   const [selDate,setSelDate]=useState(todayISO());
   const [viewRec,setViewRec]=useState(null); // 詳細表示中の記録
+  const [capImg,setCapImg]=useState(null);   // 撮影した写真のbase64
   const users=store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false);const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
   const photos=store.recs.filter(r=>r.type==="photo"&&(user.role==="admin"||r.facilityId===user.selectedFacilityId)).sort((a,b)=>b.time>a.time?1:-1);
 
   const save=()=>{
     const recTime=buildDTForDate(selDate,nowHM());
     if(mode==="edit"&&viewRec){
-      // 編集保存
-      store.updRec(viewRec.id,{activity:act,comment:cmt,time:recTime},user.displayName,"写真記録編集");
-      setViewRec({...viewRec,activity:act,comment:cmt,time:recTime});
+      // 編集保存（capImgがあれば写真も更新）
+      const upd={activity:act,comment:cmt,time:recTime,...(capImg?{imgData:capImg,photo:true}:{})};
+      store.updRec(viewRec.id,upd,user.displayName,"写真記録編集");
+      setViewRec({...viewRec,...upd});
       setMode("view");
     } else {
       // 新規保存
-      store.addRec({id:genId(),type:"photo",userId:sel.id,userName:sel.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,activity:act,photo:true,comment:cmt,time:recTime,createdBy:user.displayName,history:[]});
+      store.addRec({id:genId(),type:"photo",userId:sel.id,userName:sel.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,activity:act,photo:!!capImg,imgData:capImg||null,comment:cmt,time:recTime,createdBy:user.displayName,history:[]});
       setDone(true);
     }
   };
@@ -4163,13 +4385,15 @@ function PhotoRecord({user,onBack,store}){
     const {date}=parseRecTime(r.time);
     setViewRec(r);setSel(users.find(u=>u.id===r.userId)||null);
     setAct(r.activity||"");setCmt(r.comment||"");setSelDate(date||todayISO());
+    setCapImg(null); // 編集時は新しく撮り直すまで既存画像を維持
+    setCap(!!r.imgData);
     setMode("edit");
   };
 
   // カードタップ→詳細
   const openView=(r)=>{setViewRec(r);setMode("view");};
 
-  const reset=()=>{setDone(false);setMode("gallery");setSel(null);setAct("");setCap(false);setCmt("");setSelDate(todayISO());setViewRec(null);};
+  const reset=()=>{setDone(false);setMode("gallery");setSel(null);setAct("");setCap(false);setCapImg(null);setCmt("");setSelDate(todayISO());setViewRec(null);};
 
   if(done)return <div className="succ"><div className="si">📸</div><div className="st">写真記録完了</div><div className="sd">{sel?.name} さんの「{act}」を記録しました</div><div style={{display:"flex",gap:10,marginTop:12}}><button className="bpri" style={{maxWidth:160}} onClick={reset}>続けて撮影</button><button className="bpri" style={{maxWidth:140,background:"rgba(255,255,255,0.1)"}} onClick={onBack}>ホームへ</button></div></div>;
 
@@ -4181,7 +4405,9 @@ function PhotoRecord({user,onBack,store}){
     <div className="fc">
       <div style={{fontSize:18,fontWeight:900,marginBottom:4}}>{viewRec.userName} <span style={{fontSize:13,color:"var(--tl)",fontWeight:700,background:"rgba(58,160,216,0.1)",borderRadius:6,padding:"2px 8px"}}>{viewRec.activity}</span></div>
       <div style={{fontSize:11,color:"var(--tx3)",fontFamily:"'DM Mono',monospace",marginBottom:12}}>{viewRec.time}</div>
-      <div style={{fontSize:80,textAlign:"center",margin:"20px 0",opacity:.5}}>📸</div>
+      {viewRec.imgData
+        ? <img src={viewRec.imgData.startsWith("data:")? viewRec.imgData:"data:image/jpeg;base64,"+viewRec.imgData} alt="写真" style={{width:"100%",maxWidth:400,borderRadius:12,margin:"12px auto",display:"block",objectFit:"contain"}}/>
+        : <div style={{fontSize:80,textAlign:"center",margin:"20px 0",opacity:.5}}>📸</div>}
       {viewRec.comment&&<><div className="slbl">コメント</div><div style={{fontSize:13,color:"var(--tx)",lineHeight:1.7,background:"var(--bg2)",borderRadius:8,padding:"10px 12px"}}>{viewRec.comment}</div></>}
       <div style={{fontSize:11,color:"var(--tx3)",marginTop:12}}>記録者: {viewRec.createdBy}</div>
     </div>
@@ -4199,7 +4425,10 @@ function PhotoRecord({user,onBack,store}){
     {mode==="new"&&<><div className="slbl">STEP 1 — 利用者を選択</div><div className="ng">{users.map(u=><button key={u.id} className={`nb ${sel?.id===u.id?"s":""}`} onClick={()=>setSel(u)}>{u.name}</button>)}</div><hr className="div"/></>}
     {mode==="edit"&&<div style={{background:"rgba(58,160,216,0.08)",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:13,fontWeight:700}}>👤 {viewRec?.userName}</div>}
     <div className="slbl">{mode==="new"?"STEP 2":"STEP 1"} — 活動種別</div><div className="ng">{ACTIVITY_TYPES.map(a=><button key={a} className={`nb ${act===a?"s":""}`} onClick={()=>setAct(a)} style={{fontSize:12}}>{a}</button>)}</div>
-    <hr className="div"/><div className="slbl">{mode==="new"?"STEP 3":"STEP 2"} — 写真撮影 <span style={{fontSize:10,color:"var(--tx3)",fontWeight:400}}>（任意）</span></div><Cam cap={cap} onCap={()=>setCap(!cap)}/>
+    <hr className="div"/><div className="slbl">{mode==="new"?"STEP 3":"STEP 2"} — 写真撮影 <span style={{fontSize:10,color:"var(--tx3)",fontWeight:400}}>（任意）</span></div>
+    <Cam cap={cap} onCap={()=>setCap(true)} onCapture={(b64)=>{setCap(true);setCapImg(b64);}}/>
+    {capImg&&<img src={capImg.startsWith("data:")?capImg:"data:image/jpeg;base64,"+capImg} alt="プレビュー" style={{width:"100%",maxWidth:320,borderRadius:10,margin:"8px auto",display:"block",objectFit:"contain",border:"2px solid var(--tl)"}}/>}
+    {!capImg&&mode==="edit"&&viewRec?.imgData&&<img src={viewRec.imgData.startsWith("data:")?viewRec.imgData:"data:image/jpeg;base64,"+viewRec.imgData} alt="既存写真" style={{width:"100%",maxWidth:320,borderRadius:10,margin:"8px auto",display:"block",objectFit:"contain",opacity:0.7,border:"2px dashed var(--bd)"}}/>}
     <hr className="div"/><div className="slbl">コメント（任意）</div><textarea className="fta" placeholder="活動の様子を記入..." value={cmt} onChange={e=>setCmt(e.target.value)}/>
     <button className="bsave" disabled={mode==="new"?(!sel||!act):!act} onClick={save} style={{marginTop:14}}>{mode==="edit"?"変更を保存する":"保存する"}</button>
   </FlowWrap>;
@@ -4209,7 +4438,7 @@ function PhotoRecord({user,onBack,store}){
     <div style={{paddingBottom:8,marginBottom:12}}><button className="bsave" onClick={()=>setMode("new")} style={{maxWidth:200}}>＋ 写真を撮影・記録</button></div>
     {photos.length===0?<div style={{textAlign:"center",color:"var(--g6)",padding:"36px 0"}}>写真記録がありません</div>
     :<div className="photo-grid">{photos.map(r=><div key={r.id} className="photo-item" onClick={()=>openView(r)} style={{cursor:"pointer"}}>
-      <div className="photo-thumb">📸</div><div className="photo-user">{r.userName}</div><div className="photo-act">{r.activity}</div>
+      <div className="photo-thumb">{r.imgData?<img src={r.imgData.startsWith("data:")?r.imgData:"data:image/jpeg;base64,"+r.imgData} alt="写真" style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:8}}/>:"📸"}</div><div className="photo-user">{r.userName}</div><div className="photo-act">{r.activity}</div>
       {r.comment&&<div style={{fontSize:10,color:"var(--g4)",marginTop:3}}>{r.comment.length>20?r.comment.slice(0,20)+"…":r.comment}</div>}
       <div className="photo-time">{r.time?.slice(0,16)}</div>
     </div>)}
@@ -5126,16 +5355,30 @@ function TransportScreen({user,store,onBack}){
 
   const facId=user.selectedFacilityId;
   const facName=FACILITIES.find(f=>f.id===facId)?.name||"";
+  // ── JST固定の今日の日付（UTC変換しない）──
+  // todayISO()はローカル日付を使うのでUTCズレなし
   const today=todayISO();
 
   // 施設の利用者一覧
   const facUsers=store.dynUsers.filter(u=>u.facilityId===facId&&u.active!==false);
   // 本日のルート（方向フィルタ）
   const todayRoutes=(store.routes||[]).filter(r=>r.facilityId===facId&&r.direction===dir);
-  // 本日のrecs（来所/退所）
-  const todayRecs=store.recs.filter(r=>r.facilityId===facId&&r.time?.slice(0,10)===today);
+
+  // ── 本日のrecs（来所/退所）──
+  // ⚠️ BUGFIX: time?.slice(0,10)===today は "2026/05/18" 形式を取りこぼす
+  //    → isTodayRec() を使って "YYYY/MM/DD" "YYYY-MM-DD" 両形式に対応する
+  const todayRecs=store.recs.filter(r=>r.facilityId===facId&&isTodayRec(r));
   const arrivals=todayRecs.filter(r=>r.type==="user_in");
   const departures=todayRecs.filter(r=>r.type==="user_out");
+  // 本日の送迎実績（routes未設定時のフォールバック表示用）
+  const todayTransArrivals  = arrivals.filter(r=>r.transport==="あり");
+  const todayTransDepartures= departures.filter(r=>r.transport==="あり");
+
+  // ── デバッグログ（送迎データが0のとき原因調査に使用） ──
+  console.log("[送迎管理] today:", today);
+  console.log("[送迎管理] todayRoutes:", todayRoutes.length, todayRoutes);
+  console.log("[送迎管理] todayRecs:", todayRecs.length, " (来所送迎:", todayTransArrivals.length, " 退所送迎:", todayTransDepartures.length, ")");
+  console.log("[送迎管理] transportLogs(today):", store.transportLogs.filter(l=>(l.logDate||l.log_date)===today&&l.facilityId===facId).length);
 
   // ルート印刷
   const printRoute=(route)=>{
@@ -5240,24 +5483,81 @@ function TransportScreen({user,store,onBack}){
       </div>
 
       {/* 本日の状況サマリー */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
-        {[
-          {label:dir==="来所"?"来所済み":"退所済み", val:dir==="来所"?arrivals.filter(r=>r.transport==="あり").length:departures.filter(r=>r.transport==="あり").length, color:"var(--gr)"},
-          {label:"送迎予定数", val:todayRoutes.reduce((s,r)=>s+(r.stops||[]).length,0), color:"var(--tl)"},
-          {label:"ルート数", val:todayRoutes.length, color:"var(--pu)"},
-        ].map(s=>(
-          <div key={s.label} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 8px",textAlign:"center",boxShadow:"var(--sh)"}}>
-            <div style={{fontSize:22,fontWeight:900,color:s.color,fontFamily:"'DM Mono',monospace"}}>{s.val}</div>
-            <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{s.label}</div>
+      {(()=>{
+        // ルートのstops数 → 0なら recs の送迎対象者数にフォールバック
+        const routeStops   = todayRoutes.reduce((s,r)=>s+(r.stops||[]).length,0);
+        const recsTransCnt = [...new Set((dir==="来所"?todayTransArrivals:todayTransDepartures).map(r=>r.userId))].length;
+        // 送迎予定数: ルート定義があればstops数、なければ実績recs数
+        const plannedCount = routeStops || recsTransCnt;
+        // 完了数: ルート有りなら完了stops数、なければ recs の送迎記録数
+        const doneCnt = dir==="来所"?todayTransArrivals.length:todayTransDepartures.length;
+        return (
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+            {[
+              {label:dir==="来所"?"送迎来所済":"送迎退所済", val:doneCnt, color:"var(--gr)"},
+              {label:"送迎対象数",
+               val:plannedCount,
+               color:"var(--tl)",
+               // ルートなしで recs から取得した場合は注記を表示
+               note:routeStops===0&&recsTransCnt>0?"記録ベース":null},
+              {label:"ルート数",   val:todayRoutes.length, color:"var(--pu)",
+               note:todayRoutes.length===0&&recsTransCnt>0?"未設定":null},
+            ].map(s=>(
+              <div key={s.label} style={{background:"var(--wh)",border:`1px solid ${s.note==="未設定"?"rgba(224,168,0,0.5)":"var(--bd)"}`,borderRadius:10,padding:"10px 8px",textAlign:"center",boxShadow:"var(--sh)"}}>
+                <div style={{fontSize:22,fontWeight:900,color:s.color,fontFamily:"'DM Mono',monospace"}}>{s.val}</div>
+                <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{s.label}</div>
+                {s.note&&<div style={{fontSize:9,color:"var(--am)",fontWeight:700,marginTop:2}}>{s.note}</div>}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        );
+      })()}
 
       {/* ルートごとの送迎状況 */}
+      {/* ⑥ BUGFIX: route_count=0でも実記録があれば「未設定」を表示しない */}
       {todayRoutes.length===0
-        ?<div style={{background:"var(--bg)",borderRadius:11,padding:"20px 14px",textAlign:"center",color:"var(--tx3)",fontSize:13}}>
-          {dir}の送迎ルートが未設定です。「ルート管理」タブから追加してください。
-        </div>
+        ?(()=>{
+          // ルートが未設定でも recs に今日の送迎記録があれば一覧表示
+          const noRouteTrans = (dir==="来所"?todayTransArrivals:todayTransDepartures);
+          if(noRouteTrans.length>0){
+            return (
+              <div>
+                <div style={{background:"rgba(255,160,0,0.1)",border:"1.5px solid rgba(255,160,0,0.5)",borderRadius:11,padding:"10px 14px",marginBottom:12,fontSize:12,color:"#7a5000",fontWeight:700}}>
+                  ⚠️ 送迎ルートが未設定ですが、今日の送迎記録（{noRouteTrans.length}件）が入退室記録に存在します。
+                  <span style={{fontWeight:400,fontSize:11,display:"block",marginTop:4}}>
+                    「ルート管理」タブからルートを作成するとより詳細な管理ができます。
+                  </span>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {noRouteTrans.map((r,i)=>{
+                    const u=facUsers.find(x=>x.id===r.userId);
+                    const timeStr=r.time?.slice(-8,-3)||r.time?.slice(11,16)||"";
+                    return (
+                      <div key={i} style={{background:"var(--wh)",border:"1.5px solid rgba(44,170,96,0.35)",borderRadius:11,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",boxShadow:"var(--sh)"}}>
+                        <div>
+                          <div style={{fontWeight:700,fontSize:13}}>{r.userName||u?.name||"—"}</div>
+                          <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>
+                            📍 {u?.address||"住所未設定"} 　体温: {r.temp||"—"}
+                          </div>
+                        </div>
+                        <div style={{textAlign:"right",flexShrink:0}}>
+                          <div style={{fontSize:13,fontWeight:700,color:"var(--gr)"}}>✅ {timeStr}</div>
+                          <div style={{fontSize:10,color:"var(--tx3)"}}>記録: {r.createdBy||""}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          }
+          // 記録もない場合のみ「未設定」を表示
+          return (
+            <div style={{background:"var(--bg)",borderRadius:11,padding:"20px 14px",textAlign:"center",color:"var(--tx3)",fontSize:13}}>
+              {dir}の送迎ルートが未設定です。「ルート管理」タブから追加してください。
+            </div>
+          );
+        })()
         :todayRoutes.map(route=>{
           const completedStops=(route.stops||[]).filter(s=>{
             const rec=(dir==="来所"?arrivals:departures).find(r=>r.userId===s.userId);
@@ -6348,6 +6648,7 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
       {/* 基本情報 */}
       <FormSection title="■ 基本情報" color="var(--tl)">
         <FormField form={form} upd={upd} errors={errors}  label="氏名（フルネーム）" fkey="name" placeholder="山田 花子" required/>
+        <FormField form={form} upd={upd} errors={errors}  label="ふりがな" fkey="nameKana" placeholder="やまだ はなこ"/>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
           <FormField form={form} upd={upd} errors={errors}  label="生年月日" fkey="dob" type="date" required/>
           <FormField form={form} upd={upd} errors={errors}  label="性別" fkey="gender" options={[{value:"",label:"選択してください"},{value:"男",label:"男"},{value:"女",label:"女"},{value:"その他",label:"その他"}]}/>
@@ -6367,11 +6668,18 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
               {st.icon} {st.name}
             </button>)}
           </div>
-          {!form.serviceType&&<div style={{fontSize:11,color:"var(--ro)",marginTop:4}}>※ サービス種別を選択してください（請求・記録様式が変わります）</div>}
+          {/* serviceType のバリデーションエラーを表示（errors に連動） */}
+          {(errors.serviceType||!form.serviceType)&&<div style={{fontSize:11,color:"var(--ro)",marginTop:4}}>
+            {errors.serviceType||"※ サービス種別を選択してください（請求・記録様式が変わります）"}
+          </div>}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
           <FormField form={form} upd={upd} errors={errors}  label="診断名" fkey="diagnosis" placeholder="自閉スペクトラム症"/>
           <FormField form={form} upd={upd} errors={errors}  label="障害種別・等級" fkey="disabilityGrade" placeholder="療育手帳 B1"/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+          <FormField form={form} upd={upd} errors={errors}  label="支援区分" fkey="supportGrade" placeholder="区分1・区分2・区分3…"/>
+          <FormField form={form} upd={upd} errors={errors}  label="相談支援事業所" fkey="consultationOffice" placeholder="○○相談支援事業所"/>
         </div>
         <div style={{marginBottom:12}}>
           <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,display:"block",marginBottom:7}}>送迎</label>
@@ -6384,8 +6692,16 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
           <FormField form={form} upd={upd} errors={errors}  label="利用開始日" fkey="enrollDate" type="date"/>
-          <FormField form={form} upd={upd} errors={errors}  label="利用状況" fkey="active"
-            options={[{value:true,label:"在籍中"},{value:false,label:"退所・無効"}]}/>
+          {/* active は select の onChange が文字列を返すため boolean に変換してから保存 */}
+          <div style={{marginBottom:12}}>
+            <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,marginBottom:5}}>利用状況</label>
+            <select className="fi"
+              value={form.active===true||form.active==="true" ? "true" : "false"}
+              onChange={e=>upd("active", e.target.value==="true")}>
+              <option value="true">在籍中</option>
+              <option value="false">退所・無効</option>
+            </select>
+          </div>
         </div>
       </FormSection>
 
@@ -6515,7 +6831,8 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
       {isEdit&&<div style={{background:"rgba(224,56,56,0.08)",border:"1px solid rgba(224,56,56,0.4)",borderRadius:11,padding:14,marginBottom:12}}>
         <div style={{fontSize:11,fontWeight:700,color:"var(--ro)",marginBottom:8}}>⚠ 利用状況の変更</div>
         <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>upd("active",true)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.active!==false?"rgba(44,170,96,0.4)":"var(--bd)",background:form.active!==false?"rgba(44,170,96,0.2)":"var(--bg)",color:form.active!==false?"var(--gr)":"var(--tx3)"}}>在籍中</button>
+          {/* active は常に boolean で管理（select 等で文字列になった場合も正規化済み） */}
+          <button onClick={()=>upd("active",true)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.active===true?"rgba(44,170,96,0.4)":"var(--bd)",background:form.active===true?"rgba(44,170,96,0.2)":"var(--bg)",color:form.active===true?"var(--gr)":"var(--tx3)"}}>在籍中</button>
           <button onClick={()=>upd("active",false)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:form.active===false?"rgba(224,56,56,0.4)":"var(--bd)",background:form.active===false?"rgba(224,56,56,0.15)":"var(--bg)",color:form.active===false?"var(--ro)":"var(--tx3)"}}>退所・無効</button>
         </div>
       </div>}
@@ -6650,10 +6967,25 @@ function UserManagement({user,store,onBack}){
   // ===== 新規登録 / 編集画面 =====
   if(screen==="register"||screen==="edit"){
     const isEdit = screen==="edit";
-    const init = isEdit&&selUser ? {...selUser} : {
-      id:"", name:"", facilityId:user.selectedFacilityId||"f1",
+    // 編集時は常にdynUsersから最新データを取得（JukyushaTab等で更新された受給者証情報を反映するため）
+    const freshUser = isEdit&&selUser ? (store.dynUsers.find(x=>x.id===selUser.id)||selUser) : null;
+    // ── 編集時のinit：既存データを展開しつつ、旧データに欠けているフィールドにはデフォルト値を設定 ──
+    // serviceType が未設定の旧ユーザーもバリデーションを通過できるよう "houkago" をデフォルトとして先置きし
+    // 既存データで上書きする（freshUser.serviceType があればそちらが優先される）
+    const init = isEdit&&freshUser ? {
+      serviceType:       "houkago",
+      nameKana:          "",
+      supportGrade:      "",
+      consultationOffice:"",
+      ...freshUser,
+      // select から文字列で保存された active を boolean に正規化
+      active: freshUser.active === true || freshUser.active === "true",
+    } : {
+      id:"", name:"", nameKana:"", facilityId:user.selectedFacilityId||"f1",
+      serviceType:"houkago",
       hasTransport:false, dob:"", diagnosis:"", gender:"",
-      disabilityGrade:"", parentName:"", parentTel:"", parentRelation:"母",
+      disabilityGrade:"", supportGrade:"", consultationOffice:"",
+      parentName:"", parentTel:"", parentRelation:"母",
       address:"", emergencyTel:"", emergencyName:"",
       school:"", schoolYear:"", schoolContact:"",
       medicalInstitution:"", doctor:"", medications:"", allergies:"",
@@ -6664,11 +6996,17 @@ function UserManagement({user,store,onBack}){
       init={init} isEdit={isEdit} user={user} store={store}
       onBack={()=>setScreen("list")}
       onSave={(u)=>{
-        if(isEdit){ store.updUser2(u.id,u); setSelUser(u); }
-        else {
+        if(isEdit){
+          // ローカル state を即時更新 + Supabase に非同期保存
+          store.updUser2(u.id, u);
+          // selUser も最新に更新（hub/edit 画面で古いデータが表示されないよう）
+          setSelUser(u);
+          store.showToast("✅ 利用者情報を保存しました");
+        } else {
           // 意味のあるID: U-GH-0001 形式で採番
           const newId = genUserId(u.facilityId||user.selectedFacilityId, store.dynUsers);
           store.addUser({...u, id: newId});
+          store.showToast("✅ 利用者を登録しました");
         }
         setScreen("list");
       }}
@@ -6677,7 +7015,9 @@ function UserManagement({user,store,onBack}){
 
   // ===== ハブ画面（タブ切替） =====
   if(screen==="hub"&&selUser){
-    const u=selUser;
+    // JukyushaTab等でupdUser2が呼ばれてもselUserは古いスナップショットのままになるため
+    // 常にdynUsersから最新データを取得する
+    const u = store.dynUsers.find(x=>x.id===selUser.id) || selUser;
     const age=calcAge(u.dob);
     // 新システム（ispRecords）から個別支援計画を取得し、旧システム（isps）と統合
     const myIspRecs=(store.ispRecords||[])
@@ -6707,18 +7047,19 @@ function UserManagement({user,store,onBack}){
     const svcType = getUserServiceType(u);
     const isJidou   = u.serviceType==="jidouhattatsu";
     const isVisit   = u.serviceType==="hoikuvisit";
+    // タブ定義: よく使う順に並べ、ラベルを短縮してスマホ横幅に最適化
     const TABS=[
-      {k:"facesheet",l:"フェイスシート",ic:"📋"},
-      {k:"assessment",l:"アセスメント",ic:"📊"},
-      {k:"isp_draft",l:"個別支援計画（原案）",ic:"📄"},
-      {k:"isp",l:"個別支援計画",ic:"📝"},
-      {k:"monitoring",l:"モニタリング",ic:"🔍"},
-      {k:"timeline",l:"タイムライン",ic:"📅"},
-      {k:"jukyusha",l:"受給者証",ic:"🪪"},
-      {k:"soudan_genan",l:"相談支援原案",ic:"📑"},
+      {k:"facesheet",   l:"FS",       ic:"📋"},  // フェイスシート（最頻用）
+      {k:"isp",         l:"支援計画",  ic:"📝"},  // 個別支援計画
+      {k:"monitoring",  l:"モニタリング",ic:"🔍"},
+      {k:"assessment",  l:"アセスメント",ic:"📊"},
+      {k:"isp_draft",   l:"原案",     ic:"📄"},  // 個別支援計画（原案）
+      {k:"jukyusha",    l:"受給者証", ic:"🪪"},
+      {k:"soudan_genan",l:"相談支援", ic:"📑"},
+      {k:"timeline",    l:"履歴",     ic:"📅"},
       ...(isJidou?[
-        {k:"dev_record",l:"発達段階記録",ic:"🌱"},
-        {k:"parent_support",l:"保護者支援記録",ic:"👨‍👩‍👧"},
+        {k:"dev_record",    l:"発達記録",  ic:"🌱"},
+        {k:"parent_support",l:"保護者支援",ic:"👨‍👩‍👧"},
       ]:[]),
       ...(isVisit?[
         {k:"visit_record",l:"訪問記録",ic:"🚌"},
@@ -6729,24 +7070,41 @@ function UserManagement({user,store,onBack}){
         <div className="fl-hd"><button className="bback" onClick={()=>setScreen("list")}>← 戻る</button><div className="fl-title">👤 {u.name}</div></div>
         {/* アラートバナー */}
         {(()=>{const alerts=getUserAlerts(u,store);return alerts.filter(a=>a.status!=="ok").length>0&&<AlertBanner alerts={alerts.filter(a=>a.status!=="ok")} onTabClick={setHubTab}/>;})()}
-        {/* プロフィールバナー */}
-        <div style={{background:"linear-gradient(135deg,var(--tl),var(--gr))",borderRadius:12,padding:"14px 16px",marginBottom:14,color:"#fff",display:"flex",alignItems:"center",gap:14}}>
-          <div style={{width:52,height:52,borderRadius:"50%",background:"rgba(255,255,255,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0}}>👤</div>
-          <div style={{flex:1}}>
-            <div style={{fontSize:20,fontWeight:900}}>{u.name}</div>
-            <div style={{fontSize:12,opacity:.85,marginTop:2}}>{age}歳（{u.dob}生）／ {u.diagnosis}</div>
-            <div style={{fontSize:11,opacity:.75,marginTop:1}}>{FACILITIES.find(f=>f.id===u.facilityId)?.name} ／ 送迎: {u.hasTransport?"あり":"なし"}</div>
-            {/* サービス種別バッジ（白抜き） */}
-            <span style={{display:"inline-flex",alignItems:"center",gap:4,marginTop:5,padding:"2px 9px",borderRadius:10,fontSize:10,fontWeight:700,background:"rgba(255,255,255,0.22)",border:"1px solid rgba(255,255,255,0.5)",color:"#fff"}}>{svcType.icon} {svcType.name}</span>
+        {/* ── プロフィールバナー: 1行コンパクト表示（スマホ縦スクロール削減） ── */}
+        <div style={{background:"linear-gradient(135deg,var(--tl),var(--gr))",borderRadius:10,padding:"10px 14px",marginBottom:10,color:"#fff",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span style={{fontSize:20,lineHeight:1,flexShrink:0}}>👤</span>
+          <div style={{flex:1,minWidth:0}}>
+            {/* 1行目: 名前 ＋ キーサマリー */}
+            <div style={{fontSize:14,fontWeight:900,display:"flex",flexWrap:"wrap",alignItems:"baseline",gap:"0 6px",lineHeight:1.4}}>
+              <span>{u.name}</span>
+              <span style={{fontSize:11,fontWeight:400,opacity:.85}}>
+                {age}歳 ｜ {FACILITIES.find(f=>f.id===u.facilityId)?.name} ｜ 送迎{u.hasTransport?"あり":"なし"}
+              </span>
+            </div>
+            {/* 2行目: サービス種別 ＋ 診断（長すぎる場合は省略） */}
+            <div style={{fontSize:10,opacity:.8,marginTop:2,display:"flex",gap:6,flexWrap:"wrap"}}>
+              <span>{svcType.icon} {svcType.name}</span>
+              {u.diagnosis&&<span style={{opacity:.75}}>｜ {u.diagnosis.length>20?u.diagnosis.slice(0,20)+"…":u.diagnosis}</span>}
+            </div>
           </div>
         </div>
         {/* タブ */}
-        {(()=>{const allAlerts=getUserAlerts(u,store);return <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:4,scrollbarWidth:"none"}}>
+        {/* タブバー: 横スクロール・高さ統一・スクロールバー非表示 */}
+        {(()=>{const allAlerts=getUserAlerts(u,store);return <div style={{display:"flex",gap:5,marginBottom:12,overflowX:"auto",paddingBottom:6,WebkitOverflowScrolling:"touch",scrollbarWidth:"none",msOverflowStyle:"none"}}>
           {TABS.map(t=>{const tabAlerts=allAlerts.filter(a=>a.tab===t.k&&a.status!=="ok");const hasUrgent=tabAlerts.some(a=>a.status==="expired"||a.status==="urgent");const hasSoon=tabAlerts.some(a=>a.status==="soon");
-            const tabBorder = hubTab===t.k?"none":hasUrgent?"1.5px solid rgba(224,56,56,0.4)":hasSoon?"1.5px solid #e8d870":"1.5px solid var(--bd)";
-            return <button key={t.k} onClick={()=>setHubTab(t.k)} style={{padding:"8px 14px",borderRadius:20,whiteSpace:"nowrap",fontFamily:"'Noto Sans JP',sans-serif",fontSize:12,fontWeight:700,cursor:"pointer",background:hubTab===t.k?"var(--tl)":"var(--wh)",color:hubTab===t.k?"#fff":"var(--tx3)",border:tabBorder,boxShadow:hubTab===t.k?"0 2px 8px rgba(0,128,184,0.3)":"var(--sh)",transition:"all .18s",position:"relative"}}>
+            const isActive=hubTab===t.k;
+            const tabBorder = isActive?"none":hasUrgent?"1.5px solid rgba(224,56,56,0.4)":hasSoon?"1.5px solid #e8d870":"1.5px solid var(--bd)";
+            return <button key={t.k} onClick={()=>setHubTab(t.k)} style={{
+              padding:"7px 12px",borderRadius:20,whiteSpace:"nowrap",
+              fontFamily:"'Noto Sans JP',sans-serif",fontSize:11,fontWeight:700,
+              cursor:"pointer",flexShrink:0,minHeight:34,
+              background:isActive?"var(--tl)":"var(--wh)",
+              color:isActive?"#fff":"var(--tx3)",
+              border:tabBorder,
+              boxShadow:isActive?"0 2px 8px rgba(0,128,184,0.3)":"var(--sh)",
+              transition:"all .18s",position:"relative"}}>
               {t.ic} {t.l}
-              {(hasUrgent||hasSoon)&&<span style={{position:"absolute",top:-4,right:-4,width:10,height:10,borderRadius:"50%",background:hasUrgent?"var(--ro)":"#8a6200",border:"2px solid var(--wh)"}}/>}
+              {(hasUrgent||hasSoon)&&<span style={{position:"absolute",top:-3,right:-3,width:8,height:8,borderRadius:"50%",background:hasUrgent?"var(--ro)":"#8a6200",border:"2px solid var(--wh)"}}/>}
             </button>;
           })}
         </div>;})()}
@@ -7366,13 +7724,36 @@ function checkFileSize(file) {
   return true;
 }
 
-// 画像ファイル → Base64変換
+// 画像ファイル → Base64変換（プレフィックスなし raw base64）
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result.split(",")[1]);
     reader.onerror = reject;
     reader.readAsDataURL(file);
+  });
+}
+
+// Base64画像を圧縮（最大800×600、JPEG品質70%）
+// → 1枚あたり50〜150KBに抑えてSupabaseのJSONB保存量を削減する
+function compressBase64(base64, maxW=800, maxH=600, quality=0.7) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width, h = img.height;
+      if (w > maxW || h > maxH) {
+        const r = Math.min(maxW / w, maxH / h);
+        w = Math.round(w * r);
+        h = Math.round(h * r);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      // toDataURL returns "data:image/jpeg;base64,..." → split to get raw base64
+      resolve(canvas.toDataURL("image/jpeg", quality).split(",")[1]);
+    };
+    img.onerror = () => resolve(base64); // 変換失敗時はオリジナルをそのまま返す
+    img.src = "data:image/jpeg;base64," + base64;
   });
 }
 
@@ -7416,69 +7797,126 @@ function jukyushaStatus(expiryDate) {
 function JukyushaTab({u, user, store}) {
   const [mode, setMode] = useState("list"); // list | scan | result
   const [scanning, setScanning] = useState(false);
-  // 写真は最大3枚。各要素: { previewUrl: string, base64: string }
+  // 写真は最大3枚。各要素: { previewUrl, base64(圧縮済み), base64Raw(OCR用高解像度), mediaType }
   const [photos, setPhotos] = useState([]);
   const [ocrResult, setOcrResult] = useState(null);
   const [ocrError, setOcrError] = useState("");
   const [form, setForm] = useState({});
-  const fileRef  = useRef(null); // 写真1（OCR用）
-  const fileRef2 = useRef(null); // 写真2
-  const fileRef3 = useRef(null); // 写真3
+  // 受給者証カード折りたたみ管理（docId → expanded boolean）
+  const [expandedDocId, setExpandedDocId] = useState(null); // null=全部閉じ
+  const fileRef2   = useRef(null); // 写真2 カメラ
+  const fileRef2Alb= useRef(null); // 写真2 アルバム
+  const fileRef3   = useRef(null); // 写真3 カメラ
+  const fileRef3Alb= useRef(null); // 写真3 アルバム
 
   const myDocs = (store.jukyushaDocs||[]).filter(d=>d.userId===u.id).sort((a,b)=>b.scanDate>a.scanDate?1:-1);
 
-  // ファイル選択 → slot=0のみOCR実行、slot=1,2は写真追加のみ
+  // ── ファイル選択 → 写真ステートに追加（OCRはまだ実行しない）──
   const handleFile = async (file, slot=0) => {
     if (!file) return;
     if (!checkFileSize(file)) return; // 5MB上限チェック
     const previewUrl = URL.createObjectURL(file);
-    const base64 = await fileToBase64(file);
+    // OCR用: オリジナルのbase64（高解像度で精度を確保）
+    const base64Raw = await fileToBase64(file);
+    // 保存用: 圧縮済みbase64（最大800×600/JPEG70%）→ Supabase保存量を大幅削減
+    const base64 = await compressBase64(base64Raw);
 
     if (slot === 0) {
-      // 写真1: OCR実行
+      // 写真1枚目: フォームを初期化して写真グリッド（resultモード）へ
       setOcrError("");
-      setPhotos([{previewUrl, base64}]);
-      setScanning(true);
-      setMode("scan");
-      try {
-        const res = await fetch("/api/ocr", {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({ imageBase64: base64, mediaType: file.type, mode: "jukyusha" })
-        });
-        const data = await res.json();
-        if (data.success && data.data) {
-          setOcrResult(data.data);
-          setForm({
-            name: data.data.name || u.name || "",
-            nameKana: data.data.nameKana || "",
-            jukyushaNo: data.data.jukyushaNo || "",
-            city: data.data.city || "",
-            expiryDate: data.data.expiryDate || "",
-            serviceType: data.data.serviceType || "",
-            serviceAmount: data.data.serviceAmount || "",
-            maxBurden: data.data.maxBurden || "",
-            startDate: data.data.startDate || "",
-          });
-          setMode("result");
-        } else {
-          setOcrError(data.error || "OCRの解析に失敗しました。手動で入力してください。");
-          setForm({ name: u.name || "", jukyushaNo: u.jukyushaNo || "", city: u.jukyushaCity || "", expiryDate: u.jukyushaExpiry || "" });
-          setMode("result");
-        }
-      } catch(e) {
-        setOcrError("通信エラー: " + e.message);
-        setMode("result");
-      } finally {
-        setScanning(false);
-      }
+      setOcrResult(null);
+      setPhotos([{previewUrl, base64, base64Raw, mediaType: file.type}]);
+      setForm({}); // フォームは空に（AI解析ボタン押下後に入力）
+      setMode("result");
     } else {
-      // 写真2・3: OCRなし、そのまま追加（最大3枚）
+      // 写真2・3枚目: ステートに追加（OCRはrunAllOcrで一括実行）
       setPhotos(p => {
         const arr = [...p];
-        arr[slot] = {previewUrl, base64};
+        arr[slot] = {previewUrl, base64, base64Raw, mediaType: file.type};
         return arr.slice(0, 3);
       });
+    }
+  };
+
+  // ── 登録済み全写真を一括OCR（Promise.allSettled で1枚失敗しても続行）──
+  const runAllOcr = async () => {
+    const targets = photos.filter(Boolean);
+    if (targets.length === 0) return;
+    setScanning(true);
+    setOcrError("");
+    setMode("scan"); // ローディング画面へ
+    try {
+      // 全写真を並列でOCR実行（1枚失敗しても他を続行）
+      const results = await Promise.allSettled(
+        targets.map(photo =>
+          fetch("/api/ocr", {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({
+              imageBase64: photo.base64Raw,
+              mediaType: photo.mediaType || "image/jpeg",
+              mode: "jukyusha"
+            })
+          }).then(r => r.json())
+        )
+      );
+
+      // 成功した結果を統合（最初の非null・非空値を採用）
+      let merged = {};
+      let successCount = 0;
+      let failCount = 0;
+      for (const result of results) {
+        if (result.status === "fulfilled" && result.value?.success && result.value?.data) {
+          successCount++;
+          const d = result.value.data;
+          // 各フィールド: まだ値がなければ今回の結果で補完
+          Object.keys(d).forEach(k => {
+            if (d[k] !== null && d[k] !== "" && !merged[k]) merged[k] = d[k];
+          });
+        } else {
+          failCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        setOcrResult(merged);
+        // フォームに反映（既存利用者情報をフォールバック）
+        setForm({
+          name:               merged.name               || u.name          || "",
+          nameKana:           merged.nameKana           || "",
+          guardianName:       merged.guardianName       || "",
+          jukyushaNo:         merged.jukyushaNo         || "",
+          city:               merged.city               || "",
+          expiryDate:         merged.expiryDate         || "",
+          startDate:          merged.startDate          || "",
+          grantDate:          merged.grantDate          || "",
+          serviceType:        merged.serviceType        || "",
+          serviceAmount:      merged.serviceAmount      || "",
+          maxBurden:          merged.maxBurden != null  ? String(merged.maxBurden) : "",
+          monitoringInterval: merged.monitoringInterval || "",
+          specialNotes:       merged.specialNotes       || "",
+        });
+        // 一部失敗した場合は警告メッセージ
+        if (failCount > 0) {
+          setOcrError(`${targets.length}枚中${failCount}枚は読み取りに失敗しました。該当箇所は手動で入力してください。`);
+        }
+      } else {
+        // 全枚数失敗
+        setOcrError("全ての写真のOCR解析に失敗しました。手動で入力してください。");
+        setForm({
+          name: u.name || "", jukyushaNo: u.jukyushaNo || "",
+          city: u.jukyushaCity || "", expiryDate: u.jukyushaExpiry || "",
+        });
+      }
+    } catch(e) {
+      setOcrError("通信エラー: " + e.message);
+      setForm({
+        name: u.name || "", jukyushaNo: u.jukyushaNo || "",
+        city: u.jukyushaCity || "", expiryDate: u.jukyushaExpiry || "",
+      });
+    } finally {
+      setScanning(false);
+      setMode("result"); // OCR完了 → 結果確認画面へ
     }
   };
 
@@ -7487,7 +7925,7 @@ function JukyushaTab({u, user, store}) {
     setPhotos(p => p.filter((_,i)=>i!==idx));
   };
 
-  // 保存
+  // 保存（新フィールド monitoringInterval, guardianName, grantDate, specialNotes も保存）
   const handleSave = () => {
     const id = "jd_" + Date.now();
     const doc = {
@@ -7497,7 +7935,12 @@ function JukyushaTab({u, user, store}) {
       city: form.city, expiryDate: form.expiryDate,
       serviceType: form.serviceType, serviceAmount: form.serviceAmount,
       maxBurden: form.maxBurden ? parseInt(form.maxBurden) : null,
-      startDate: form.startDate, status: "有効",
+      startDate: form.startDate || null,
+      grantDate: form.grantDate || null,
+      guardianName: form.guardianName || null,
+      monitoringInterval: form.monitoringInterval || null,
+      specialNotes: form.specialNotes || null,
+      status: "有効",
       imagePreview: photos[0]?.base64 || null,        // 後方互換（1枚目）
       imagePreviews: photos.map(p=>p.base64),         // 全写真（最大3枚）
       ocrData: ocrResult,
@@ -7517,20 +7960,35 @@ function JukyushaTab({u, user, store}) {
   // ===== リスト表示 =====
   if (mode === "list") return (
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>📋 受給者証一覧</div>
-        <button className="bsave" style={{padding:"8px 14px",fontSize:12}} onClick={()=>fileRef.current?.click()}>
-          📷 受給者証を撮影・読取
-        </button>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}}
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:"var(--tx)",marginBottom:10}}>📋 受給者証一覧</div>
+        {/* カメラ撮影 / アルバム選択 の2ボタン（label方式でiOSでも確実にpickerが開く） */}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <label htmlFor="jk_cam" className="bsave" style={{padding:"8px 14px",fontSize:12,flex:1,minWidth:140,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",gap:4}}>
+            📷 カメラで撮影・読取
+          </label>
+          <label htmlFor="jk_alb" style={{padding:"8px 14px",fontSize:12,fontWeight:700,flex:1,minWidth:140,borderRadius:9,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--tl)",background:"rgba(58,160,216,0.08)",color:"var(--tl)",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+            🖼️ アルバムから読取
+          </label>
+        </div>
+        {/* カメラ直接起動 */}
+        <input id="jk_cam" type="file" accept="image/*" capture="environment" style={{display:"none"}}
+          onChange={e=>{ handleFile(e.target.files[0], 0); e.target.value=""; }}/>
+        {/* アルバム選択（captureなし） */}
+        <input id="jk_alb" type="file" accept="image/*" style={{display:"none"}}
           onChange={e=>{ handleFile(e.target.files[0], 0); e.target.value=""; }}/>
       </div>
 
-      {/* APIキー未設定の場合の案内 */}
-      <div style={{background:"rgba(58,160,216,0.08)",border:"1px solid rgba(58,160,216,0.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"var(--tl)"}}>
-        💡 OCR機能はAnthropic APIキーが必要です。Vercel Dashboard → Settings → Environment Variables に
-        <strong> ANTHROPIC_API_KEY </strong>を設定してください。未設定の場合は手動入力になります。
-      </div>
+      {/* APIキー案内: adminは設定方法を詳細表示、staffは軽い1行のみ */}
+      {user.role==="admin"||user.role==="manager" ? (
+        <div style={{background:"var(--bg3)",border:"1px solid var(--bd)",borderRadius:8,padding:"7px 12px",marginBottom:10,fontSize:11,color:"var(--tx3)"}}>
+          ⚙️ OCRを有効にするには Vercel → <strong>ANTHROPIC_API_KEY</strong> を設定してください
+        </div>
+      ) : (
+        <div style={{fontSize:11,color:"var(--tx3)",marginBottom:8}}>
+          📝 OCR未設定のため手入力になります
+        </div>
+      )}
 
       {myDocs.length === 0 && (
         <div style={{textAlign:"center",padding:"32px 16px",color:"var(--tx3)"}}>
@@ -7542,66 +8000,128 @@ function JukyushaTab({u, user, store}) {
 
       {myDocs.map(doc => {
         const st = jukyushaStatus(doc.expiryDate);
+        const isExpanded = expandedDocId === doc.id;
         // imagePreviews（新）または imagePreview（旧）から写真リストを取得
         const docPhotos = doc.imagePreviews?.length > 0 ? doc.imagePreviews : (doc.imagePreview ? [doc.imagePreview] : []);
+        // 写真スロットラベル: 表・裏・追加
+        const photoLabels = ["表","裏","追加"];
         return (
           <div key={doc.id} className={`jukyusha-card ${st==="expired"?"expired":st==="warn"?"expiring":""}`}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-              <div>
-                <div style={{fontSize:12,fontWeight:900,color:"var(--tx)",marginBottom:2}}>
-                  {doc.status==="有効"?"✅ 現行受給者証":doc.status==="旧"?"📁 旧受給者証":"📄"}
-                  <span style={{marginLeft:6,fontSize:10,color:"var(--tx3)"}}>{doc.scanDate}</span>
-                  {docPhotos.length > 0 && <span style={{marginLeft:6,fontSize:10,color:"var(--tx3)"}}>📷{docPhotos.length}枚</span>}
+            {/* ── 常時表示: 番号・有効期限・ステータス ── */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:11,fontWeight:900,color:"var(--tx)",marginBottom:3,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  <span>{doc.status==="有効"?"✅ 現行受給者証":doc.status==="旧"?"📁 旧受給者証":"📄"}</span>
+                  <span style={{fontSize:10,color:"var(--tx3)",fontWeight:400}}>{doc.scanDate}</span>
                 </div>
-                <div style={{fontSize:11,color:"var(--tx2)"}}>受給者証番号: <strong>{doc.jukyushaNo||"—"}</strong></div>
+                {/* 受給者証番号 + 有効期限 を横並びで1行に収める */}
+                <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+                  <span style={{fontSize:12,color:"var(--tx2)"}}>🔢 <strong>{doc.jukyushaNo||"—"}</strong></span>
+                  <span style={{fontSize:12,fontWeight:700,color:st==="expired"?"var(--ro)":st==="warn"?"#8a6200":"var(--tx)"}}>
+                    📅 {doc.expiryDate||"—"}
+                  </span>
+                  {st==="expired"&&<span className="ocr-badge-err">⚠️ 期限切れ</span>}
+                  {st==="warn"&&<span className="ocr-badge-warn">⏰ 期限間近</span>}
+                  {st==="ok"&&doc.status==="有効"&&<span className="ocr-badge-ok">✅ 有効</span>}
+                </div>
               </div>
-              {st==="expired"&&<span className="ocr-badge-err">⚠️ 期限切れ</span>}
-              {st==="warn"&&<span className="ocr-badge-warn">⏰ 期限間近</span>}
-              {st==="ok"&&doc.status==="有効"&&<span className="ocr-badge-ok">✅ 有効</span>}
+              {/* 折りたたみトグル */}
+              <button onClick={()=>setExpandedDocId(isExpanded?null:doc.id)}
+                style={{padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:700,border:"1px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",flexShrink:0,marginLeft:8}}>
+                {isExpanded?"▲ 閉じる":"▼ 詳細"}
+              </button>
             </div>
-            <div className="ocr-result-row"><span className="ocr-result-label">有効期限</span><span className="ocr-result-val" style={{color:st==="expired"?"var(--ro)":st==="warn"?"#8a6200":"var(--tx)"}}>{doc.expiryDate||"—"}</span></div>
-            <div className="ocr-result-row"><span className="ocr-result-label">自治体</span><span className="ocr-result-val">{doc.city||"—"}</span></div>
-            <div className="ocr-result-row"><span className="ocr-result-label">支給量</span><span className="ocr-result-val">{doc.serviceAmount||"—"}</span></div>
-            <div className="ocr-result-row" style={{borderBottom:"none"}}><span className="ocr-result-label">負担上限月額</span><span className="ocr-result-val">{doc.maxBurden!=null?doc.maxBurden+"円":"—"}</span></div>
-            {/* 写真サムネイル表示（最大3枚） */}
-            {docPhotos.length > 0 && (
-              <div style={{display:"flex",gap:6,marginTop:10,overflowX:"auto"}}>
-                {docPhotos.map((img, i) => (
-                  <img key={i} src={img} onClick={()=>window.open(img)}
-                    style={{height:64,width:86,objectFit:"cover",borderRadius:7,border:"1px solid var(--bd)",cursor:"pointer",flexShrink:0}}
-                    alt={"受給者証写真"+(i+1)}/>
-                ))}
+
+            {/* ── 折りたたみ詳細エリア ── */}
+            {isExpanded && (
+              <div style={{marginTop:12,borderTop:"1px solid var(--bd)",paddingTop:12}}>
+                <div className="ocr-result-row"><span className="ocr-result-label">自治体</span><span className="ocr-result-val">{doc.city||"—"}</span></div>
+                <div className="ocr-result-row"><span className="ocr-result-label">サービス種別</span><span className="ocr-result-val">{doc.serviceType||"—"}</span></div>
+                <div className="ocr-result-row"><span className="ocr-result-label">支給量</span><span className="ocr-result-val">{doc.serviceAmount||"—"}</span></div>
+                <div className="ocr-result-row" style={{borderBottom:"none"}}><span className="ocr-result-label">負担上限月額</span><span className="ocr-result-val">{doc.maxBurden!=null?doc.maxBurden+"円":"—"}</span></div>
+
+                {/* 写真スロット: 表・裏・追加 の3枠を常時表示 */}
+                <div style={{marginTop:10}}>
+                  <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",marginBottom:6}}>📷 登録写真</div>
+                  <div style={{display:"flex",gap:6}}>
+                    {photoLabels.map((label, i) => {
+                      const img = docPhotos[i];
+                      if (!img) {
+                        // 未登録スロット
+                        return (
+                          <div key={i} style={{width:80,height:60,borderRadius:7,border:"1.5px dashed var(--bd)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexShrink:0}}>
+                            <div style={{fontSize:9,fontWeight:700,color:"var(--tx3)"}}>{label}</div>
+                            <div style={{fontSize:9,color:"var(--bda)"}}>未登録</div>
+                          </div>
+                        );
+                      }
+                      const src = img.startsWith("data:") ? img : "data:image/jpeg;base64," + img;
+                      return (
+                        <div key={i} style={{position:"relative",flexShrink:0}}>
+                          <img src={src} onClick={()=>window.open(src)}
+                            style={{width:80,height:60,objectFit:"cover",borderRadius:7,border:"1px solid var(--bd)",cursor:"pointer",display:"block"}}
+                            alt={"受給者証"+label}/>
+                          {/* 表・裏・追加ラベル */}
+                          <div style={{position:"absolute",bottom:3,left:0,right:0,textAlign:"center",fontSize:9,fontWeight:900,color:"#fff",textShadow:"0 1px 3px rgba(0,0,0,0.9)",pointerEvents:"none"}}>{label}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 削除ボタン */}
+                <div style={{marginTop:12}}>
+                  <button onClick={()=>{if(!window.confirm("この受給者証を削除しますか？\nこの操作は取り消せません。"))return;store.delJukyushaDoc(doc.id);}}
+                    style={{padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:700,border:"1px solid rgba(224,56,56,0.4)",background:"rgba(224,56,56,0.08)",color:"var(--ro)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                    🗑️ 削除
+                  </button>
+                </div>
               </div>
             )}
-            <div style={{marginTop:8,display:"flex",gap:8}}>
-              <button onClick={()=>{if(!window.confirm("この受給者証を削除しますか？\nこの操作は取り消せません。"))return;store.delJukyushaDoc(doc.id);}} style={{padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:700,border:"1px solid rgba(224,56,56,0.4)",background:"rgba(224,56,56,0.08)",color:"var(--ro)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>削除</button>
-            </div>
           </div>
         );
       })}
     </div>
   );
 
-  // ===== スキャン中 =====
+  // ===== AI解析中（全写真を並列処理） =====
   if (mode === "scan") return (
     <div style={{textAlign:"center",padding:"48px 16px"}}>
-      <div style={{fontSize:40,marginBottom:16}}>🔍</div>
-      <div style={{fontSize:15,fontWeight:700,color:"var(--tx)",marginBottom:8}}>OCR解析中...</div>
-      <div style={{fontSize:12,color:"var(--tx3)"}}>Claude AIが受給者証を読み取っています</div>
-      {photos[0] && <img src={photos[0].previewUrl} className="ocr-preview" alt="preview"/>}
+      <div style={{fontSize:40,marginBottom:14}}>🤖</div>
+      <div style={{fontSize:15,fontWeight:700,color:"var(--tx)",marginBottom:6}}>AI解析中…</div>
+      <div style={{fontSize:13,color:"var(--tx2)",marginBottom:4}}>登録された全ての写真をAI解析しています</div>
+      <div style={{fontSize:11,color:"var(--tx3)",marginBottom:16}}>最大10秒程度かかる場合があります</div>
+      {/* 解析中の写真サムネイル */}
+      {photos.filter(Boolean).length > 0 && (
+        <div style={{display:"flex",gap:8,justifyContent:"center",marginTop:4,flexWrap:"wrap"}}>
+          {photos.filter(Boolean).map((p,i)=>(
+            <div key={i} style={{position:"relative"}}>
+              <img src={p.previewUrl}
+                style={{width:70,height:52,objectFit:"cover",borderRadius:8,border:"2px solid var(--tl)",opacity:0.85}}
+                alt={"写真"+(i+1)}/>
+              <div style={{position:"absolute",bottom:3,left:0,right:0,textAlign:"center",fontSize:9,fontWeight:700,color:"#fff",textShadow:"0 1px 3px rgba(0,0,0,0.9)"}}>写真{i+1}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{marginTop:20,fontSize:11,color:"var(--tx3)"}}>
+        {photos.filter(Boolean).length}枚の写真を同時解析中...
+      </div>
     </div>
   );
 
-  // ===== OCR結果・確認 =====
+  // ===== 写真確認・フォーム入力 =====
   if (mode === "result") return (
     <div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
-        <button className="bback" onClick={()=>{setMode("list");setPhotos([]);}} style={{padding:"6px 12px",fontSize:12}}>← 戻る</button>
-        <div style={{fontSize:13,fontWeight:700}}>📋 読み取り結果を確認</div>
+        <button className="bback" onClick={()=>{setMode("list");setPhotos([]);setOcrResult(null);setOcrError("");}} style={{padding:"6px 12px",fontSize:12}}>← 戻る</button>
+        <div style={{fontSize:13,fontWeight:700}}>
+          {ocrResult ? "📋 読み取り結果を確認" : "📷 写真を追加してAI解析"}
+        </div>
       </div>
 
       {/* ===== 写真グリッド（最大3枚） ===== */}
-      <div style={{marginBottom:14}}>
+      <div style={{marginBottom:12}}>
         <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginBottom:8}}>
           📷 受給者証の写真（最大3枚まで登録できます）
         </div>
@@ -7630,20 +8150,23 @@ function JukyushaTab({u, user, store}) {
                     <div style={{position:"absolute",bottom:4,left:6,fontSize:10,fontWeight:700,color:"#fff",textShadow:"0 1px 3px rgba(0,0,0,0.8)"}}>写真{i+1}</div>
                   </>
                 ) : canAdd ? (
-                  // 追加ボタン（次の枠のみ表示）
-                  <button onClick={()=>{
-                    if(i===1) fileRef2.current?.click();
-                    else if(i===2) fileRef3.current?.click();
-                  }} style={{
-                    display:"flex",flexDirection:"column",alignItems:"center",gap:4,
-                    background:"none",border:"none",cursor:"pointer",color:"var(--tl)",padding:8,
-                    fontFamily:"'Noto Sans JP',sans-serif"
-                  }}>
-                    <span style={{fontSize:22}}>＋</span>
-                    <span style={{fontSize:10,fontWeight:700}}>写真{i+1}を追加</span>
-                  </button>
+                  // 追加ボタン（次の枠のみ表示）: カメラ・アルバム 縦並び
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:6,width:"100%"}}>
+                    <span style={{fontSize:10,fontWeight:700,color:"var(--tx3)"}}>写真{i+1}を追加</span>
+                    <button onClick={()=>{
+                      if(i===1) fileRef2.current?.click();
+                      else if(i===2) fileRef3.current?.click();
+                    }} style={{width:"100%",padding:"5px 4px",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"none",background:"var(--tl)",color:"#fff"}}>
+                      📷 カメラ
+                    </button>
+                    <button onClick={()=>{
+                      if(i===1) fileRef2Alb.current?.click();
+                      else if(i===2) fileRef3Alb.current?.click();
+                    }} style={{width:"100%",padding:"5px 4px",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--tl)",background:"rgba(58,160,216,0.08)",color:"var(--tl)"}}>
+                      🖼️ アルバム
+                    </button>
+                  </div>
                 ) : (
-                  // まだ追加できない枠（前の写真がない）
                   <div style={{textAlign:"center",color:"var(--tx3)"}}>
                     <div style={{fontSize:18,marginBottom:2}}>📷</div>
                     <div style={{fontSize:9}}>写真{i+1}</div>
@@ -7653,30 +8176,65 @@ function JukyushaTab({u, user, store}) {
             );
           })}
         </div>
-        {/* 非表示 file input（写真2・3用） */}
+        {/* 非表示 file input（写真2・3 カメラ用） */}
         <input ref={fileRef2} type="file" accept="image/*" capture="environment" style={{display:"none"}}
           onChange={e=>{ handleFile(e.target.files[0], 1); e.target.value=""; }}/>
         <input ref={fileRef3} type="file" accept="image/*" capture="environment" style={{display:"none"}}
           onChange={e=>{ handleFile(e.target.files[0], 2); e.target.value=""; }}/>
-        <div style={{fontSize:10,color:"var(--tx3)",marginTop:6}}>
-          ※ 市町によって複数枚必要な場合は写真2・3に追加してください（写真1のみOCR読取対象）
+        {/* 非表示 file input（写真2・3 アルバム用） */}
+        <input ref={fileRef2Alb} type="file" accept="image/*" style={{display:"none"}}
+          onChange={e=>{ handleFile(e.target.files[0], 1); e.target.value=""; }}/>
+        <input ref={fileRef3Alb} type="file" accept="image/*" style={{display:"none"}}
+          onChange={e=>{ handleFile(e.target.files[0], 2); e.target.value=""; }}/>
+
+        {/* ── AI解析ボタン（写真があれば表示） ── */}
+        {photos.filter(Boolean).length > 0 && (
+          <button
+            onClick={runAllOcr}
+            disabled={scanning}
+            style={{
+              width:"100%", marginTop:10, padding:"11px 14px",
+              borderRadius:10, border:"none", cursor:scanning?"not-allowed":"pointer",
+              background: ocrResult ? "rgba(58,160,216,0.12)" : "linear-gradient(135deg,var(--pu),var(--tl))",
+              color: ocrResult ? "var(--tl)" : "#fff",
+              fontSize:13, fontWeight:700, fontFamily:"'Noto Sans JP',sans-serif",
+              border: ocrResult ? "1.5px solid var(--tl)" : "none",
+              opacity: scanning ? 0.6 : 1,
+            }}>
+            {scanning ? "🔄 AI解析中..." :
+             ocrResult ? `🔄 再解析する（写真${photos.filter(Boolean).length}枚）` :
+             `🤖 登録された全写真をAI解析する（写真${photos.filter(Boolean).length}枚）`}
+          </button>
+        )}
+        <div style={{fontSize:10,color:"var(--tx3)",marginTop:6,textAlign:"center"}}>
+          ※ 登録された全ての写真をAI解析します（表面・裏面・別ページも対応）
         </div>
       </div>
 
-      {ocrError && <div style={{background:"rgba(224,168,40,0.15)",border:"1px solid rgba(224,168,40,0.4)",borderRadius:9,padding:"10px 12px",fontSize:12,color:"#8a6200",marginBottom:12}}>⚠️ {ocrError}<br/>内容を手動で入力してください。</div>}
-      {ocrResult && <div style={{background:"rgba(44,170,96,0.1)",border:"1px solid rgba(44,170,96,0.3)",borderRadius:9,padding:"8px 12px",fontSize:11,color:"var(--gr2)",marginBottom:12}}>✅ AIが自動読み取りしました。内容を確認して保存してください。</div>}
+      {/* エラー / 成功メッセージ */}
+      {ocrError && <div style={{background:"rgba(224,168,40,0.15)",border:"1px solid rgba(224,168,40,0.4)",borderRadius:9,padding:"10px 12px",fontSize:12,color:"#8a6200",marginBottom:12}}>⚠️ {ocrError}</div>}
+      {ocrResult && !ocrError && <div style={{background:"rgba(44,170,96,0.1)",border:"1px solid rgba(44,170,96,0.3)",borderRadius:9,padding:"8px 12px",fontSize:11,color:"var(--gr2)",marginBottom:12}}>✅ AI解析完了。内容を確認して保存してください。</div>}
 
+      {/* ── 入力フォーム（OCR後または手入力） ── */}
       <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:12,padding:16}}>
         {[
-          {label:"氏名",key:"name"}, {label:"ふりがな",key:"nameKana"},
-          {label:"受給者証番号",key:"jukyushaNo"}, {label:"自治体名",key:"city"},
-          {label:"有効期限",key:"expiryDate",type:"date"}, {label:"支給開始日",key:"startDate",type:"date"},
-          {label:"サービス種別",key:"serviceType"}, {label:"支給量",key:"serviceAmount"},
-          {label:"負担上限月額(円)",key:"maxBurden",type:"number"},
-        ].map(({label,key,type="text"})=>(
+          {label:"利用者氏名",         key:"name"},
+          {label:"ふりがな",            key:"nameKana"},
+          {label:"保護者名",            key:"guardianName"},
+          {label:"受給者証番号",        key:"jukyushaNo"},
+          {label:"自治体名",            key:"city"},
+          {label:"有効期限（給付決定期間終了）", key:"expiryDate",  type:"date"},
+          {label:"給付決定開始日",      key:"startDate",   type:"date"},
+          {label:"交付日",              key:"grantDate",   type:"date"},
+          {label:"サービス種別",        key:"serviceType"},
+          {label:"支給量",              key:"serviceAmount"},
+          {label:"負担上限月額（円）",  key:"maxBurden",   type:"number"},
+          {label:"モニタリング期間",    key:"monitoringInterval", placeholder:"例: 6ヶ月ごと"},
+          {label:"特記事項",            key:"specialNotes"},
+        ].map(({label,key,type="text",placeholder})=>(
           <div key={key} style={{marginBottom:10}}>
             <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>{label}</label>
-            <input className="fi" type={type} value={form[key]||""} onChange={e=>upd(key,e.target.value)} placeholder={label+"を入力"}/>
+            <input className="fi" type={type} value={form[key]||""} onChange={e=>upd(key,e.target.value)} placeholder={placeholder||label+"を入力"}/>
           </div>
         ))}
       </div>
@@ -8098,7 +8656,7 @@ function SoudanGenanTab({u, user, store}) {
         <button className="bsave" style={{padding:"8px 14px",fontSize:12}} onClick={()=>fileRef.current?.click()}>
           📷 原案を撮影・読取
         </button>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}}
+        <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}}
           onChange={e=>handleFile(e.target.files[0])}/>
       </div>
 
@@ -8619,7 +9177,7 @@ function UserVisitTab({u, user, store}) {
         <label className="fl" style={{color:"var(--gr2)",fontWeight:900}}>📸 写真添付（訪問の様子・資料など）</label>
         <label style={{display:"block",cursor:"pointer",background:"rgba(44,170,96,0.1)",border:"2px dashed rgba(44,170,96,0.5)",borderRadius:10,padding:"16px",textAlign:"center",color:"var(--gr2)",fontSize:13,fontWeight:700,marginTop:6}}>
           {photoData ? "📷 写真を変更する" : "📷 写真を選ぶ / 撮影する"}
-          <input type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{display:"none"}}/>
+          <input type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/>
         </label>
         {photoData&&<div style={{marginTop:8,position:"relative",display:"inline-block",width:"100%"}}>
           <img src={photoData} alt="添付写真" style={{maxWidth:"100%",maxHeight:180,borderRadius:8,objectFit:"cover",border:"2px solid var(--gr2)"}}/>
@@ -13990,7 +14548,7 @@ function HomeScreen({user,onNav,store}){
   // warn: 体温未入力（来所済み）
   const noTempUserIds=[...new Set(todayRecs.filter(r=>r.type==="user_in"&&(!r.temp||r.temp==="")).map(r=>r.userId))];
   if(noTempUserIds.length>0){
-    todoItems.push({level:"warn",icon:"🌡️",title:"体温 未入力",names:noTempUserIds.map(getId2Name).filter(Boolean),screen:"user_arrive"});
+    todoItems.push({level:"warn",icon:"🌡️",title:"体温 未入力",names:noTempUserIds.map(getId2Name).filter(Boolean),screen:"user_arrive",ids:noTempUserIds});
   }
   // warn: 写真記録なし（在所中）
   const photoIds=[...new Set(todayRecs.filter(r=>r.type==="photo").map(r=>r.userId))];
@@ -14123,7 +14681,7 @@ function HomeScreen({user,onNav,store}){
     {alerts.length>0&&<div className="dash-section">
       <div className="dash-title">⚠ 要確認</div>
       {alerts.map((a,i)=>(
-        <div key={i} className={`alert-row alert-${a.level}`} onClick={()=>onNav(a.screen)}>
+        <div key={i} className={`alert-row alert-${a.level}`} onClick={()=>onNav(a.screen, a.ids ? {ids:a.ids} : {})}>
           <span className="alert-icon">{a.icon}</span>
           <span className="alert-text lv-${a.level}" style={{color:a.level==="danger"?"var(--ro)":a.level==="warn"?"var(--ac)":a.level==="success"?"var(--gr)":"var(--tl)"}}>{a.text}</span>
           <span className="alert-arrow" style={{color:a.level==="danger"?"var(--ro)":a.level==="warn"?"var(--ac)":"var(--tl)"}}>›</span>
@@ -14135,7 +14693,7 @@ function HomeScreen({user,onNav,store}){
     {todoItems.length>0&&<div className="dash-section">
       <div className="dash-title">📌 今日の残件</div>
       {todoItems.map((item,i)=>(
-        <div key={i} className={`todo-card ${item.level||"warn"}`} onClick={()=>onNav(item.screen)} style={{cursor:"pointer"}}>
+        <div key={i} className={`todo-card ${item.level||"warn"}`} onClick={()=>onNav(item.screen, item.ids ? {ids:item.ids} : {})} style={{cursor:"pointer"}}>
           <div className="todo-card-hd">
             <span className="todo-card-icon">{item.icon}</span>
             <span className="todo-card-title" style={{color:item.level==="danger"?"var(--ro)":item.level==="info"?"var(--tl)":"var(--ac)"}}>{item.title}</span>
@@ -16965,7 +17523,30 @@ function StaffDocUploadModal({user, store, filteredStaff, onClose}){
     };
     store.saveStaffDoc(doc);
     store.saveStaffDocAudit({id:genId(),staffDocId:docId,staffId:selStaff,action:"upload",userId:user.id||user.staffId,userName:user.displayName,detail:`${docType.label}をアップロード`,createdAt:now});
-    store.showToast("書類を保存しました");
+
+    // ── OCR抽出データをスタッフ管理にも反映 ──
+    // 書類の種類に応じて関連フィールドをdynStaffに自動書き込み
+    const staffUpdate = {};
+    // 雇用契約書: 雇用形態・入職日を反映
+    if (selType === "employment_contract") {
+      if (doc.employmentType) staffUpdate.employmentType = doc.employmentType;
+      if (doc.startDate) staffUpdate.hireDate = doc.startDate;
+    }
+    // 資格証明書: 資格名を qualifications 配列に追加
+    if (doc.qualificationName) {
+      const currentStaff = (store.dynStaff||[]).find(s=>s.id===selStaff);
+      const existing = currentStaff?.qualifications||[];
+      if (!existing.includes(doc.qualificationName)) {
+        staffUpdate.qualifications = [...existing, doc.qualificationName];
+      }
+    }
+    // 何か更新フィールドがあればスタッフ情報を更新
+    if (Object.keys(staffUpdate).length > 0) {
+      store.updStaff2(selStaff, staffUpdate);
+      store.showToast(`✅ スタッフ情報を更新しました（${Object.keys(staffUpdate).join("・")}）`);
+    } else {
+      store.showToast("書類を保存しました");
+    }
     onClose();
   };
 
@@ -17006,7 +17587,7 @@ function StaffDocUploadModal({user, store, filteredStaff, onClose}){
             </div>
           </>}
 
-          <input type="file" ref={fileRef} accept="image/*,application/pdf" style={{display:"none"}} onChange={handleFile} capture="environment"/>
+          <input type="file" ref={fileRef} accept="image/*,application/pdf" style={{display:"none"}} onChange={handleFile}/>
           {step==="select"
             ?<button className="bsave" style={{width:"100%"}} onClick={()=>fileRef.current?.click()}>📷 撮影 / ファイル選択</button>
             :<div style={{display:"flex",gap:8}}>
@@ -18463,7 +19044,9 @@ function TransportLiveScreen({user, store, onNav, onBack}) {
   const children = store.dynUsers.filter(u=>u.facilityId===facilityId&&u.active!==false);
 
   // 今日のルートに含まれる全child（予定表OCRデータまたはルート定義から）
-  const todayLogs = store.transportLogs.filter(l=>l.logDate===today&&l.facilityId===facilityId&&l.direction===dir);
+  // ⚠️ BUGFIX: DB保存時は snake_case "log_date"、JS側は camelCase "logDate"
+  //    data JSONB に logDate が入っていれば l.logDate、なければ l.log_date にフォールバック
+  const todayLogs = store.transportLogs.filter(l=>(l.logDate||l.log_date)===today&&l.facilityId===facilityId&&l.direction===dir);
 
   // ルートの乗客リストを取得（stops から）
   const getRoutePassengers = route => route.stops||[];
@@ -18539,8 +19122,9 @@ function TransportLiveScreen({user, store, onNav, onBack}) {
   };
 
   // 月次統計（当月）
+  // logDate または log_date のどちらでも対応
   const monthLogs = store.transportLogs.filter(l=>
-    (l.logDate||"").startsWith(nowYM)&&l.facilityId===facilityId
+    (l.logDate||l.log_date||"").startsWith(nowYM)&&l.facilityId===facilityId
   );
   const monthDays = [...new Set(monthLogs.map(l=>l.logDate))].length;
   const totalRides = monthLogs.filter(l=>l.status==="boarded"||l.status==="dropped").length;
@@ -18551,9 +19135,9 @@ function TransportLiveScreen({user, store, onNav, onBack}) {
   const exportCSV = () => {
     const hdr = ["日付","方向","ルート名","利用者名","予定時刻","実績時刻","ステータス","メモ"];
     const rows = store.transportLogs
-      .filter(l=>(l.logDate||"").startsWith(nowYM)&&l.facilityId===facilityId)
-      .sort((a,b)=>(a.logDate||"")>(b.logDate||"")?1:-1)
-      .map(l=>[l.logDate||"",l.direction||"",l.routeName||"",l.childName||"",l.plannedTime||"",l.actualTime||"",TRANSPORT_STATUS[l.status]?.label||l.status,l.incidentNote||""]);
+      .filter(l=>(l.logDate||l.log_date||"").startsWith(nowYM)&&l.facilityId===facilityId)
+      .sort((a,b)=>(a.logDate||a.log_date||"")>(b.logDate||b.log_date||"")?1:-1)
+      .map(l=>[l.logDate||l.log_date||"",l.direction||"",l.routeName||l.route_name||"",l.childName||l.child_id||"",l.plannedTime||l.planned_time||"",l.actualTime||l.actual_time||"",TRANSPORT_STATUS[l.status]?.label||l.status,l.incidentNote||l.incident_note||""]);
     const csv = [hdr,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"}));
@@ -19999,7 +20583,7 @@ ${plan.monitoring_summary?`<h2>モニタリング要約</h2><p>${plan.monitoring
             <option value="monitoring_memo">モニタリングメモ</option>
             <option value="soudan">相談支援計画書（詳細）</option>
           </select>
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handleOcrFile}/>
+          <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleOcrFile}/>
           <button style={{width:"100%",padding:"12px",borderRadius:10,border:"1.5px dashed var(--tl)",background:"rgba(58,160,216,0.07)",color:"var(--tl)",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}
             onClick={()=>fileRef.current.click()} disabled={ocrLoading}>
             {ocrLoading?"⏳ 読み取り中...":"📷 撮影して読み取る"}
@@ -21110,7 +21694,7 @@ function JissekiScreen({user, store, onBack}){
     </div>
 
     {/* 隠しカメラ入力 */}
-    <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handleCam}/>
+    <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleCam}/>
 
     {/* 自動警告 */}
     {warnings.length>0&&<div style={{margin:"0 0 12px",padding:"10px 14px",background:"rgba(255,160,0,0.1)",border:"1px solid rgba(255,160,0,0.3)",borderRadius:10}}>
@@ -21310,12 +21894,36 @@ function ScheduleOCRScreen({user, store, onBack}){
   const save=async()=>{
     if(!selUserId){alert("利用者を選択してください");return;}
     setSaving(true);
+    const u=users.find(x=>x.id===selUserId);
     const checked=visits.filter(v=>v._checked);
     checked.forEach(v=>{
-      const dateStr=`${year}-${String(month).padStart(2,"0")}-${String(v.date).padStart(2,"0")}`;
-      // 出欠管理に「予定」として登録
+      const MM=String(month).padStart(2,"0");
+      const DD=String(v.date).padStart(2,"0");
+      const dateStr=`${year}-${MM}-${DD}`;
+      // ── scheduleDataキー（ScheduleScreenと同じ形式）
+      const key=selUserId+"_"+year+"_"+MM+"_"+DD;
+      // ── schedules テーブル用の行（送迎・時間を含む）
+      const schedRow={
+        id:key,
+        user_id:selUserId,
+        user_name:u?.name||"",
+        facility_id:facilityId,
+        date:dateStr,
+        status:"来所予定",
+        transport_to:v.pickup||false,   // 送迎（迎え）
+        transport_from:v.dropoff||false, // 送迎（送り）
+        start_time:v.startTime||null,
+        end_time:v.endTime||null,
+        memo:v.memo||null,
+        updated_at:new Date().toISOString(),
+      };
+      // ScheduleScreenが読むscheduleDataを更新
+      if(store.setScheduleData) store.setScheduleData(p=>({...p,[key]:schedRow}));
+      // Supabase schedules テーブルに保存
+      if(store.saveScheduleRow) store.saveScheduleRow(schedRow);
+      // 出欠管理にも「予定」として登録
       store.setAtt(selUserId,dateStr,"予定");
-      // Supabaseのplanned_visitsにも保存
+      // planned_visitsにも保存（互換性維持）
       sbSave("planned_visits",{
         id:selUserId+"_"+dateStr,
         child_id:selUserId,
@@ -21371,7 +21979,7 @@ function ScheduleOCRScreen({user, store, onBack}){
           </select>
         </div>
       </div>
-      <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handleFile}/>
+      <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
       <button className="bsave" style={{marginBottom:10,fontSize:15,padding:"16px"}} onClick={()=>fileRef.current.click()}>
         📷 予定表を撮影する
       </button>
@@ -21451,6 +22059,10 @@ function ScheduleScreen({ user, store, onBack }) {
   const [selFac, setSelFac] = useState(user.selectedFacilityId || "all");
   const [viewMode, setViewMode] = useState("calendar");
   const [editCell, setEditCell] = useState(null);
+  // EditModal用state（内部コンポーネントではなくScheduleScreenで管理することでstateリセット問題を回避）
+  const [tmpStatus, setTmpStatus] = useState("");
+  const [tmpTo, setTmpTo] = useState(false);
+  const [tmpFrom, setTmpFrom] = useState(false);
   const [selDate, setSelDate] = useState(todayISO());
   const [showAddModal, setShowAddModal] = useState(false); // 生徒追加モーダル
   const [addChecked, setAddChecked] = useState([]); // 追加選択中の生徒ID
@@ -21465,6 +22077,32 @@ function ScheduleScreen({ user, store, onBack }) {
   const isAdmin = user.role === "admin";
   const isMgr = user.role === "manager" || user.role === "admin";
   const days = daysInMonth(vm.y, vm.m);
+
+  // ── モーダル表示中は背景スクロールを完全ロック（iOS Safari対応）──
+  useEffect(() => {
+    const anyOpen = !!(editCell || showBulkModal || showAddModal);
+    if (anyOpen) {
+      // scrollY を記憶してから fixed にすることでiOSの「スクロール位置リセット」を防ぐ
+      const scrollY = window.scrollY;
+      document.body.style.overflow  = "hidden";
+      document.body.style.position  = "fixed";
+      document.body.style.top       = `-${scrollY}px`;
+      document.body.style.width     = "100%";
+    } else {
+      const scrollY = Math.abs(parseInt(document.body.style.top || "0"));
+      document.body.style.overflow  = "";
+      document.body.style.position  = "";
+      document.body.style.top       = "";
+      document.body.style.width     = "";
+      window.scrollTo(0, scrollY);   // 元のスクロール位置に戻す
+    }
+    return () => {                   // アンマウント時もリセット
+      document.body.style.overflow  = "";
+      document.body.style.position  = "";
+      document.body.style.top       = "";
+      document.body.style.width     = "";
+    };
+  }, [editCell, showBulkModal, showAddModal]);
   const dayList = Array.from({ length: days }, (_, i) => i + 1);
   const dowLabel = ["日","月","火","水","木","金","土"];
 
@@ -21596,7 +22234,7 @@ function ScheduleScreen({ user, store, onBack }) {
               {isMgr&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
                 <button onClick={()=>setSchedule(u.id,d,"来所",u.transportTo,u.transportFrom)} style={{padding:"7px 4px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:u.status==="来所"?"var(--gr)":"var(--bd)",background:u.status==="来所"?"rgba(44,170,96,0.2)":"var(--wh)",color:u.status==="来所"?"var(--gr)":"var(--tx2)"}}>✅ 入室</button>
                 <button onClick={()=>setSchedule(u.id,d,"欠席",false,false)} style={{padding:"7px 4px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:u.status==="欠席"?"var(--ro)":"var(--bd)",background:u.status==="欠席"?"rgba(224,56,56,0.15)":"var(--wh)",color:u.status==="欠席"?"var(--ro)":"var(--tx2)"}}>❌ 欠席</button>
-                <button onClick={()=>setEditCell({uid:u.id,day:d,name:u.name,status:u.status,transportTo:u.transportTo,transportFrom:u.transportFrom})} style={{padding:"6px 4px",borderRadius:8,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",gridColumn:"span 2"}}>✏️ 詳細設定</button>
+                <button onClick={()=>{const ec={uid:u.id,day:d,name:u.name,status:u.status,transportTo:u.transportTo,transportFrom:u.transportFrom};setEditCell(ec);setTmpStatus(u.status||"");setTmpTo(u.transportTo||false);setTmpFrom(u.transportFrom||false);}} style={{padding:"6px 4px",borderRadius:8,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",gridColumn:"span 2"}}>✏️ 詳細設定</button>
               </div>}
             </div>;
           })}
@@ -21666,7 +22304,7 @@ function ScheduleScreen({ user, store, onBack }) {
       <table style={{borderCollapse:"collapse",fontSize:11,minWidth:"max-content"}}>
         <thead>
           <tr>
-            <th style={{border:"1px solid var(--bd)",padding:"6px 10px",background:"var(--bg2)",textAlign:"left",minWidth:90,position:"sticky",left:0,zIndex:2}}>利用者名</th>
+            <th style={{border:"1px solid var(--bd)",padding:"6px 10px",background:"var(--bg2)",textAlign:"left",minWidth:90,position:"sticky",left:0,zIndex:2,boxShadow:"2px 0 4px rgba(0,0,0,0.08)"}}>利用者名</th>
             {dayList.map(d=><th key={d} style={{border:"1px solid var(--bd)",padding:"4px 2px",background:isWe(d)?"#f5f5f5":getDateStr(d)===todayISO()?"rgba(58,160,216,0.2)":"var(--bg2)",color:isWe(d)?"#aaa":getDow(d)===0?"var(--ro)":getDow(d)===6?"var(--tl)":"var(--tx2)",minWidth:34,textAlign:"center",fontSize:9}}>{d}<br/>{dowLabel[getDow(d)]}</th>)}
             <th style={{border:"1px solid var(--bd)",padding:"4px 5px",background:"var(--bg2)",minWidth:36,fontSize:9}}>予定</th>
             <th style={{border:"1px solid var(--bd)",padding:"4px 5px",background:"rgba(44,170,96,0.2)",minWidth:36,fontSize:9}}>来所</th>
@@ -21677,14 +22315,14 @@ function ScheduleScreen({ user, store, onBack }) {
           {users.map(u=>{
             const cnt=countByUser(u.id);
             return <tr key={u.id}>
-              <td style={{border:"1px solid var(--bd)",padding:"5px 8px",fontWeight:700,fontSize:12,background:"var(--wh)",position:"sticky",left:0,zIndex:1,whiteSpace:"nowrap"}}>
+              <td style={{border:"1px solid var(--bd)",padding:"5px 8px",fontWeight:700,fontSize:12,background:"var(--wh)",position:"sticky",left:0,zIndex:1,whiteSpace:"nowrap",boxShadow:"2px 0 4px rgba(0,0,0,0.08)"}}>
                 {u.name}
                 {selFac==="all"&&<div style={{fontSize:9,color:"var(--tx3)",fontWeight:400}}>{FACILITIES.find(f=>f.id===u.facilityId)?.name}</div>}
               </td>
               {dayList.map(d=>{
                 const st=getStatus(u.id,d); const stObj=SCHEDULE_STATUS[st];
                 const tr_to=getTransportTo(u.id,d); const tr_fr=getTransportFrom(u.id,d);
-                return <td key={d} onClick={()=>isMgr&&setEditCell({uid:u.id,day:d,name:u.name,status:st,transportTo:tr_to,transportFrom:tr_fr})}
+                return <td key={d} onClick={()=>isMgr&&(setEditCell({uid:u.id,day:d,name:u.name,status:st,transportTo:tr_to,transportFrom:tr_fr}),setTmpStatus(st||""),setTmpTo(tr_to||false),setTmpFrom(tr_fr||false))}
                   style={{border:"1px solid var(--bd)",padding:"2px 1px",textAlign:"center",background:stObj?stObj.bg:isWe(d)?"#fafafa":"var(--wh)",cursor:isMgr?"pointer":"default",minWidth:34}}>
                   {stObj&&<div style={{fontSize:10,fontWeight:700,color:stObj.color,lineHeight:1.2}}>{stObj.short}</div>}
                   {(tr_to||tr_fr)&&<div style={{fontSize:8,color:"#555",lineHeight:1}}>{tr_to?"迎":""}{tr_fr?"送":""}</div>}
@@ -21696,7 +22334,7 @@ function ScheduleScreen({ user, store, onBack }) {
             </tr>;
           })}
           <tr style={{background:"#f0f5ff",borderTop:"2px solid var(--bd)"}}>
-            <td style={{padding:"6px 8px",fontWeight:700,fontSize:11,position:"sticky",left:0,background:"#f0f5ff",border:"1px solid var(--bd)"}}>日別来所数</td>
+            <td style={{padding:"6px 8px",fontWeight:700,fontSize:11,position:"sticky",left:0,background:"#f0f5ff",border:"1px solid var(--bd)",boxShadow:"2px 0 4px rgba(0,0,0,0.08)"}}>日別来所数</td>
             {dayList.map(d=>{
               if(isWe(d)) return <td key={d} style={{border:"1px solid var(--bd)",background:"#f5f5f5"}}></td>;
               const c=countByDay(d);
@@ -21712,41 +22350,19 @@ function ScheduleScreen({ user, store, onBack }) {
     </div>
   );
 
-  const EditModal = () => {
-    if (!editCell) return null;
-    const [tmpStatus, setTmpStatus] = useState(editCell.status||"");
-    const [tmpTo, setTmpTo] = useState(editCell.transportTo||false);
-    const [tmpFrom, setTmpFrom] = useState(editCell.transportFrom||false);
-    return (
-      <div style={{position:"fixed",top:0,right:0,bottom:0,left:0,background:"rgba(0,0,0,0.5)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setEditCell(null)}>
-        <div style={{background:"var(--wh)",borderRadius:"16px 16px 0 0",width:"100%",maxWidth:420,padding:"20px 18px 32px",boxShadow:"0 -4px 24px rgba(0,0,0,0.18)"}}>
-          <div style={{fontWeight:900,fontSize:16,marginBottom:2}}>{editCell.name}</div>
-          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:14}}>{vm.y}年{vm.m}月{editCell.day}日（{dowLabel[getDow(editCell.day)]}）</div>
-          <div style={{fontSize:10,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:8}}>状態を選択</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:14}}>
-            {Object.entries(SCHEDULE_STATUS).map(([k,v])=>(
-              <button key={k} onClick={()=>setTmpStatus(k)} style={{padding:"10px 5px",borderRadius:10,background:tmpStatus===k?v.bg:"var(--bg)",color:tmpStatus===k?v.color:"var(--tx3)",border:"2px solid "+(tmpStatus===k?v.color:"var(--bd)"),fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>{v.label}</button>
-            ))}
-            <button onClick={()=>setTmpStatus("")} style={{padding:"10px 5px",borderRadius:10,background:tmpStatus===""?"#e8e8e8":"var(--bg)",color:"var(--tx3)",border:"2px solid "+(tmpStatus===""?"#aaa":"var(--bd)"),fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>クリア</button>
-          </div>
-          <div style={{fontSize:10,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:8}}>送迎設定</div>
-          <div style={{display:"flex",gap:10,marginBottom:16}}>
-            <button onClick={()=>setTmpTo(!tmpTo)} style={{flex:1,padding:"10px",borderRadius:10,background:tmpTo?"rgba(58,160,216,0.2)":"var(--bg)",color:tmpTo?"var(--tl)":"var(--tx3)",border:"2px solid "+(tmpTo?"var(--tl)":"var(--bd)"),fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🚌 迎（来所時）</button>
-            <button onClick={()=>setTmpFrom(!tmpFrom)} style={{flex:1,padding:"10px",borderRadius:10,background:tmpFrom?"rgba(44,170,96,0.2)":"var(--bg)",color:tmpFrom?"var(--gr)":"var(--tx3)",border:"2px solid "+(tmpFrom?"var(--gr)":"var(--bd)"),fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🚌 送（帰り）</button>
-          </div>
-          <button onClick={()=>setSchedule(editCell.uid,editCell.day,tmpStatus,tmpTo,tmpFrom)} style={{width:"100%",padding:"13px",borderRadius:12,background:"var(--tl)",border:"none",color:"#fff",fontWeight:900,fontSize:14,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>保存する</button>
-        </div>
-      </div>
-    );
-  };
+  // EditModal は内部コンポーネントではなくインラインJSXで描画（useStateリセット問題を回避）
+  // ※ zIndex:400 → bottom-nav(250)・sidebar(300)より上に表示されるよう修正
 
   return (
     <div className="fl-wrap">
-      <div className="fl-hd">
+      <div className="fl-hd" style={{flexWrap:"wrap",rowGap:6}}>
         <button className="bback" onClick={onBack}>← 戻る</button>
         <div className="fl-title">📅 生徒予定表</div>
-        {isMgr&&<button onClick={()=>{setBulkUserId(users.length>0?users[0].id:"");setBulkDays([]);setBulkStatus("来所予定");setBulkTo(false);setBulkFrom(false);setShowBulkModal(true);}} style={{marginLeft:"auto",padding:"7px 13px",borderRadius:16,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--tl)",color:"#fff",border:"none",boxShadow:"var(--sh)"}}>📅 一括登録</button>}
-        <button className="bexp" style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}} onClick={printSchedule}>🖨️ 印刷</button>
+        {/* ヘッダーボタン群：小画面でも1行に収まるよう marginLeft:auto でまとめて右寄せ */}
+        <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+          {isMgr&&<button onClick={()=>{setBulkUserId(users.length>0?users[0].id:"");setBulkDays([]);setBulkStatus("来所予定");setBulkTo(false);setBulkFrom(false);setShowBulkModal(true);}} style={{padding:"7px 11px",borderRadius:16,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--tl)",color:"#fff",border:"none",boxShadow:"var(--sh)",whiteSpace:"nowrap"}}>📅 一括登録</button>}
+          <button style={{padding:"7px 11px",borderRadius:16,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"#fff8f0",border:"1.5px solid var(--ac)",color:"var(--ac)",whiteSpace:"nowrap"}} onClick={printSchedule}>🖨️ 印刷</button>
+        </div>
       </div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
         {isAdmin&&<select className="fsm" value={selFac} onChange={e=>setSelFac(e.target.value)}>{facOptions.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select>}
@@ -21764,7 +22380,33 @@ function ScheduleScreen({ user, store, onBack }) {
         ? <div style={{textAlign:"center",color:"var(--tx3)",padding:32,background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11}}>利用者が登録されていません</div>
         : viewMode==="calendar" ? <CalendarView /> : <TableView />
       }
-      <EditModal />
+      {/* ==================== 編集モーダル（インラインJSX） ==================== */}
+      {/* maxHeight:80dvh + 内部スクロール + 固定フッターで保存ボタンが常に見える */}
+      {editCell&&<div style={{position:"fixed",top:0,right:0,bottom:0,left:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setEditCell(null)}>
+        <div style={{background:"var(--wh)",borderRadius:"16px 16px 0 0",width:"100%",maxWidth:480,boxShadow:"0 -4px 24px rgba(0,0,0,0.22)",display:"flex",flexDirection:"column",maxHeight:"80dvh"}}>
+          {/* ── スクロール可能なフォーム部分 ── */}
+          <div style={{overflowY:"auto",flex:1,padding:"20px 18px 12px",WebkitOverflowScrolling:"touch"}}>
+            <div style={{fontWeight:900,fontSize:16,marginBottom:2}}>{editCell.name}</div>
+            <div style={{fontSize:12,color:"var(--tx3)",marginBottom:14}}>{vm.y}年{vm.m}月{editCell.day}日（{dowLabel[getDow(editCell.day)]}）</div>
+            <div style={{fontSize:10,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:8}}>状態を選択</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:14}}>
+              {Object.entries(SCHEDULE_STATUS).map(([k,v])=>(
+                <button key={k} onClick={()=>setTmpStatus(k)} style={{padding:"10px 5px",borderRadius:10,background:tmpStatus===k?v.bg:"var(--bg)",color:tmpStatus===k?v.color:"var(--tx3)",border:"2px solid "+(tmpStatus===k?v.color:"var(--bd)"),fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>{v.label}</button>
+              ))}
+              <button onClick={()=>setTmpStatus("")} style={{padding:"10px 5px",borderRadius:10,background:tmpStatus===""?"#e8e8e8":"var(--bg)",color:"var(--tx3)",border:"2px solid "+(tmpStatus===""?"#aaa":"var(--bd)"),fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>クリア</button>
+            </div>
+            <div style={{fontSize:10,fontWeight:700,color:"var(--tl)",letterSpacing:1,marginBottom:8}}>送迎設定</div>
+            <div style={{display:"flex",gap:10,marginBottom:4}}>
+              <button onClick={()=>setTmpTo(p=>!p)} style={{flex:1,padding:"10px",borderRadius:10,background:tmpTo?"rgba(58,160,216,0.2)":"var(--bg)",color:tmpTo?"var(--tl)":"var(--tx3)",border:"2px solid "+(tmpTo?"var(--tl)":"var(--bd)"),fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🚌 迎（来所時）</button>
+              <button onClick={()=>setTmpFrom(p=>!p)} style={{flex:1,padding:"10px",borderRadius:10,background:tmpFrom?"rgba(44,170,96,0.2)":"var(--bg)",color:tmpFrom?"var(--gr)":"var(--tx3)",border:"2px solid "+(tmpFrom?"var(--gr)":"var(--bd)"),fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🚌 送（帰り）</button>
+            </div>
+          </div>
+          {/* ── 固定フッター：保存ボタン（safe-area + bottom-nav分の余白） ── */}
+          <div style={{flexShrink:0,borderTop:"1px solid var(--bd)",padding:"12px 18px",paddingBottom:"calc(env(safe-area-inset-bottom,0px) + 72px)",background:"var(--wh)"}}>
+            <button onClick={()=>setSchedule(editCell.uid,editCell.day,tmpStatus,tmpTo,tmpFrom)} style={{width:"100%",padding:"13px",borderRadius:12,background:"var(--tl)",border:"none",color:"#fff",fontWeight:900,fontSize:14,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>保存する</button>
+          </div>
+        </div>
+      </div>}
 
       {/* ==================== 一括登録モーダル ==================== */}
       {showBulkModal&&(()=>{
@@ -22019,7 +22661,14 @@ export default function App(){
   const [screen,setScreen]=useState("home");
   const [sbOpen,setSbOpen]=useState(false);
   const [sessionWarn,setSessionWarn]=useState(false); // 55分警告モーダル
+  const [navParams,setNavParams]=useState({}); // 画面遷移時に追加パラメータ（ids等）を渡す
   const store=useStore();
+
+  // onNav: 画面IDと追加パラメータ（{ids:[...]}等）を受け取って遷移する
+  const handleNav=(screenId,params={})=>{
+    setNavParams(params||{});
+    setScreen(screenId);
+  };
 
   // ネットワークエラーをトーストで通知できるよう、モジュール変数に登録
   useEffect(()=>{ _sbErrCb=(m,t)=>store.showToast(m,t); },[]);
@@ -22136,13 +22785,13 @@ export default function App(){
 
   const render=()=>{switch(screen){
     // ── 全員アクセス可 ──
-    case "home":return user.role==="parent"?<ParentPortalScreen user={user} store={store} onBack={()=>{}}/>:<HomeScreen user={user} onNav={setScreen} store={store}/>;
+    case "home":return user.role==="parent"?<ParentPortalScreen user={user} store={store} onBack={()=>{}}/>:<HomeScreen user={user} onNav={handleNav} store={store}/>;
     case "parent_portal":return <ParentPortalScreen user={user} store={store} onBack={()=>setScreen("home")}/>;
 
     // ── staff以上（保護者除外）──
     case "clock_in":         return guard(ROLE_ADMIN_MGR_STF,<StaffClockIn user={user} onBack={()=>setScreen("home")} store={store}/>);
     case "clock_out":        return guard(ROLE_ADMIN_MGR_STF,<StaffClockOut user={user} onBack={()=>setScreen("home")} store={store}/>);
-    case "user_arrive":      return guard(ROLE_ADMIN_MGR_STF,<UserArrive user={user} onBack={()=>setScreen("home")} store={store}/>);
+    case "user_arrive":      return guard(ROLE_ADMIN_MGR_STF,<UserArrive user={user} onBack={()=>{setNavParams({});setScreen("home");}} store={store} filterIds={navParams.ids||null}/>);
     case "user_depart":      return guard(ROLE_ADMIN_MGR_STF,<UserDepart user={user} onBack={()=>setScreen("home")} store={store}/>);
     case "photo":            return guard(ROLE_ADMIN_MGR_STF,<PhotoRecord user={user} onBack={()=>setScreen("home")} store={store}/>);
     case "service":          return guard(ROLE_ADMIN_MGR_STF,<ServiceRecord user={user} onBack={()=>setScreen("home")} store={store}/>);
