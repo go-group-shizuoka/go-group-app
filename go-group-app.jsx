@@ -8622,13 +8622,39 @@ function FacesheetField({label, edit, value, onChange, placeholder="", multi=fal
 // ===== フェイスシートタブ =====
 function FacesheetTab({u,myFS,user,store}){
   const [edit,setEdit]=useState(!myFS);
-  const init=myFS||{userId:u.id,facilityId:u.facilityId,
-    parentName:"",parentTel:"",parentRelation:"母",address:"",emergencyTel:"",emergencyName:"",emergencyRelation:"",
-    school:"",schoolYear:"",schoolContact:"",
-    medicalInstitution:"",doctor:"",medications:"",allergies:"",
-    characteristics:"",strengths:"",challenges:"",triggers:"",calming:"",
-    disabilityGrade:"",disabilityNote:"",therapyHistory:"",
-    notes:"",updatedAt:""};
+  // myFS がない（新規）場合は利用者登録データから自動引き継ぎ
+  const init=myFS||{
+    userId:u.id, facilityId:u.facilityId,
+    // 基本情報（RegisterUser から引き継ぎ）
+    dob2:             u.dob              || "",
+    gender:           u.gender           || "",
+    disabilityGrade:  u.disabilityGrade  || "",
+    diagDetail:       u.diagnosis        || "",
+    disabilityNote:   "",
+    therapyHistory:   "",
+    // 保護者情報（RegisterUser から引き継ぎ）
+    parentName:       u.parentName       || "",
+    parentTel:        u.parentTel        || "",
+    parentRelation:   u.parentRelation   || "母",
+    address:          u.address          || "",
+    emergencyTel:     u.emergencyTel     || "",
+    emergencyName:    u.emergencyName    || "",
+    emergencyRelation:"",
+    // 学校情報（RegisterUser から引き継ぎ）
+    school:           u.school           || "",
+    schoolYear:       u.schoolYear       || "",
+    schoolContact:    u.schoolContact    || "",
+    // 医療情報（RegisterUser から引き継ぎ）
+    medicalInstitution: u.medicalInstitution || "",
+    doctor:           u.doctor           || "",
+    medications:      u.medications      || "",
+    allergies:        u.allergies        || "",
+    // 特性・支援情報（登録時はなし）
+    characteristics:"", strengths:"", challenges:"",
+    triggers:"", calming:"",
+    notes:            u.note             || "",
+    updatedAt:""
+  };
   const [fs,setFs]=useState(init);
   const upd=(k,v)=>setFs(p=>({...p,[k]:v}));
   const save=()=>{const d={...fs,updatedAt:todayISO()};store.saveFS(d);setEdit(false);};
