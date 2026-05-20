@@ -8640,9 +8640,9 @@ function UserManagement({user,store,onBack}){
           const newUser = {...u, id: newId};
           // await で保存結果を待つ（失敗時は throw → RegisterUser側でキャッチ）
           await store.addUser(newUser);
-          // ── 受給者証コピーが撮影済みの場合: saveJukyushaCertificate + addJukyushaDoc ──
-          // 新規登録で撮影した受給者証を受給者証タブ（確認・更新画面）でも確認できるようにする
-          if(newUser.jukyushaCopy){
+          // ── 受給者証情報がある場合: saveJukyushaCertificate + addJukyushaDoc ──
+          // 手入力・写真撮影どちらの場合も受給者証タブ（確認・更新画面）に反映する
+          if(newUser.jukyushaNo || newUser.jukyushaCopy){
             // ① users_data に受給者証情報を一元保存（フェイスシートへの反映に使用）
             store.saveJukyushaCertificate(newId, {
               jukyushaNo:        newUser.jukyushaNo       || "",
@@ -8656,6 +8656,7 @@ function UserManagement({user,store,onBack}){
               ocrParsed:         newUser.jukyushaCopyOcrParsed || null,
             });
             // ② jukyushaDocsに追加（受給者証タブのリストに表示するため）
+            // 写真がある場合はプレビュー付き、手入力のみの場合は写真なしで登録
             const imgBase64 = newUser.jukyushaCopyPreview?.replace(/^data:image\/\w+;base64,/,"") || null;
             store.addJukyushaDoc({
               id:           "jd_" + Date.now(),
@@ -10142,7 +10143,56 @@ function JukyushaTab({u, user, store}) {
         </div>
       )}
 
-      {myDocs.length === 0 && (store.ocrLogs||[]).filter(l=>(l.childId||l.child_id)===u.id).length===0 && (store.childDocuments||[]).filter(d=>d.childId===u.id&&d.documentType==="jukyusha").length===0 && (
+      {/* ── 現在の受給者証情報（users_dataから）── 常時表示サマリーカード ──
+          新規登録で手入力した場合でも必ずここに反映される
+          （jukyushaDocsのリストとは別に、単一ソースの最新情報を表示）            */}
+      {(u.jukyushaNo || u.jukyushaExpiry) && (()=>{
+        const exp = u.jukyushaExpiry || "";
+        const st  = exp ? jukyushaStatus(exp) : null;
+        const d   = exp ? daysUntil(exp) : null;
+        const upperAmt = u.maxBurden != null ? u.maxBurden : null;
+        const svcLabel = {houkago:"放課後等デイ",jidouhattatsu:"児童発達支援",hoikuvisit:"保育所訪問"}[u.serviceType] || u.serviceType || "";
+        return (
+          <div style={{background:"linear-gradient(135deg,rgba(0,144,196,0.06),rgba(0,144,196,0.02))",border:"2px solid #0090c4",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <div style={{fontSize:12,fontWeight:800,color:"#0090c4"}}>🪪 現在の受給者証情報</div>
+              {u.jukyushaUpdatedAt&&<div style={{fontSize:10,color:"var(--tx3)"}}>更新: {u.jukyushaUpdatedAt.slice(0,10)}</div>}
+            </div>
+            {/* 有効期限アラート */}
+            {st&&st!=="ok"&&d!=null&&(
+              <div style={{background:st==="expired"?"rgba(224,56,56,0.1)":"rgba(230,160,0,0.1)",border:"1px solid "+(st==="expired"?"var(--ro)":"#e8a000"),borderRadius:7,padding:"6px 10px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:11,fontWeight:700,color:st==="expired"?"var(--ro)":"#8a5c00"}}>{st==="expired"?"⚠️ 期限切れ":"⏰ 期限間近"} {exp}</span>
+                <span style={{fontSize:11,fontWeight:700,color:st==="expired"?"var(--ro)":"#8a5c00"}}>{d<0?"期限切れ":d+"日後"}</span>
+              </div>
+            )}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px 16px"}}>
+              {[
+                {label:"受給者証番号", value:u.jukyushaNo     || ""},
+                {label:"支給自治体",   value:u.jukyushaCity   || ""},
+                {label:"有効期限",     value:exp},
+                {label:"サービス種別", value:svcLabel},
+                {label:"負担上限月額", value:upperAmt!=null ? upperAmt.toLocaleString()+"円":""},
+                {label:"送迎",         value:u.hasTransport?"あり":"なし"},
+              ].map(({label,value})=>value&&(
+                <div key={label}>
+                  <div style={{fontSize:9,color:"var(--tx3)",marginBottom:1}}>{label}</div>
+                  <div style={{fontSize:12,fontWeight:600,color:"var(--tx)"}}>{value}</div>
+                </div>
+              ))}
+            </div>
+            {/* 登録済み画像プレビュー */}
+            {u.jukyushaCertificateImageUrl&&(
+              <div style={{marginTop:10}}>
+                <div style={{fontSize:9,color:"var(--tx3)",marginBottom:4}}>登録画像</div>
+                <img src={u.jukyushaCertificateImageUrl} alt="受給者証" style={{maxWidth:"100%",maxHeight:120,borderRadius:7,border:"1px solid var(--bd)",objectFit:"contain",display:"block"}}/>
+              </div>
+            )}
+            <div style={{fontSize:10,color:"var(--tx3)",marginTop:8}}>↑ 上の「📷 撮影・読取」から更新できます</div>
+          </div>
+        );
+      })()}
+      {/* jukyushaDocsが空かつusers_dataにも情報なし → 未登録メッセージ */}
+      {!u.jukyushaNo && !u.jukyushaExpiry && myDocs.length === 0 && (store.ocrLogs||[]).filter(l=>(l.childId||l.child_id)===u.id).length===0 && (store.childDocuments||[]).filter(d=>d.childId===u.id&&d.documentType==="jukyusha").length===0 && (
         <div style={{textAlign:"center",padding:"32px 16px",color:"var(--tx3)"}}>
           <div style={{fontSize:32,marginBottom:8}}>📄</div>
           <div style={{fontSize:13}}>受給者証が登録されていません</div>
