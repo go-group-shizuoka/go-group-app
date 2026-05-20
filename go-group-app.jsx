@@ -3307,17 +3307,28 @@ function useStore() {
     if (updatedUser) {
       sbSave("users_data", {
         id,
-        facility_id:       updatedUser.facilityId,
-        name:              updatedUser.name || null,
-        name_kana:         updatedUser.nameKana || null,
-        jukyusha_no:       updatedUser.jukyushaNo || null,
-        jukyusha_expiry:   updatedUser.jukyushaExpiry || null,
-        jukyusha_city:     updatedUser.jukyushaCity || null,
-        service_type:      updatedUser.serviceType || "houkago",
-        active:            updatedUser.active === true || updatedUser.active === "true",
-        enroll_date:       updatedUser.enrollDate || null,
-        updated_at:        new Date().toISOString(),
-        data:              updatedUser,
+        facility_id:          updatedUser.facilityId,
+        name:                 updatedUser.name || null,
+        name_kana:            updatedUser.nameKana || null,
+        // 基本情報
+        birth_date:           updatedUser.dob || null,
+        gender:               updatedUser.gender || null,
+        diagnosis:            updatedUser.diagnosis || null,
+        disability_level:     updatedUser.disabilityGrade || null,
+        support_grade:        updatedUser.supportGrade || null,
+        consultation_office:  updatedUser.consultationOffice || null,
+        transport_required:   updatedUser.hasTransport || false,
+        // 受給者証
+        jukyusha_no:          updatedUser.jukyushaNo || null,
+        jukyusha_expiry:      updatedUser.jukyushaExpiry || null,
+        jukyusha_city:        updatedUser.jukyushaCity || null,
+        upper_limit_amount:   updatedUser.maxBurden != null ? parseInt(updatedUser.maxBurden)||null : null,
+        upper_limit_office:   updatedUser.isLimitMgmtOffice || false,
+        service_type:         updatedUser.serviceType || "houkago",
+        active:               updatedUser.active === true || updatedUser.active === "true",
+        enroll_date:          updatedUser.enrollDate || null,
+        updated_at:           new Date().toISOString(),
+        data:                 updatedUser,
       });
     }
   };
@@ -3563,6 +3574,52 @@ function useStore() {
   const addParentSupportRecord = r => { setParentSupportRecords(p=>[...p,r]); sbSave("parent_support_records",{id:r.id,facility_id:r.facilityId,user_id:r.userId,record_date:r.date,data:r}); };
   const updParentSupportRecord = (id,ch) => setParentSupportRecords(p=>p.map(r=>{ if(r.id!==id) return r; const u={...r,...ch}; sbSave("parent_support_records",{id,facility_id:u.facilityId,user_id:u.userId,record_date:u.date,data:u}); return u; }));
   const delParentSupportRecord = id => { setParentSupportRecords(p=>p.filter(r=>r.id!==id)); sbDelete("parent_support_records",id); };
+
+  // ─── 受給者証情報 共通保存・読み込み ───
+  // users_data に一元管理。新規登録・詳細タブ・フェイスシートすべてここを参照。
+  //
+  // cert: {
+  //   jukyushaNo, jukyushaExpiry, jukyushaCity,
+  //   maxBurden, isLimitMgmtOffice, hasTransport,
+  //   imagePreview,   // base64 プレビュー（data:image/jpeg;base64,...）
+  //   ocrRaw,         // OCR生データ JSON文字列
+  //   ocrParsed,      // OCR解析済みオブジェクト
+  // }
+  const saveJukyushaCertificate = (userId, cert) => {
+    const update = {
+      jukyushaNo:                 cert.jukyushaNo          || "",
+      jukyushaExpiry:             cert.jukyushaExpiry       || "",
+      jukyushaCity:               cert.jukyushaCity         || "",
+      maxBurden:                  cert.maxBurden            != null ? cert.maxBurden : undefined,
+      isLimitMgmtOffice:          cert.isLimitMgmtOffice   ?? false,
+      hasTransport:               cert.hasTransport         ?? false,
+      jukyushaCertificateImageUrl:cert.imagePreview         || null,
+      jukyushaOcrRaw:             cert.ocrRaw               || null,
+      jukyushaOcrParsed:          cert.ocrParsed            || null,
+      jukyushaUpdatedAt:          new Date().toISOString(),
+    };
+    // undefined を除去（既存値を上書きしない）
+    Object.keys(update).forEach(k => update[k] === undefined && delete update[k]);
+    updUser2(userId, update);
+  };
+
+  // 指定ユーザーの受給者証情報を users_data から取得
+  const loadJukyushaCertificate = userId => {
+    const u = dynUsers.find(x => x.id === userId);
+    if (!u) return null;
+    return {
+      jukyushaNo:    u.jukyushaNo                  || "",
+      jukyushaExpiry:u.jukyushaExpiry               || "",
+      jukyushaCity:  u.jukyushaCity                 || "",
+      maxBurden:     u.maxBurden                    ?? null,
+      isLimitMgmtOffice: u.isLimitMgmtOffice        ?? false,
+      hasTransport:  u.hasTransport                 ?? false,
+      imagePreview:  u.jukyushaCertificateImageUrl  || null,
+      ocrRaw:        u.jukyushaOcrRaw               || null,
+      ocrParsed:     u.jukyushaOcrParsed            || null,
+      updatedAt:     u.jukyushaUpdatedAt            || null,
+    };
+  };
 
   // ─── 受給者証OCR履歴 ───
   const [jukyushaDocs, setJukyushaDocs] = useState([]);
@@ -4133,7 +4190,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,softDeleteUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck,auditSaveError,setAuditSaveError,saveErrors,facilityEvents,saveFacilityEvent,delFacilityEvent};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,softDeleteUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,saveJukyushaCertificate,loadJukyushaCertificate,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck,auditSaveError,setAuditSaveError,saveErrors,facilityEvents,saveFacilityEvent,delFacilityEvent};
 }
 
 
@@ -8023,8 +8080,10 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
   const [saveErr, setSaveErr] = useState("");  // 保存エラーメッセージ
   // 受給者証コピー撮影用
   const copyInputRef = useRef(null);
+  const [jukyushaOcrLoading, setJukyushaOcrLoading] = useState(false);
+  const [jukyushaOcrResult, setJukyushaOcrResult] = useState(null); // OCR解析結果
 
-  // 受給者証コピー: 撮影/ファイル選択 → 圧縮してプレビュー保存
+  // 受給者証コピー: 撮影/ファイル選択 → 圧縮 → OCR → フォーム自動反映
   const handleJukyushaCopyCapture = async e => {
     const file = e.target.files?.[0];
     if(!file) return;
@@ -8033,11 +8092,39 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
       const raw = await fileToBase64(file);
       const compressed = await compressBase64(raw, 1200, 900, 0.8);
       const previewUrl = "data:image/jpeg;base64," + compressed;
-      // form に画像データとフラグを保存（保存時に users_data.data に含まれる）
+      // ① まず画像だけ保存（OCR完了前にプレビュー表示）
       setForm(p=>({...p, jukyushaCopy:true, jukyushaCopyPreview:previewUrl}));
+      setJukyushaOcrResult(null);
+      // ② OCR解析（非同期）
+      setJukyushaOcrLoading(true);
+      try {
+        const res = await fetch("/api/ocr",{
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({imageBase64:compressed, mediaType:"image/jpeg", mode:"jukyusha"})
+        });
+        const d = await res.json();
+        if(d.success && d.data){
+          const ocr = d.data;
+          setJukyushaOcrResult(ocr);
+          // ③ OCR結果をフォームに自動反映（既存値がある場合は上書きしない）
+          setForm(p=>({
+            ...p,
+            jukyushaNo:     ocr.jukyushaNo    || p.jukyushaNo    || "",
+            jukyushaExpiry: ocr.expiryDate    || p.jukyushaExpiry|| "",
+            jukyushaCity:   ocr.city          || p.jukyushaCity  || "",
+            maxBurden:      ocr.maxBurden!=null ? String(ocr.maxBurden) : p.maxBurden,
+            jukyushaCopyOcrParsed: ocr,  // OCR解析済みデータを保存（後でstore保存時に含まれる）
+          }));
+        }
+      } catch(ocrErr) {
+        console.warn("[受給者証OCR] 解析失敗（画像は保存済み）:", ocrErr.message);
+        // OCRが失敗しても画像登録は継続（手動入力で補完）
+      }
     } catch(err) {
       console.error("[受給者証コピー] 画像処理エラー:", err);
       alert("画像の読み込みに失敗しました。もう一度お試しください。");
+    } finally {
+      setJukyushaOcrLoading(false);
     }
     // 同じファイルを再選択できるようにリセット
     e.target.value = "";
@@ -8181,10 +8268,12 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
             {form.isLimitMgmtOffice&&<div style={{fontSize:10,color:"var(--pu)",marginTop:4}}>✅ 上限額管理加算（150単位/月）を自動算定します</div>}
           </div>
         </div>
-        {/* 受給者証コピー */}
+        {/* 受給者証コピー撮影 + OCR自動読み取り */}
         <div style={{marginBottom:8}}>
-          <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,display:"block",marginBottom:6}}>受給者証コピー</label>
-          {/* hidden input: PCはファイル選択、スマホはカメラ起動 */}
+          <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,display:"block",marginBottom:6}}>
+            受給者証コピー（撮影するとOCR自動読み取り）
+          </label>
+          {/* hidden input: capture="environment" → スマホ=カメラ / PCはファイル選択にフォールバック */}
           <input
             ref={copyInputRef}
             type="file"
@@ -8193,31 +8282,42 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
             style={{display:"none"}}
             onChange={handleJukyushaCopyCapture}
           />
+          {/* OCR解析中インジケーター */}
+          {jukyushaOcrLoading&&<div style={{background:"rgba(58,160,216,0.1)",border:"1px solid var(--tl)",borderRadius:9,padding:"10px 14px",marginBottom:10,fontSize:12,color:"var(--tl)",display:"flex",alignItems:"center",gap:8}}>
+            <span style={{display:"inline-block",animation:"spin 1s linear infinite"}}>⏳</span>
+            AI読み取り中… 受給者証番号・有効期限などを自動入力します
+          </div>}
+          {/* OCR結果バナー（成功時） */}
+          {jukyushaOcrResult&&!jukyushaOcrLoading&&<div style={{background:"rgba(44,170,96,0.08)",border:"1.5px solid var(--gr)",borderRadius:9,padding:"10px 14px",marginBottom:10,fontSize:12}}>
+            <div style={{fontWeight:700,color:"var(--gr)",marginBottom:6}}>✅ AI読み取り完了 — 以下を自動入力しました</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"2px 12px",fontSize:11,color:"var(--tx2)"}}>
+              {jukyushaOcrResult.jukyushaNo&&<span>🔢 受給者証番号: {jukyushaOcrResult.jukyushaNo}</span>}
+              {jukyushaOcrResult.expiryDate&&<span>📅 有効期限: {jukyushaOcrResult.expiryDate}</span>}
+              {jukyushaOcrResult.city&&<span>🏙 支給自治体: {jukyushaOcrResult.city}</span>}
+              {jukyushaOcrResult.maxBurden!=null&&<span>💴 負担上限: {jukyushaOcrResult.maxBurden}円</span>}
+            </div>
+            <div style={{fontSize:10,color:"var(--tx3)",marginTop:6}}>※ 上の各フィールドを確認・修正してから保存してください</div>
+          </div>}
           <div style={{border:"2px dashed var(--bd)",borderRadius:10,padding:16,background:"var(--bg)",textAlign:"center"}}>
             {form.jukyushaCopy
               ? <div>
-                  {/* プレビュー画像（撮影した場合のみ表示） */}
+                  {/* プレビュー画像 */}
                   {form.jukyushaCopyPreview&&<img
                     src={form.jukyushaCopyPreview}
                     alt="受給者証コピー"
-                    style={{width:"100%",maxHeight:180,objectFit:"contain",borderRadius:8,marginBottom:10,border:"1px solid var(--bd)"}}
+                    style={{width:"100%",maxHeight:200,objectFit:"contain",borderRadius:8,marginBottom:10,border:"1px solid var(--bd)"}}
                   />}
-                  <div style={{color:"var(--gr)",fontWeight:700,fontSize:13,marginBottom:6}}>
+                  <div style={{color:"var(--gr)",fontWeight:700,fontSize:13,marginBottom:8}}>
                     <span style={{fontSize:20,marginRight:6}}>✅</span>
                     コピー登録済み
                   </div>
                   <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
-                    {/* 撮り直しボタン */}
-                    <button
-                      type="button"
-                      onClick={()=>copyInputRef.current?.click()}
+                    <button type="button" onClick={()=>copyInputRef.current?.click()}
                       style={{padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.12)",border:"1.5px solid var(--tl)",color:"var(--tl)"}}>
-                      📷 撮り直す
+                      📷 撮り直す（再OCR）
                     </button>
-                    {/* 削除ボタン */}
-                    <button
-                      type="button"
-                      onClick={()=>setForm(p=>({...p,jukyushaCopy:false,jukyushaCopyPreview:null}))}
+                    <button type="button"
+                      onClick={()=>{setForm(p=>({...p,jukyushaCopy:false,jukyushaCopyPreview:null,jukyushaCopyOcrParsed:null}));setJukyushaOcrResult(null);}}
                       style={{padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(224,56,56,0.12)",border:"1px solid rgba(224,56,56,0.4)",color:"var(--ro)"}}>
                       🗑 削除
                     </button>
@@ -8226,14 +8326,12 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
               : <div>
                   <div style={{fontSize:28,marginBottom:6,opacity:.4}}>📄</div>
                   <div style={{fontSize:12,color:"var(--tx3)",marginBottom:10}}>
-                    スマホ: カメラが起動します<br/>
-                    PC: ファイル選択ダイアログが開きます
+                    撮影するとAIが受給者証番号・有効期限などを自動入力します<br/>
+                    <span style={{fontSize:10}}>スマホ: カメラ起動 ／ PC: ファイル選択</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={()=>copyInputRef.current?.click()}
+                  <button type="button" onClick={()=>copyInputRef.current?.click()}
                     style={{padding:"9px 20px",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--tl)",border:"none",color:"#fff"}}>
-                    📷 コピーを撮影・登録
+                    📷 コピーを撮影・AI読み取り
                   </button>
                 </div>
             }
@@ -8863,6 +8961,75 @@ function FacesheetTab({u,myFS,user,store}){
       <FacesheetField {...fld("calming")} label="落ち着くための方法" multi placeholder="例）一人になれる静かな空間、好きな音楽を聴く"/>
       <FacesheetField {...fld("notes")} label="支援上の特記事項" multi placeholder="その他、支援員が把握すべき情報"/>
     </div>
+    {/* 受給者証情報（users_dataから読み取り専用表示） */}
+    {(()=>{
+      // users_dataに受給者証情報があれば表示（登録はJukyushaTabで行う）
+      const hasJukyusha = u.jukyushaNo || u.jukyushaExpiry || u.jukyushaCity;
+      if(!hasJukyusha) return null;
+      const exp = u.jukyushaExpiry || "";
+      const st  = exp ? expiryStatus(exp) : null;
+      const es  = st  ? expiryStyle(st)   : null;
+      const d   = exp ? daysUntil(exp)    : null;
+      // サービス種別の日本語表示
+      const svcLabel = {
+        houkago:"放課後等デイサービス",
+        jidouhattatsu:"児童発達支援",
+        hoikuvisit:"保育所等訪問支援",
+      }[u.serviceType] || u.serviceType || "";
+      // 上限額の表示
+      const upperAmt = u.maxBurden != null ? u.maxBurden :
+                       u.upper_limit_amount != null ? u.upper_limit_amount : null;
+      const isLimitOffice = u.isLimitMgmtOffice || u.upper_limit_office || false;
+      // 最終更新日
+      const updAt = u.jukyushaUpdatedAt || "";
+      // 画像プレビュー
+      const imgPreview = u.jukyushaCertificateImageUrl || null;
+      return (
+        <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"16px",marginBottom:12,boxShadow:"var(--sh)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,paddingBottom:8,borderBottom:"2px solid #0090c4"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#0090c4",letterSpacing:2}}>🪪 受給者証情報</div>
+            <div style={{fontSize:10,color:"var(--tx3)"}}>「受給者証」タブで編集</div>
+          </div>
+          {/* 有効期限アラート */}
+          {st && st!=="ok" && es && d!=null && (
+            <div style={{background:es.bg,border:"1.5px solid "+es.border,borderRadius:8,padding:"8px 12px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:12,fontWeight:700,color:es.color}}>{es.icon} 有効期限 {exp}</span>
+              <span style={{fontSize:12,fontWeight:700,color:es.color}}>{d<0?"期限切れ":d+"日後"}</span>
+            </div>
+          )}
+          {/* 2カラムグリッド */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 16px",marginBottom:imgPreview?12:0}}>
+            {[
+              {label:"受給者証番号",  value:u.jukyushaNo     || ""},
+              {label:"支給自治体",    value:u.jukyushaCity   || ""},
+              {label:"有効期限",      value:exp},
+              {label:"サービス種別",  value:svcLabel},
+              {label:"負担上限月額",  value:upperAmt!=null ? upperAmt.toLocaleString()+"円" : ""},
+              {label:"上限額管理",    value:isLimitOffice ? "当事業所が管理" : ""},
+              {label:"送迎",          value:u.hasTransport ? "あり" : "なし"},
+              {label:"相談支援事業所",value:u.consultationOffice || ""},
+            ].map(({label,value})=>value&&(
+              <div key={label} style={{minWidth:0}}>
+                <div style={{fontSize:10,color:"var(--tx3)",marginBottom:2}}>{label}</div>
+                <div style={{fontSize:12,fontWeight:600,color:"var(--tx)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</div>
+              </div>
+            ))}
+          </div>
+          {/* 受給者証画像プレビュー */}
+          {imgPreview && (
+            <div style={{marginTop:8}}>
+              <div style={{fontSize:10,color:"var(--tx3)",marginBottom:4}}>受給者証コピー画像</div>
+              <img
+                src={imgPreview}
+                alt="受給者証"
+                style={{maxWidth:"100%",maxHeight:160,borderRadius:8,border:"1px solid var(--bd)",objectFit:"contain",display:"block"}}
+              />
+            </div>
+          )}
+          {updAt && <div style={{fontSize:10,color:"var(--tx3)",marginTop:8,textAlign:"right"}}>更新日: {updAt.slice(0,10)}</div>}
+        </div>
+      );
+    })()}
     {/* 受給者証期限アラート */}
     {(u.jukyushaExpiry||(myFS?.jukyushaExpiry))&&(()=>{
       const exp=myFS?.jukyushaExpiry||u.jukyushaExpiry;
@@ -9784,12 +9951,22 @@ function JukyushaTab({u, user, store}) {
 
   // 保存（新フィールド monitoringInterval, guardianName, grantDate, specialNotes も保存）
   const handleSave = () => {
+    // ─── 二重登録確認 ───
+    // users_data に既に受給者証情報が存在する場合は更新確認ダイアログを表示
+    const existing = store.loadJukyushaCertificate(u.id);
+    if(existing?.jukyushaNo && existing.jukyushaNo !== form.jukyushaNo && form.jukyushaNo){
+      const ok = window.confirm(
+        `受給者証情報が既に登録されています。\n\n` +
+        `登録済み: ${existing.jukyushaNo}（有効期限: ${existing.jukyushaExpiry||"不明"}）\n` +
+        `新しい情報: ${form.jukyushaNo}（有効期限: ${form.expiryDate||"不明"}）\n\n` +
+        `更新しますか？`
+      );
+      if(!ok) return;
+    }
+
     // ─── デバッグログ ───
-    // ① OCR生データ（runAllOcr で抽出されたマージ済み結果）
     console.log("[OCR RESULT]", ocrResult);
-    // ② フォーム入力値（OCR + 手動修正後の保存直前の値）
     console.log("[SAVE FORM]", form);
-    // ③ 利用者ID確認（U-GH-XXXX形式の表示IDがDBの主キー。UUIDは使用していない）
     console.log("[USER ID]", u.id, "（users_dataテーブルの主キーと一致）");
 
     const id = "jd_" + Date.now();
@@ -9806,8 +9983,8 @@ function JukyushaTab({u, user, store}) {
       monitoringInterval: form.monitoringInterval || null,
       specialNotes: form.specialNotes || null,
       status: "有効",
-      imagePreview: photos[0]?.base64 || null,        // 後方互換（1枚目）
-      imagePreviews: photos.map(p=>p.base64),         // 全写真（最大3枚）
+      imagePreview: photos[0]?.base64 || null,
+      imagePreviews: photos.map(p=>p.base64),
       ocrData: ocrResult,
       createdBy: user.displayName
     };
@@ -9815,21 +9992,24 @@ function JukyushaTab({u, user, store}) {
     myDocs.filter(d=>d.status==="有効").forEach(d=>store.updJukyushaDoc(d.id,{status:"旧"}));
     store.addJukyushaDoc(doc);
 
-    // ── 利用者の受給者証情報を更新（OCRで取得できたフィールドをまとめて反映）──
-    // ※ users_dataテーブルへの保存IDは u.id（U-GH-XXXX形式の表示ID）= DBの主キーと一致
-    const userUpdate = {
-      jukyushaNo:     form.jukyushaNo  || u.jukyushaNo,
-      jukyushaCity:   form.city        || u.jukyushaCity,
-      jukyushaExpiry: form.expiryDate  || u.jukyushaExpiry,
-    };
-    // OCRで取得できた追加フィールドも反映（空の場合は上書きしない）
-    if(form.maxBurden)           userUpdate.maxBurden           = parseInt(form.maxBurden) || u.maxBurden;
-    if(form.serviceAmount)       userUpdate.serviceAmount       = form.serviceAmount;
-    if(form.guardianName && !u.parentName) userUpdate.parentName = form.guardianName; // 保護者名が未設定の場合のみ
-    if(form.monitoringInterval)  userUpdate.monitoringInterval  = form.monitoringInterval;
-    console.log("[UPDATE USER]", u.id, userUpdate);
-    store.updUser2(u.id, userUpdate);
-    console.log("[UPDATE RESULT] updUser2 完了（stateとSupabaseを更新）");
+    // ── 共通関数 saveJukyushaCertificate で users_data に一元保存 ──
+    // フェイスシート・新規登録画面・詳細タブすべてここを参照する
+    store.saveJukyushaCertificate(u.id, {
+      jukyushaNo:       form.jukyushaNo   || "",
+      jukyushaExpiry:   form.expiryDate   || "",
+      jukyushaCity:     form.city         || "",
+      maxBurden:        form.maxBurden    ? parseInt(form.maxBurden) : null,
+      isLimitMgmtOffice:u.isLimitMgmtOffice ?? false,  // 既存値を保持
+      hasTransport:     u.hasTransport    ?? false,      // 既存値を保持
+      imagePreview:     photos[0]?.base64 ? "data:image/jpeg;base64," + photos[0].base64 : existing?.imagePreview || null,
+      ocrRaw:           rawResults.length > 0 ? JSON.stringify(rawResults) : null,
+      ocrParsed:        ocrResult ? { ...ocrResult } : null,
+    });
+    // 保護者名が未設定の場合のみ guardianName から補完
+    if(form.guardianName && !u.parentName){
+      store.updUser2(u.id, {parentName: form.guardianName});
+    }
+    console.log("[saveJukyushaCertificate] 完了（users_dataに一元保存）");
 
     // ── AIドキュメントBOXに自動登録 ──
     // JukyushaTabは必ず利用者詳細（hub画面）から呼ばれるため、u.idは確定済み
