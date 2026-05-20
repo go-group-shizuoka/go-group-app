@@ -8021,6 +8021,27 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false); // 保存連打防止
   const [saveErr, setSaveErr] = useState("");  // 保存エラーメッセージ
+  // 受給者証コピー撮影用
+  const copyInputRef = useRef(null);
+
+  // 受給者証コピー: 撮影/ファイル選択 → 圧縮してプレビュー保存
+  const handleJukyushaCopyCapture = async e => {
+    const file = e.target.files?.[0];
+    if(!file) return;
+    if(file.size > 5 * 1024 * 1024){ alert("ファイルサイズが5MBを超えています。別の写真を選択してください。"); return; }
+    try {
+      const raw = await fileToBase64(file);
+      const compressed = await compressBase64(raw, 1200, 900, 0.8);
+      const previewUrl = "data:image/jpeg;base64," + compressed;
+      // form に画像データとフラグを保存（保存時に users_data.data に含まれる）
+      setForm(p=>({...p, jukyushaCopy:true, jukyushaCopyPreview:previewUrl}));
+    } catch(err) {
+      console.error("[受給者証コピー] 画像処理エラー:", err);
+      alert("画像の読み込みに失敗しました。もう一度お試しください。");
+    }
+    // 同じファイルを再選択できるようにリセット
+    e.target.value = "";
+  };
 
   const validate = () => {
     const e = {};
@@ -8163,17 +8184,57 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
         {/* 受給者証コピー */}
         <div style={{marginBottom:8}}>
           <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",letterSpacing:1,display:"block",marginBottom:6}}>受給者証コピー</label>
+          {/* hidden input: PCはファイル選択、スマホはカメラ起動 */}
+          <input
+            ref={copyInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            style={{display:"none"}}
+            onChange={handleJukyushaCopyCapture}
+          />
           <div style={{border:"2px dashed var(--bd)",borderRadius:10,padding:16,background:"var(--bg)",textAlign:"center"}}>
             {form.jukyushaCopy
-              ? <div style={{color:"var(--gr)",fontWeight:700,fontSize:13}}>
-                  <div style={{fontSize:28,marginBottom:5}}>✅</div>
-                  コピー済み（登録済み）
-                  <button onClick={()=>upd("jukyushaCopy",false)} style={{display:"block",margin:"8px auto 0",padding:"4px 12px",borderRadius:7,fontSize:11,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(224,56,56,0.15)",border:"1px solid rgba(224,56,56,0.4)",color:"var(--ro)",fontWeight:700}}>削除</button>
+              ? <div>
+                  {/* プレビュー画像（撮影した場合のみ表示） */}
+                  {form.jukyushaCopyPreview&&<img
+                    src={form.jukyushaCopyPreview}
+                    alt="受給者証コピー"
+                    style={{width:"100%",maxHeight:180,objectFit:"contain",borderRadius:8,marginBottom:10,border:"1px solid var(--bd)"}}
+                  />}
+                  <div style={{color:"var(--gr)",fontWeight:700,fontSize:13,marginBottom:6}}>
+                    <span style={{fontSize:20,marginRight:6}}>✅</span>
+                    コピー登録済み
+                  </div>
+                  <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+                    {/* 撮り直しボタン */}
+                    <button
+                      type="button"
+                      onClick={()=>copyInputRef.current?.click()}
+                      style={{padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(58,160,216,0.12)",border:"1.5px solid var(--tl)",color:"var(--tl)"}}>
+                      📷 撮り直す
+                    </button>
+                    {/* 削除ボタン */}
+                    <button
+                      type="button"
+                      onClick={()=>setForm(p=>({...p,jukyushaCopy:false,jukyushaCopyPreview:null}))}
+                      style={{padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"rgba(224,56,56,0.12)",border:"1px solid rgba(224,56,56,0.4)",color:"var(--ro)"}}>
+                      🗑 削除
+                    </button>
+                  </div>
                 </div>
               : <div>
                   <div style={{fontSize:28,marginBottom:6,opacity:.4}}>📄</div>
-                  <div style={{fontSize:12,color:"var(--tx3)",marginBottom:10}}>受給者証のコピーを撮影・登録します</div>
-                  <button onClick={()=>upd("jukyushaCopy",true)} style={{padding:"9px 20px",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--tl)",border:"none",color:"#fff"}}>📷 コピーを撮影・登録</button>
+                  <div style={{fontSize:12,color:"var(--tx3)",marginBottom:10}}>
+                    スマホ: カメラが起動します<br/>
+                    PC: ファイル選択ダイアログが開きます
+                  </div>
+                  <button
+                    type="button"
+                    onClick={()=>copyInputRef.current?.click()}
+                    style={{padding:"9px 20px",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--tl)",border:"none",color:"#fff"}}>
+                    📷 コピーを撮影・登録
+                  </button>
                 </div>
             }
           </div>
