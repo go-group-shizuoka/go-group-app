@@ -72,7 +72,7 @@ if (typeof window !== "undefined") {
 const _savingIds = new Set();
 
 // ── Supabaseエラーの日本語マッピング ──
-function _sbErrMsg(status, message) {
+function _sbErrMsg(status, message, body) {
   if (!_isOnline)               return "📡 オフラインです。通信環境を確認してください。";
   if (status === 401)           return "🔒 認証エラーです。再ログインしてください。";
   if (status === 403)           return "🔒 保存権限がありません（RLS/GRANT設定を確認）。管理者にお問い合わせください。";
@@ -81,6 +81,10 @@ function _sbErrMsg(status, message) {
   if (status === 422)           return "⚠️ 入力データの形式が正しくありません。内容を確認してください。";
   if (status >= 500)            return "🔧 サーバーエラーです。しばらく待ってから再試行してください。";
   if (message?.includes("Failed to fetch")) return "📡 通信に失敗しました。ネットワーク接続を確認してください。";
+  // PGRST204: スキーマキャッシュにカラムが見つからない（DB項目設定エラー）
+  const bodyStr = body || message || "";
+  if (bodyStr.includes("PGRST204") || bodyStr.includes("schema cache"))
+    return "🔧 DB項目設定エラー（PGRST204）: テーブルのカラムが見つかりません。管理者にお問い合わせください。";
   return "保存に失敗しました。通信状況を確認してもう一度お試しください。";
 }
 
@@ -147,10 +151,14 @@ async function sbSave(table, data, { retry = 3 } = {}) {
   // 実エラー詳細をコンソールに記録
   console.error(`[GO-GROUP SAVE ERROR] table=${table} id=${data?.id||"?"} status=${lastStatus} err=${errMsg} body=${lastErrBody}`, new Date().toLocaleString("ja-JP"));
   _appendSaveErr(table, data?.id ?? null, errMsg);
-  // ★ トースト: HTTP status が判明している場合は具体的に表示
-  const toastMsg = lastStatus >= 400
-    ? `⚠ 保存失敗 [${table}] HTTP ${lastStatus}:\n${lastErrBody||errMsg}`
-    : _sbErrMsg(lastStatus, lastErr?.message);
+  // ★ トースト: PGRST204（DB項目設定エラー）を優先判定してからHTTP statusで分岐
+  const bodyStr = lastErrBody || "";
+  const isPGRST204 = bodyStr.includes("PGRST204") || bodyStr.includes("schema cache");
+  const toastMsg = isPGRST204
+    ? _sbErrMsg(lastStatus, lastErr?.message, bodyStr)
+    : lastStatus >= 400
+      ? `⚠ 保存失敗 [${table}] HTTP ${lastStatus}:\n${lastErrBody||errMsg}`
+      : _sbErrMsg(lastStatus, lastErr?.message, bodyStr);
   _sbErrCb?.(toastMsg, "error");
   return false;
 }
@@ -3279,7 +3287,7 @@ function useStore() {
     if (!ok) {
       // ③保存失敗: ローカルstateをロールバック（二重登録防止）
       setDynUsers(p => p.filter(x => x.id !== u.id));
-      throw new Error("Supabaseへの保存に失敗しました。通信状況を確認してください。");
+      throw new Error("Supabaseへの保存に失敗しました。通信状況またはDB項目設定を確認してください。");
     }
     return u;
   };
