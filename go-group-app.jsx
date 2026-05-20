@@ -3204,7 +3204,22 @@ function useStore() {
   const [dynStaff, setDynStaff] = useState(INITIAL_STAFF);
   const [dailyReports, setDailyReports] = useState([]);
   const saveFS = async fs => {
-    // ★ 保存ペイロードを明示的にログ出力（デバッグ用）
+    // ★ デバッグ: 保存前にfacesheetsテーブルへのSELECT疎通テスト
+    try {
+      const testUrl = SUPABASE_URL + "/rest/v1/facesheets?select=id&limit=1";
+      const testR = await fetch(testUrl, {
+        headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+      });
+      const testBody = await testR.text();
+      console.log("[saveFS debug] SELECT test → status:", testR.status, "body:", testBody);
+      showToast(`DB接続: HTTP ${testR.status} / ${testBody.slice(0,80)}`, testR.ok ? "success" : "error");
+      if (!testR.ok) return false; // 接続失敗なら保存せず返る
+    } catch(e) {
+      console.error("[saveFS debug] SELECT error:", e.message);
+      showToast("DB接続テスト失敗: " + e.message, "error");
+      return false;
+    }
+
     const payload = {
       id:          fs.userId      || null,
       facility_id: fs.facilityId  || null,
@@ -3212,13 +3227,7 @@ function useStore() {
       updated_at:  new Date().toISOString(),
       data:        fs,
     };
-    console.log("[saveFS] payload:", JSON.stringify({
-      id: payload.id,
-      facility_id: payload.facility_id,
-      user_id: payload.user_id,
-      updated_at: payload.updated_at,
-      data_keys: Object.keys(fs),
-    }));
+    console.log("[saveFS] payload id:", payload.id, "facility_id:", payload.facility_id);
     setFacesheets(p=>[...p.filter(x=>x.userId!==fs.userId),fs]);
     const ok = await sbSave("facesheets", payload);
     if (!ok) {
