@@ -3278,6 +3278,8 @@ function useStore() {
       consultation_office: u.consultationOffice|| null,
       transport_required:  u.hasTransport      || false,
       support_grade:       u.supportGrade      || null,
+      upper_limit_amount:  u.maxBurden        ? parseInt(u.maxBurden)||null : null,
+      upper_limit_office:  u.isLimitMgmtOffice || false,
       active:              u.active !== false,
       enroll_date:         u.enrollDate        || null,
       created_at:          now,
@@ -8638,6 +8640,40 @@ function UserManagement({user,store,onBack}){
           const newUser = {...u, id: newId};
           // await で保存結果を待つ（失敗時は throw → RegisterUser側でキャッチ）
           await store.addUser(newUser);
+          // ── 受給者証コピーが撮影済みの場合: saveJukyushaCertificate + addJukyushaDoc ──
+          // 新規登録で撮影した受給者証を受給者証タブ（確認・更新画面）でも確認できるようにする
+          if(newUser.jukyushaCopy){
+            // ① users_data に受給者証情報を一元保存（フェイスシートへの反映に使用）
+            store.saveJukyushaCertificate(newId, {
+              jukyushaNo:        newUser.jukyushaNo       || "",
+              jukyushaExpiry:    newUser.jukyushaExpiry    || "",
+              jukyushaCity:      newUser.jukyushaCity      || "",
+              maxBurden:         newUser.maxBurden ? parseInt(newUser.maxBurden) : null,
+              isLimitMgmtOffice: newUser.isLimitMgmtOffice ?? false,
+              hasTransport:      newUser.hasTransport      ?? false,
+              imagePreview:      newUser.jukyushaCopyPreview || null,
+              ocrRaw:            null,
+              ocrParsed:         newUser.jukyushaCopyOcrParsed || null,
+            });
+            // ② jukyushaDocsに追加（受給者証タブのリストに表示するため）
+            const imgBase64 = newUser.jukyushaCopyPreview?.replace(/^data:image\/\w+;base64,/,"") || null;
+            store.addJukyushaDoc({
+              id:           "jd_" + Date.now(),
+              facilityId:   newUser.facilityId,
+              userId:       newId,
+              scanDate:     new Date().toISOString().slice(0,10),
+              jukyushaNo:   newUser.jukyushaNo       || null,
+              city:         newUser.jukyushaCity      || null,
+              expiryDate:   newUser.jukyushaExpiry    || null,
+              serviceType:  newUser.serviceType       || null,
+              maxBurden:    newUser.maxBurden ? parseInt(newUser.maxBurden) : null,
+              status:       "有効",
+              imagePreview: imgBase64,
+              imagePreviews:[imgBase64].filter(Boolean),
+              ocrData:      newUser.jukyushaCopyOcrParsed || null,
+              createdBy:    user.displayName,
+            });
+          }
           store.showToast("✅ 利用者を登録しました");
           // ── 登録成功後: フェイスシート作成へ誘導 ──
           setSelUser(newUser);
