@@ -3204,22 +3204,6 @@ function useStore() {
   const [dynStaff, setDynStaff] = useState(INITIAL_STAFF);
   const [dailyReports, setDailyReports] = useState([]);
   const saveFS = async fs => {
-    // ★ デバッグ: 保存前にfacesheetsテーブルへのSELECT疎通テスト
-    try {
-      const testUrl = SUPABASE_URL + "/rest/v1/facesheets?select=id&limit=1";
-      const testR = await fetch(testUrl, {
-        headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
-      });
-      const testBody = await testR.text();
-      console.log("[saveFS debug] SELECT test → status:", testR.status, "body:", testBody);
-      showToast(`DB接続: HTTP ${testR.status} / ${testBody.slice(0,80)}`, testR.ok ? "success" : "error");
-      if (!testR.ok) return false; // 接続失敗なら保存せず返る
-    } catch(e) {
-      console.error("[saveFS debug] SELECT error:", e.message);
-      showToast("DB接続テスト失敗: " + e.message, "error");
-      return false;
-    }
-
     const payload = {
       id:          fs.userId      || null,
       facility_id: fs.facilityId  || null,
@@ -3227,7 +3211,7 @@ function useStore() {
       updated_at:  new Date().toISOString(),
       data:        fs,
     };
-    console.log("[saveFS] payload id:", payload.id, "facility_id:", payload.facility_id);
+    console.log("[saveFS] payload id:", payload.id, "facility_id:", payload.facility_id, "keys:", Object.keys(fs).join(","));
     setFacesheets(p=>[...p.filter(x=>x.userId!==fs.userId),fs]);
     const ok = await sbSave("facesheets", payload);
     if (!ok) {
@@ -8696,6 +8680,35 @@ function FacesheetTab({u,myFS,user,store}){
   const [fs,setFs]=useState(init);
   const [fsSaving,setFsSaving]=useState(false);
   const [fsSaveErr,setFsSaveErr]=useState("");
+
+  // ── Supabase非同期ロード対応 ──
+  // myFSがない状態でマウント → その後Supabaseからuのデータが届いたとき（dob等が空→値あり）に反映
+  useEffect(()=>{
+    console.log("[FacesheetTab] u.id=",u.id,"u.dob=",u.dob,"u.diagnosis=",u.diagnosis,"u.disabilityGrade=",u.disabilityGrade,"myFS=",myFS?"あり":"なし");
+    if(!myFS){
+      setFs(prev=>({
+        ...prev,
+        dob2:           prev.dob2           || u.dob              || "",
+        gender:         prev.gender         || u.gender           || "",
+        disabilityGrade:prev.disabilityGrade|| u.disabilityGrade  || "",
+        diagDetail:     prev.diagDetail     || u.diagnosis        || "",
+        parentName:     prev.parentName     || u.parentName       || "",
+        parentTel:      prev.parentTel      || u.parentTel        || "",
+        parentRelation: prev.parentRelation || u.parentRelation   || "母",
+        address:        prev.address        || u.address          || "",
+        emergencyTel:   prev.emergencyTel   || u.emergencyTel     || "",
+        emergencyName:  prev.emergencyName  || u.emergencyName    || "",
+        school:         prev.school         || u.school           || "",
+        schoolYear:     prev.schoolYear     || u.schoolYear       || "",
+        medicalInstitution: prev.medicalInstitution || u.medicalInstitution || "",
+        doctor:         prev.doctor         || u.doctor           || "",
+        medications:    prev.medications    || u.medications      || "",
+        allergies:      prev.allergies      || u.allergies        || "",
+        notes:          prev.notes          || u.note             || "",
+      }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[u.dob, u.gender, u.disabilityGrade, u.diagnosis, u.parentName, u.parentTel, u.address, u.school]);
   const upd=(k,v)=>setFs(p=>({...p,[k]:v}));
   const save=async()=>{
     if(fsSaving) return;
@@ -9702,6 +9715,14 @@ function JukyushaTab({u, user, store}) {
 
   // 保存（新フィールド monitoringInterval, guardianName, grantDate, specialNotes も保存）
   const handleSave = () => {
+    // ─── デバッグログ ───
+    // ① OCR生データ（runAllOcr で抽出されたマージ済み結果）
+    console.log("[OCR RESULT]", ocrResult);
+    // ② フォーム入力値（OCR + 手動修正後の保存直前の値）
+    console.log("[SAVE FORM]", form);
+    // ③ 利用者ID確認（U-GH-XXXX形式の表示IDがDBの主キー。UUIDは使用していない）
+    console.log("[USER ID]", u.id, "（users_dataテーブルの主キーと一致）");
+
     const id = "jd_" + Date.now();
     const doc = {
       id, facilityId: u.facilityId, userId: u.id,
@@ -9724,8 +9745,22 @@ function JukyushaTab({u, user, store}) {
     // 旧受給者証を「旧」に変更
     myDocs.filter(d=>d.status==="有効").forEach(d=>store.updJukyushaDoc(d.id,{status:"旧"}));
     store.addJukyushaDoc(doc);
-    // 利用者の受給者証情報も更新
-    store.updUser2(u.id, { jukyushaNo: form.jukyushaNo, jukyushaCity: form.city, jukyushaExpiry: form.expiryDate });
+
+    // ── 利用者の受給者証情報を更新（OCRで取得できたフィールドをまとめて反映）──
+    // ※ users_dataテーブルへの保存IDは u.id（U-GH-XXXX形式の表示ID）= DBの主キーと一致
+    const userUpdate = {
+      jukyushaNo:     form.jukyushaNo  || u.jukyushaNo,
+      jukyushaCity:   form.city        || u.jukyushaCity,
+      jukyushaExpiry: form.expiryDate  || u.jukyushaExpiry,
+    };
+    // OCRで取得できた追加フィールドも反映（空の場合は上書きしない）
+    if(form.maxBurden)           userUpdate.maxBurden           = parseInt(form.maxBurden) || u.maxBurden;
+    if(form.serviceAmount)       userUpdate.serviceAmount       = form.serviceAmount;
+    if(form.guardianName && !u.parentName) userUpdate.parentName = form.guardianName; // 保護者名が未設定の場合のみ
+    if(form.monitoringInterval)  userUpdate.monitoringInterval  = form.monitoringInterval;
+    console.log("[UPDATE USER]", u.id, userUpdate);
+    store.updUser2(u.id, userUpdate);
+    console.log("[UPDATE RESULT] updUser2 完了（stateとSupabaseを更新）");
 
     // ── AIドキュメントBOXに自動登録 ──
     // JukyushaTabは必ず利用者詳細（hub画面）から呼ばれるため、u.idは確定済み
