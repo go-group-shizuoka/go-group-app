@@ -28,7 +28,7 @@ const sb = {
       upsert: async function(data) {
         const h = {...headers, "Prefer": "resolution=merge-duplicates,return=minimal"};
         const r = await fetch(base, {method:"POST", headers:h, body: JSON.stringify(data)});
-        if(!r.ok) { const e = await r.text(); console.error("SB upsert error:", e); }
+        // ⚠️ ここでは r.text() を読まない（sbSave側で読むため body を消費しない）
         return r;
       },
       delete: async function(id) {
@@ -101,21 +101,28 @@ async function sbSave(table, data, { retry = 3 } = {}) {
   }
   if (saveKey !== `${table}_`) _savingIds.add(saveKey);
 
+  // ③ 保存ペイロードをコンソールに記録（デバッグ用）
+  console.log(`[SB SAVE] table=${table} id=${data?.id||"(none)"} keys=${Object.keys(data||{}).join(",")}`);
+
   let lastErr = null;
   let lastStatus = 0;
+  let lastErrBody = "";
 
   for (let attempt = 0; attempt < retry; attempt++) {
     // 指数バックオフ（1回目はすぐ、2回目は1秒後、3回目は2秒後）
     if (attempt > 0) {
       await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
-      // リトライ前にもオフラインチェック
       if (!_isOnline) { lastErr = new Error("offline"); break; }
     }
     try {
       const r = await sb.from(table).upsert(data);
       if (r && typeof r.ok !== "undefined" && !r.ok) {
-        const errText = await r.text().catch(() => "");
+        // ★ body をここで読む（upsert側では読まない設計に変更済み）
+        const errText = await r.text().catch(() => "（body読み取り失敗）");
         lastStatus = r.status;
+        lastErrBody = errText;
+        // ★ 実エラー内容をコンソールに出力
+        console.error(`[SB SAVE ERROR] table=${table} status=${r.status} body=${errText}`, data);
         // 4xx はリトライ不要（権限エラー・スキーマ不一致）
         if (r.status >= 400 && r.status < 500) {
           lastErr = new Error(`HTTP ${r.status}: ${errText}`);
@@ -137,11 +144,14 @@ async function sbSave(table, data, { retry = 3 } = {}) {
   // ❌ 全リトライ失敗
   _savingIds.delete(saveKey);
   const errMsg = lastErr?.message || "不明なエラー";
-  // 統一フォーマットでコンソールに記録（監査用）
-  console.error(`[GO-GROUP SAVE ERROR] table=${table} id=${data?.id||"?"} err=${errMsg}`, new Date().toLocaleString("ja-JP"));
-  // グローバルエラーログに追記（管理画面で確認できる）
+  // 実エラー詳細をコンソールに記録
+  console.error(`[GO-GROUP SAVE ERROR] table=${table} id=${data?.id||"?"} status=${lastStatus} err=${errMsg} body=${lastErrBody}`, new Date().toLocaleString("ja-JP"));
   _appendSaveErr(table, data?.id ?? null, errMsg);
-  _sbErrCb?.(_sbErrMsg(lastStatus, lastErr?.message), "error");
+  // ★ トースト: HTTP status が判明している場合は具体的に表示
+  const toastMsg = lastStatus >= 400
+    ? `⚠ 保存失敗 [${table}] HTTP ${lastStatus}:\n${lastErrBody||errMsg}`
+    : _sbErrMsg(lastStatus, lastErr?.message);
+  _sbErrCb?.(toastMsg, "error");
   return false;
 }
 async function sbLoad(table) {
@@ -3193,9 +3203,28 @@ function useStore() {
   const [dynUsers, setDynUsers] = useState(INITIAL_USERS);
   const [dynStaff, setDynStaff] = useState(INITIAL_STAFF);
   const [dailyReports, setDailyReports] = useState([]);
-  const saveFS = fs => {
+  const saveFS = async fs => {
+    // ★ 保存ペイロードを明示的にログ出力（デバッグ用）
+    const payload = {
+      id:          fs.userId      || null,
+      facility_id: fs.facilityId  || null,
+      user_id:     fs.userId      || null,
+      updated_at:  new Date().toISOString(),
+      data:        fs,
+    };
+    console.log("[saveFS] payload:", JSON.stringify({
+      id: payload.id,
+      facility_id: payload.facility_id,
+      user_id: payload.user_id,
+      updated_at: payload.updated_at,
+      data_keys: Object.keys(fs),
+    }));
     setFacesheets(p=>[...p.filter(x=>x.userId!==fs.userId),fs]);
-    sbSave("facesheets", {id:fs.userId, facility_id:fs.facilityId||null, user_id:fs.userId||null, updated_at:new Date().toISOString(), data:fs});
+    const ok = await sbSave("facesheets", payload);
+    if (!ok) {
+      console.error("[saveFS] 保存失敗 payload:", payload);
+    }
+    return ok;
   };
   const addAssessment = a => {
     setAssessments(p=>[...p,a]);
@@ -8656,8 +8685,22 @@ function FacesheetTab({u,myFS,user,store}){
     updatedAt:""
   };
   const [fs,setFs]=useState(init);
+  const [fsSaving,setFsSaving]=useState(false);
+  const [fsSaveErr,setFsSaveErr]=useState("");
   const upd=(k,v)=>setFs(p=>({...p,[k]:v}));
-  const save=()=>{const d={...fs,updatedAt:todayISO()};store.saveFS(d);setEdit(false);};
+  const save=async()=>{
+    if(fsSaving) return;
+    setFsSaving(true); setFsSaveErr("");
+    const d={...fs,updatedAt:todayISO()};
+    console.log("[FacesheetTab] save: userId=",d.userId,"facilityId=",d.facilityId);
+    const ok = await store.saveFS(d);
+    setFsSaving(false);
+    if(ok===false){
+      setFsSaveErr("保存に失敗しました。ブラウザのコンソール（F12）でエラー詳細を確認してください。");
+    } else {
+      setEdit(false);
+    }
+  };
 
   // FacesheetField に渡す onChange ヘルパー（各フィールド用）
   const fld=(fkey)=>({
@@ -8672,9 +8715,11 @@ function FacesheetTab({u,myFS,user,store}){
       <div style={{display:"flex",gap:8}}>
         {!edit&&<button className="bexp" onClick={()=>printFacesheet(u,fs,FACILITIES.find(f=>f.id===u.facilityId)?.name||"")} style={{background:"#fff8f0",borderColor:"var(--ac)",color:"var(--ac)"}}>🖨️ 印刷</button>}
         {!edit&&<button className="bexp" onClick={()=>setEdit(true)}>✏️ 編集</button>}
-        {edit&&<><button className="bexp" onClick={()=>setEdit(false)} style={{borderColor:"var(--bda)",color:"var(--tx3)"}}>キャンセル</button><button className="bsave" style={{width:"auto",padding:"7px 18px",marginTop:0}} onClick={save}>保存</button></>}
+        {edit&&<><button className="bexp" onClick={()=>{setEdit(false);setFsSaveErr("");}} style={{borderColor:"var(--bda)",color:"var(--tx3)"}}>キャンセル</button><button className="bsave" style={{width:"auto",padding:"7px 18px",marginTop:0,opacity:fsSaving?0.6:1}} onClick={save} disabled={fsSaving}>{fsSaving?"保存中…":"保存"}</button></>}
       </div>
     </div>
+    {/* 保存エラー表示 */}
+    {fsSaveErr&&<div style={{background:"#fdf0ee",border:"1.5px solid #e09090",borderRadius:9,padding:"10px 14px",marginBottom:12,fontSize:12,color:"#8a2010",whiteSpace:"pre-wrap"}}>{fsSaveErr}</div>}
     {/* 基本情報 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"16px",marginBottom:12,boxShadow:"var(--sh)"}}>
       <div style={{fontSize:11,fontWeight:700,color:"var(--ac)",letterSpacing:2,marginBottom:12,paddingBottom:8,borderBottom:"2px solid var(--ac)"}}>基本情報</div>
