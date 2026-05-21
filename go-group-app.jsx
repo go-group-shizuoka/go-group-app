@@ -1508,7 +1508,7 @@ function printIspDraft(u, d, facilityName) {
         <th style="border:1px solid #ccc;padding:5px;font-size:10px;">具体的な達成目標</th>
         <th style="border:1px solid #ccc;padding:5px;font-size:10px;width:130px;">支援内容<br/>（5領域との関連）</th>
         <th style="border:1px solid #ccc;padding:5px;font-size:10px;width:60px;">達成見込</th>
-        <th style="border:1px solid #ccc;padding:5px;font-size:10px;">振り返り欄</th>
+        <th style="border:1px solid #ccc;padding:5px;font-size:10px;">支援内容</th>
         <th style="border:1px solid #ccc;padding:5px;font-size:10px;width:30px;">番号</th>
       </tr>
     </thead>
@@ -11039,14 +11039,19 @@ function SoudanGenanTab({u, user, store}) {
   const myDocs = (store.soudanGenans||[]).filter(d=>d.userId===u.id).sort((a,b)=>b.receivedDate>a.receivedDate?1:-1);
   const upd = (k,v) => setForm(p=>({...p,[k]:v}));
 
-  // ファイル選択 → OCR実行
+  // ファイル選択 / カメラ撮影 → OCR実行（共通処理）
+  // ・カメラ撮影もファイル選択もこの関数に渡すことで処理を統一
+  // ・preview は data URL（base64）で保存 → ページ更新後も表示が消えない
   const handleFile = async (file) => {
     if (!file) return;
     if (!checkFileSize(file)) return; // 5MB上限チェック
-    setOcrError(""); setPreview(URL.createObjectURL(file));
+    setOcrError("");
     setScanning(true); setMode("scan");
     try {
       const base64 = await fileToBase64(file);
+      // プレビューは data URL（永続）で保存 → ObjectURL（セッション限り）より安全
+      const previewDataUrl = "data:" + file.type + ";base64," + base64;
+      setPreview(previewDataUrl);
       const res = await fetch("/api/ocr", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ imageBase64: base64, mediaType: file.type, mode: "soudan" })
@@ -11122,13 +11127,25 @@ function SoudanGenanTab({u, user, store}) {
   // ===== リスト =====
   if (mode==="list") return (
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontSize:13,fontWeight:700,color:"var(--tx)"}}>📑 相談支援原案一覧</div>
-        <button className="bsave" style={{padding:"8px 14px",fontSize:12}} onClick={()=>fileRef.current?.click()}>
-          📷 原案を撮影・読取
-        </button>
-        <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}}
-          onChange={e=>handleFile(e.target.files[0])}/>
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:"var(--tx)",marginBottom:10}}>📑 相談支援原案一覧</div>
+        {/* ─── 撮影・読取ボタン: label+htmlFor 方式でiOS/Android両対応 ─── */}
+        {/* JukyushaTabと同じ実装パターンに統一 */}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {/* カメラ直接起動 (capture="environment") */}
+          <label htmlFor="sg_cam" className="bsave" style={{padding:"8px 14px",fontSize:12,flex:1,minWidth:140,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",gap:4}}>
+            📷 カメラで撮影
+          </label>
+          {/* アルバムから選択 */}
+          <label htmlFor="sg_alb" style={{padding:"8px 14px",fontSize:12,fontWeight:700,flex:1,minWidth:140,borderRadius:9,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--pu)",background:"rgba(144,72,216,0.08)",color:"var(--pu)",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+            🖼️ アルバムから選択
+          </label>
+        </div>
+        {/* hidden inputs: e.target.value="" で同じファイルを連続選択できるようにする */}
+        <input id="sg_cam" type="file" accept="image/*" capture="environment" style={{display:"none"}}
+          onChange={e=>{ handleFile(e.target.files[0]); e.target.value=""; }}/>
+        <input id="sg_alb" type="file" accept="image/*" style={{display:"none"}}
+          onChange={e=>{ handleFile(e.target.files[0]); e.target.value=""; }}/>
       </div>
 
       {/* 説明バナー */}
@@ -11749,9 +11766,70 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
   const [viewItem, setViewItem] = useState(null);
   const [form, setForm] = useState(()=>newDraftForm(user.displayName));
   const [editId, setEditId] = useState(null); // null=新規, id=編集中
+  const [soudanApplied, setSoudanApplied] = useState(false); // 反映済みフラグ
   const facName = FACILITIES.find(f=>f.id===u.facilityId)?.name||"";
 
   const upd = (k,v) => setForm(p=>({...p,[k]:v}));
+
+  // ── 相談支援原案 → 個別支援計画原案フォームへの反映 ──
+  // 既存フォーム値は上書きせず、空のフィールドにのみ補完する（mergeモード）
+  const applyFromSoudanGenan = (doc) => {
+    console.log("[OCR RESULT soudanGenan]", doc);
+    console.log("[OCR RESULT ocrData]", doc.ocrData);
+
+    // フィールドマッピング: 相談支援原案 → 個別支援計画原案
+    const mapped = {
+      jukyushaCertNo:  doc.jukyushaNo       || "",
+      startDate:       doc.planPeriodStart  || "",
+      expiryDate:      doc.planPeriodEnd    || "",
+      childWish:       doc.userNeeds        || "",  // 本人のニーズ → 本人の意向
+      familyWish:      doc.parentNeeds      || "",  // 家族のニーズ → 家族の意向
+      longTermGoal:    doc.longTermGoal     || "",  // 長期目標
+      shortTermGoal:   doc.shortTermGoal    || "",  // 短期目標
+      overallPolicy:   doc.supportPolicy    || "",  // 支援方針
+    };
+    console.log("[APPLY to IspDraft] mapped fields:", mapped);
+
+    // 支援目標（priorityItems → goals 変換）
+    // priorityItemsが配列で、achievement が空のとき補完
+    let newGoals = null;
+    if(Array.isArray(doc.priorityItems) && doc.priorityItems.length > 0) {
+      newGoals = doc.priorityItems.map((item, i) => ({
+        id:         genId(),
+        priority:   "本人支援",
+        achievement: typeof item === "string" ? item : (item.content || item.title || item.goal || ""),
+        domains:    [],
+        period:     "12ヶ月",
+        reflection: "",
+        no:         i + 1,
+      })).filter(g => g.achievement);
+      console.log("[APPLY to IspDraft] goals from priorityItems:", newGoals);
+    }
+
+    // フォームとのマージ: 既存値がある場合は上書きしない
+    setForm(prev => {
+      const merged = {
+        ...prev,
+        jukyushaCertNo: prev.jukyushaCertNo || mapped.jukyushaCertNo,
+        startDate:      prev.startDate      || mapped.startDate,
+        expiryDate:     prev.expiryDate     || mapped.expiryDate,
+        childWish:      prev.childWish      || mapped.childWish,
+        familyWish:     prev.familyWish     || mapped.familyWish,
+        longTermGoal:   prev.longTermGoal   || mapped.longTermGoal,
+        shortTermGoal:  prev.shortTermGoal  || mapped.shortTermGoal,
+        overallPolicy:  prev.overallPolicy  || mapped.overallPolicy,
+      };
+      // goals: priorityItemsがある場合、かつ現在のgoalsが空（achievement未入力）のとき置換
+      if(newGoals && newGoals.length > 0) {
+        const allEmpty = prev.goals.every(g => !g.achievement);
+        if(allEmpty) merged.goals = newGoals;
+      }
+      console.log("[APPLY to IspDraft] merged form:", merged);
+      return merged;
+    });
+    setSoudanApplied(true);
+    store.showToast("✅ 相談支援原案の内容を反映しました");
+  };
   const updSched = (day,k,v) => setForm(p=>({...p,schedule:{...p.schedule,[day]:{...p.schedule[day],[k]:v}}}));
   const updExt = (type,day,v) => setForm(p=>({...p,[type]:{...p[type],[day]:v}}));
   const addGoalRow = () => setForm(p=>({...p,goals:[...p.goals,{id:genId(),priority:"本人支援",achievement:"",domains:[],period:"12ヶ月",reflection:"",no:p.goals.length+1}]}));
@@ -11770,6 +11848,7 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
       store.addIspDraft(draft);
     }
     setForm(newDraftForm(user.displayName));
+    setSoudanApplied(false); // 次回作成時にバナーを再表示するためリセット
     setMode("list");
   };
 
@@ -11777,6 +11856,7 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
   const startEdit = (item) => {
     setForm({...item});
     setEditId(item.id);
+    setSoudanApplied(false); // 編集時はバナーを初期状態に戻す
     setViewItem(null);
     setMode("new");
   };
@@ -11815,7 +11895,7 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
           </div>
           <div style={{fontSize:11,color:"var(--tx2)",marginBottom:4}}><b>達成目標:</b> {g.achievement}</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:4}}>{(g.domains||[]).map(d=><span key={d} style={{padding:"2px 7px",borderRadius:6,fontSize:10,background:"rgba(144,72,216,0.18)",color:"var(--pu)",fontWeight:700}}>{d}</span>)}</div>
-          {g.reflection&&<div style={{fontSize:11,color:"var(--tx3)"}}>振り返り: {g.reflection}</div>}
+          {g.reflection&&<div style={{fontSize:11,color:"var(--tx2)"}}>支援内容: {g.reflection}</div>}
         </div>
       ))}
     </div>
@@ -11828,6 +11908,34 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
         <button className="bback" onClick={()=>setMode("list")}>← 戻る</button>
         <div style={{fontSize:15,fontWeight:900}}>📋 個別支援計画（原案）{editId?"編集":"作成"}</div>
       </div>
+
+      {/* ── 相談支援原案からの反映バナー ──
+          この利用者の相談支援原案がある場合のみ表示する。
+          ファイル取り込み・カメラ撮影どちらの方法でも applyFromSoudanGenan() を通す。 */}
+      {(()=>{
+        const mySoudans = (store.soudanGenans||[])
+          .filter(d=>d.userId===u.id)
+          .sort((a,b)=>b.receivedDate>a.receivedDate?1:-1);
+        if(mySoudans.length===0) return null;
+        const latest = mySoudans[0];
+        return (
+          <div style={{background:"rgba(144,72,216,0.06)",border:"1.5px solid var(--pu)",borderRadius:11,padding:"12px 14px",marginBottom:14}}>
+            <div style={{fontSize:12,fontWeight:700,color:"var(--pu)",marginBottom:6}}>📑 相談支援原案が登録されています</div>
+            <div style={{fontSize:11,color:"var(--tx2)",marginBottom:8}}>
+              {latest.specialistOrg||"相談支援事業所"} ／ {latest.receivedDate}
+              {latest.longTermGoal&&<div style={{marginTop:4,fontSize:11,color:"var(--tx3)"}}>🎯 {latest.longTermGoal.slice(0,50)}{latest.longTermGoal.length>50?"…":""}</div>}
+            </div>
+            {soudanApplied ? (
+              <div style={{fontSize:11,color:"var(--gr)",fontWeight:700}}>✅ 反映済み（手動修正可能）</div>
+            ) : (
+              <button onClick={()=>applyFromSoudanGenan(latest)}
+                style={{padding:"8px 16px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",background:"var(--pu)",border:"none",color:"#fff"}}>
+                📋 内容をフォームに反映する
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* 基本情報 */}
       <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10}}>
@@ -11891,7 +11999,7 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
               <label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:6}}>支援内容（5領域との関連　複数選択可）</label>
               <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{ISP_DOMAINS.map(d=><button key={d} onClick={()=>togDomain(g.id,d)} style={{padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid",borderColor:g.domains.includes(d)?"#7030b8":"var(--bd)",background:g.domains.includes(d)?"rgba(144,72,216,0.18)":"var(--bg)",color:g.domains.includes(d)?"var(--pu)":"var(--tx3)"}}>{d}</button>)}</div>
             </div>
-            <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>振り返り欄</label><textarea className="fta" style={{minHeight:50}} value={g.reflection} onChange={e=>updGoal(g.id,"reflection",e.target.value)} placeholder="支援後の振り返り・変化を記入"/></div>
+            <div><label style={{fontSize:10,fontWeight:700,color:"var(--tx2)",display:"block",marginBottom:4}}>支援内容</label><textarea className="fta" style={{minHeight:50}} value={g.reflection} onChange={e=>updGoal(g.id,"reflection",e.target.value)} placeholder="具体的な支援内容・方法を記入"/></div>
           </div>
         ))}
       </div>
