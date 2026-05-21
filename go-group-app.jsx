@@ -3546,7 +3546,39 @@ function useStore() {
     // 未分類書類キュー（pending/reviewedを最大100件）
     sbLoad("manual_review_queue").then(d=>{ if(d?.length) setManualReviewQueue(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,100)); });
     // 児童別 AIドキュメントBOX（最新500件）
-    sbLoad("child_documents").then(d=>{ if(d?.length) setChildDocuments(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,500)); });
+    // ⚠️ DBはスネークケース(is_latest, child_id, version_no...)で返るが
+    //    コード全体でキャメルケース(isLatest, childId...)を使用するため正規化が必須
+    sbLoad("child_documents").then(d=>{
+      if(!d?.length) return;
+      const normalized = d
+        .sort((a,b)=>( (b.created_at||b.createdAt||"") > (a.created_at||a.createdAt||"") ? 1 : -1 ))
+        .slice(0,500)
+        .map(x => ({
+          ...x,
+          // snake_case → camelCase 正規化（既にcamelCaseの場合は上書きしない）
+          childId:         x.childId         || x.child_id         || null,
+          documentType:    x.documentType    || x.document_type    || "unknown",
+          documentDate:    x.documentDate    || x.document_date    || null,
+          expiryDate:      x.expiryDate      || x.expiry_date      || null,
+          fileUrl:         x.fileUrl         || x.file_url         || null,
+          thumbnailUrl:    x.thumbnailUrl    || x.thumbnail_url    || null,
+          ocrLogId:        x.ocrLogId        || x.ocr_log_id       || null,
+          aiSummary:       x.aiSummary       || x.ai_summary       || null,
+          extractedFields: x.extractedFields || x.extracted_fields || null,
+          versionNo:       x.versionNo       != null ? x.versionNo : (x.version_no  != null ? x.version_no  : 1),
+          // isLatest: boolean として正規化（undefined/null → false、0 → false、1/true → true）
+          isLatest:        (x.isLatest != null ? x.isLatest : x.is_latest) === true
+                        || (x.isLatest != null ? x.isLatest : x.is_latest) === 1,
+          matchConfidence: x.matchConfidence != null ? x.matchConfidence : (x.match_confidence || 0),
+          matchStatus:     x.matchStatus     || x.match_status     || "confirmed",
+          uploadedBy:      x.uploadedBy      || x.uploaded_by      || null,
+          facilityId:      x.facilityId      || x.facility_id      || null,
+          createdAt:       x.createdAt       || x.created_at       || null,
+        }));
+      console.log("[child_documents] loaded", normalized.length, "件 / latest件数:",
+        normalized.filter(x=>x.isLatest).length);
+      setChildDocuments(normalized);
+    });
     // AI監査チェック（最新1000件: open+resolved両方）
     sbLoad("audit_checks").then(d=>{ if(d?.length) setAuditChecks(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,1000)); });
   }, []);
@@ -3689,6 +3721,9 @@ function useStore() {
 
   const addChildDoc = (doc) => {
     // バージョン管理: 同じ child_id × document_type の既存ドキュメントを調べる
+    // ⚠️ state updater（setChildDocuments のコールバック）の中に sbSave を入れると
+    //    React Strict Mode で2回実行される副作用があるため、外出しパターンにする
+
     setChildDocuments(prev => {
       const sameDocs = prev.filter(d =>
         d.childId === doc.childId && d.documentType === doc.documentType
@@ -3696,39 +3731,50 @@ function useStore() {
       const maxVer = sameDocs.reduce((m, d) => Math.max(m, d.versionNo || 1), 0);
       const newVer = maxVer + 1;
 
-      // 既存の is_latest を false に（state + DB）
-      const updated = prev.map(d => {
-        if (d.childId === doc.childId && d.documentType === doc.documentType && d.isLatest) {
-          sbSave("child_documents", {
-            id: d.id, is_latest: false, updated_at: new Date().toISOString()
-          });
-          return { ...d, isLatest: false };
-        }
-        return d;
-      });
+      // 旧 is_latest を false に切替（state のみ。DB更新は後で外出し）
+      const oldLatestIds = sameDocs.filter(d => d.isLatest).map(d => d.id);
+      const updated = prev.map(d =>
+        d.childId === doc.childId && d.documentType === doc.documentType && d.isLatest
+          ? { ...d, isLatest: false }
+          : d
+      );
 
       const newDoc = { ...doc, versionNo: newVer, isLatest: true };
-      // DBに保存
-      sbSave("child_documents", {
-        id:               newDoc.id,
-        child_id:         newDoc.childId         || null,
-        document_type:    newDoc.documentType    || "unknown",
-        document_date:    newDoc.documentDate    || null,
-        expiry_date:      newDoc.expiryDate      || null,
-        file_url:         newDoc.fileUrl         || null,
-        thumbnail_url:    newDoc.thumbnailUrl    || null,
-        ocr_log_id:       newDoc.ocrLogId        || null,
-        ai_summary:       newDoc.aiSummary       || null,
-        extracted_fields: newDoc.extractedFields || null,
-        version_no:       newVer,
-        is_latest:        true,
-        match_confidence: newDoc.matchConfidence || 0,
-        match_status:     newDoc.matchStatus     || "confirmed",
-        uploaded_by:      newDoc.uploadedBy      || null,
-        facility_id:      newDoc.facilityId      || null,
-        created_at:       newDoc.createdAt       || new Date().toISOString(),
-        updated_at:       new Date().toISOString(),
-      });
+
+      // DB更新を setTimeout で updater 外に逃がす（副作用の二重実行を防ぐ）
+      setTimeout(() => {
+        // 旧ドキュメントを is_latest=false に DB更新
+        oldLatestIds.forEach(id => {
+          sbSave("child_documents", {
+            id, is_latest: false, updated_at: new Date().toISOString()
+          });
+          console.log("[addChildDoc] 旧版 is_latest=false:", id, "type:", doc.documentType, "childId:", doc.childId);
+        });
+        // 新ドキュメントを DB保存
+        sbSave("child_documents", {
+          id:               newDoc.id,
+          child_id:         newDoc.childId         || null,
+          document_type:    newDoc.documentType    || "unknown",
+          document_date:    newDoc.documentDate    || null,
+          expiry_date:      newDoc.expiryDate      || null,
+          file_url:         newDoc.fileUrl         || null,
+          thumbnail_url:    newDoc.thumbnailUrl    || null,
+          ocr_log_id:       newDoc.ocrLogId        || null,
+          ai_summary:       newDoc.aiSummary       || null,
+          extracted_fields: newDoc.extractedFields || null,
+          version_no:       newVer,
+          is_latest:        true,
+          match_confidence: newDoc.matchConfidence || 0,
+          match_status:     newDoc.matchStatus     || "confirmed",
+          uploaded_by:      newDoc.uploadedBy      || null,
+          facility_id:      newDoc.facilityId      || null,
+          created_at:       newDoc.createdAt       || new Date().toISOString(),
+          updated_at:       new Date().toISOString(),
+        });
+        console.log("[addChildDoc] 新版 is_latest=true v"+newVer+":", newDoc.id,
+          "type:", newDoc.documentType, "childId:", newDoc.childId, "expiry:", newDoc.expiryDate);
+      }, 0);
+
       return [newDoc, ...updated];
     });
   };
@@ -16476,7 +16522,12 @@ function ChildDocumentBox({u, user, store}) {
     </div>
   );
 
-  // 期限アラートバー（60日以内）
+  // デバッグ: バージョン・is_latest 状態を確認
+  console.log("LATEST_DOCS [BOX "+u.name+"]",
+    myDocs.map(d=>({id:d.id.slice(0,10),type:d.documentType,isLatest:d.isLatest,ver:d.versionNo,expiry:d.expiryDate,childId:d.childId}))
+  );
+
+  // 期限アラートバー（60日以内 / is_latest=true のみ対象）
   const latestDocs = myDocs.filter(d => d.isLatest);
   const expiringDocs = latestDocs.filter(d => {
     if (!d.expiryDate) return false;
@@ -16556,7 +16607,29 @@ function ChildDocumentBox({u, user, store}) {
               {latest.expiryDate   && <span>⏰ 有効期限: {latest.expiryDate}</span>}
               {latest.uploadedBy   && <span>📤 登録者: {latest.uploadedBy}</span>}
               {latest.createdAt    && <span>🕐 登録日: {latest.createdAt?.slice(0,10)}</span>}
+              {/* バージョン・is_latest デバッグ表示（運用確認用） */}
+              <span style={{padding:"1px 6px",borderRadius:6,fontSize:9,fontWeight:700,
+                background: latest.isLatest ? "rgba(44,170,96,0.15)":"rgba(120,120,120,0.12)",
+                color: latest.isLatest ? "var(--gr)":"var(--tx3)",
+                border: "1px solid " + (latest.isLatest ? "rgba(44,170,96,0.3)":"rgba(120,120,120,0.2)")
+              }}>
+                {latest.isLatest ? "✅ 最新版" : "📁 旧版"} v{latest.versionNo||1}
+              </span>
             </div>
+            {/* バージョン履歴リスト（全バージョン） */}
+            {allVers.length > 1 && (
+              <div style={{fontSize:9,color:"var(--tx3)",marginBottom:6,display:"flex",flexWrap:"wrap",gap:4}}>
+                <span style={{fontWeight:700}}>版履歴:</span>
+                {allVers.map(d=>(
+                  <span key={d.id} style={{padding:"1px 6px",borderRadius:6,
+                    background: d.isLatest ? "rgba(44,170,96,0.1)" : "rgba(120,120,120,0.08)",
+                    color: d.isLatest ? "var(--gr)" : "var(--tx3)",
+                    border: "1px solid " + (d.isLatest ? "rgba(44,170,96,0.25)" : "rgba(120,120,120,0.15)")}}>
+                    v{d.versionNo||1} {d.expiryDate||"期限不明"} {d.isLatest?"[最新]":""}
+                  </span>
+                ))}
+              </div>
+            )}
 
             {/* ── AI要約 ── */}
             <div style={{background:"rgba(58,160,216,0.06)",borderRadius:8,padding:"8px 10px",marginBottom:8}}>
@@ -17768,12 +17841,14 @@ function getUserAlerts(u, store) {
   const rules = svcType.alertRules || [];
 
   // ─── 共通：受給者証 ───
+  // ⚠️ u.jukyushaExpiry（users_data = saveJukyushaCertificate で更新される最新値）を優先
+  // fs.jukyushaExpiry（フェイスシートの記録）は古い場合があるためフォールバックのみ
   if(rules.includes("jukyusha")) {
     const fs = store.facesheets.find(f=>f.userId===u.id);
-    const jExpiry = (fs?.jukyushaExpiry) || u.jukyushaExpiry;
+    const jExpiry = u.jukyushaExpiry || (fs?.jukyushaExpiry);
     if(jExpiry) {
       const st = expiryStatus(jExpiry);
-      if(st && st!=="ok") alerts.push({type:"受給者証",date:jExpiry,status:st,tab:"facesheet"});
+      if(st && st!=="ok") alerts.push({type:"受給者証",date:jExpiry,status:st,tab:"jukyusha"});
     }
   }
 
@@ -17859,12 +17934,22 @@ function getUserAlerts(u, store) {
   }
 
   // ─── AIドキュメントBOX: 有効期限アラート ───
-  // 受給者証・計画書などの expiry_date が近い場合に docbox タブへ誘導
+  // is_latest=true のドキュメントのみを対象にする（旧版は無視）
+  // ⚠️ child_documentsはDBからロード時にisLatest(camelCase)に正規化済み
   const myChildDocs = (store.childDocuments||[]).filter(d => d.childId === u.id && d.isLatest);
   const docTypeLabels = {
     jukyusha:"受給者証", isp:"個別支援計画", monitoring:"モニタリング記録",
     service_plan:"サービス等利用計画",
   };
+
+  // デバッグ: is_latestの状態とアラート対象を確認
+  const latestDocsDebug = (store.childDocuments||[]).filter(d => d.childId === u.id);
+  if(latestDocsDebug.length > 0) {
+    console.log("LATEST_DOCS ["+u.name+"]",
+      latestDocsDebug.map(d=>({id:d.id,type:d.documentType,isLatest:d.isLatest,ver:d.versionNo,expiry:d.expiryDate}))
+    );
+  }
+
   myChildDocs.forEach(d => {
     if (!d.expiryDate) return;
     const st = expiryStatus(d.expiryDate);
@@ -17873,6 +17958,11 @@ function getUserAlerts(u, store) {
       alerts.push({ type:`${label}(BOX)`, date: d.expiryDate, status: st, tab: "docbox" });
     }
   });
+
+  // デバッグ: 最終アラートリストを確認
+  if(alerts.length > 0) {
+    console.log("ALERT_TARGETS ["+u.name+"]", alerts);
+  }
 
   return alerts;
 }
