@@ -11281,10 +11281,11 @@ function SoudanGenanTab({u, user, store}) {
   // aiMeta: スタッフ確認後のメタ情報（保存時にドキュメントに付与）
   const [aiMeta, setAiMeta] = useState(null);
 
-  // ── P4: 複数ページ対応 state ──
-  // extraPages: 2枚目以降のページ情報（preview URL + OCR結果）
-  const [extraPages, setExtraPages] = useState([]);
-  // addingPage: 追加ページのOCR中フラグ
+  // ── OCRページ自動結合AI: ページグループ管理 state ──
+  // pageGroup: 全ページ情報配列
+  // 各要素: { id, preview, ocrData, rawText, pageNo, isSameDoc, confidence, warnings, pageRole }
+  const [pageGroup, setPageGroup] = useState([]);
+  // addingPage: 追加ページOCR中フラグ（二重送信防止）
   const [addingPage, setAddingPage] = useState(false);
 
   const myDocs = (store.soudanGenans||[]).filter(d=>d.userId===u.id).sort((a,b)=>b.receivedDate>a.receivedDate?1:-1);
@@ -11372,10 +11373,24 @@ function SoudanGenanTab({u, user, store}) {
         console.log("FORM_MERGE_PENDING", newForm); // ← 確認後にフォームへ反映するため、ここでは setForm しない
 
         setOcrResult(aiExtract);
-        // ⑤ AI確認モーダルへ（直接 result に進まず、スタッフ確認を挟む）
-        setAiConfirmData(aiExtract);
-        setAiMeta(null); // リセット
-        setMode("aiConfirm");
+        setAiMeta(null);
+
+        // OCRページ自動結合AI: ページグループ初期化（1ページ目）
+        setPageGroup([{
+          id:         genId(),
+          preview:    previewDataUrl,
+          ocrData:    aiExtract,
+          rawText:    data.rawText || null,  // rawTextはapi/ocr.jsが返す生テキスト
+          pageNo:     1,
+          isSameDoc:  true,
+          confidence: 100,
+          warnings:   [],
+          pageRole:   "first",
+        }]);
+
+        // ⑤ 続きページ確認プロンプト → AI確認モーダルの順に進む
+        // （pagePromptモードで「1枚だけ」か「複数ページ」かをスタッフが選ぶ）
+        setMode("pagePrompt");
       } else {
         // OCR失敗: 原因と対処法を表示
         const errMsg = data.error || "OCR解析に失敗しました。";
@@ -11409,18 +11424,17 @@ function SoudanGenanTab({u, user, store}) {
   };
 
   // ============================================================
-  // P4: 複数ページ追加処理
-  // result モードで「次ページを追加」ボタンから呼ばれる
-  // ルール: 未入力フィールドのみ上書き / priorityItems は連結
+  // OCRページ自動結合AI: 追加ページ処理
+  // pagePrompt / result モードから呼ばれる
+  // ① OCR → ② analyzePageRelation で同一書類判定
+  //  → ③ 続きなら pageGroup に追加 + フォームマージ
+  //  → ④ 別書類の場合は warning 表示
   // ============================================================
   const handleAddPage = async (file) => {
     if (!file || addingPage) return;
-
     if (file.size > 50 * 1024 * 1024) {
-      store.showToast("⚠️ ファイルが大きすぎます（50MB超）", "warn");
-      return;
+      store.showToast("⚠️ ファイルが大きすぎます（50MB超）", "warn"); return;
     }
-
     setAddingPage(true);
     try {
       const base64Raw = await fileToBase64(file);
@@ -11429,42 +11443,66 @@ function SoudanGenanTab({u, user, store}) {
       const previewDataUrl = "data:image/jpeg;base64," + base64;
 
       const res = await fetch("/api/ocr", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ imageBase64: base64, mediaType: isPdf ? file.type : "image/jpeg", mode: "soudan" }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: base64, mediaType: isPdf ? file.type : "image/jpeg", mode: "soudan" }),
       });
       const data = await res.json();
 
       if (data.success && data.data) {
         const ext = data.data;
-        // フォームマージ: 未入力フィールドのみ上書き（入力済みは保持）
+        // ② OCRページ関係分析（1ページ目のOCRデータと比較）
+        const baseOcr    = pageGroup[0]?.ocrData || {};
+        const analysis   = analyzePageRelation(baseOcr, ext);
+        const nextPageNo = pageGroup.length + 1;
+
+        const newPage = {
+          id:             genId(),
+          preview:        previewDataUrl,
+          ocrData:        ext,
+          rawText:        data.rawText || null,
+          pageNo:         nextPageNo,
+          isSameDoc:      analysis.isSameDoc,
+          confidence:     analysis.confidence,
+          warnings:       analysis.warnings,
+          pageRole:       analysis.pageRole,
+          mismatchFields: analysis.mismatchFields || [],
+        };
+
+        // ③ pageGroup に追加
+        setPageGroup(p => [...p, newPage]);
+
+        // フォームが既に展開されている場合（result モードからの追加）はマージ
         setForm(prev => {
+          if (!Object.keys(prev).length) return prev; // まだ展開前なら何もしない
           const merged = { ...prev };
-          const textFields = [
-            "specialistName","specialistOrg","guardianName","jukyushaNo",
-            "maxBurden","planCreatedDate","monitoringInterval",
-            "planPeriodStart","planPeriodEnd","userNeeds","parentNeeds",
-            "longTermGoal","shortTermGoal","supportPolicy","specialistComment","nextMonitoringDate",
+          const TEXT_FIELDS = [
+            "specialistName","specialistOrg","guardianName","jukyushaNo","maxBurden",
+            "planCreatedDate","monitoringInterval","planPeriodStart","planPeriodEnd",
+            "userNeeds","parentNeeds","longTermGoal","shortTermGoal",
+            "supportPolicy","specialistComment","nextMonitoringDate",
           ];
-          textFields.forEach(k => {
-            if (!merged[k] && ext[k]) merged[k] = ext[k];
-          });
-          // priorityItems は連結（重複チェックなし）
-          if (ext.priorityItems?.length) {
+          TEXT_FIELDS.forEach(k => { if (!merged[k] && ext[k]) merged[k] = ext[k]; });
+          if (ext.priorityItems?.length)
             merged.priorityItems = [...(merged.priorityItems || []), ...ext.priorityItems];
-          }
           return merged;
         });
-        setExtraPages(p => [...p, { preview: previewDataUrl, ocrData: ext }]);
+
+        // ④ 同一書類判定結果でトースト内容を変える
         const addedItems = (ext.priorityItems || []).length;
-        store.showToast(
-          `✅ ${extraPages.length + 2}ページ目を追加しました` +
-          (addedItems > 0 ? `（優先課題 +${addedItems}件を統合）` : "")
-        );
+        const baseMsg    = `P${nextPageNo} を追加${addedItems > 0 ? `（優先課題 +${addedItems}件）` : ""}`;
+        if (analysis.isSameDoc) {
+          store.showToast(`✅ ${baseMsg}（信頼度 ${analysis.confidence}%）`);
+        } else {
+          store.showToast(`⚠️ ${baseMsg} ── 別書類の可能性（信頼度 ${analysis.confidence}%）`, "warn");
+        }
       } else {
-        // OCR失敗でもプレビューだけ登録（手動入力に対応）
-        setExtraPages(p => [...p, { preview: previewDataUrl, ocrData: null }]);
-        store.showToast("⚠️ 追加ページの読み取りに失敗しました。手動で確認してください。", "warn");
+        // OCR失敗でもプレビューは登録（手動確認用）
+        setPageGroup(p => [...p, {
+          id: genId(), preview: previewDataUrl, ocrData: null, rawText: null,
+          pageNo: p.length + 1, isSameDoc: false, confidence: 0,
+          warnings: ["OCR読み取りに失敗しました"], pageRole: "unknown",
+        }]);
+        store.showToast("⚠️ ページの読み取りに失敗しました。手動で確認してください。", "warn");
       }
     } catch(e) {
       console.error("ADD_PAGE_ERROR", e);
@@ -11472,6 +11510,38 @@ function SoudanGenanTab({u, user, store}) {
     } finally {
       setAddingPage(false);
     }
+  };
+
+  // ── ページ順序変更（上▲ / 下▼ ボタン）──
+  const handleReorderPage = (index, dir) => {
+    setPageGroup(p => {
+      const arr    = [...p];
+      const target = index + dir;
+      if (target < 0 || target >= arr.length) return arr;
+      [arr[index], arr[target]] = [arr[target], arr[index]];
+      // pageNo 振り直し
+      return arr.map((pg, i) => ({ ...pg, pageNo: i + 1 }));
+    });
+  };
+
+  // ── ページ削除 ──
+  const handleRemovePage = (index) => {
+    setPageGroup(p => {
+      const arr       = p.filter((_, i) => i !== index);
+      const renumbered = arr.map((pg, i) => ({ ...pg, pageNo: i + 1 }));
+      // 1ページ目を削除した場合はプレビューも更新
+      if (index === 0 && renumbered.length > 0) setPreview(renumbered[0].preview);
+      if (renumbered.length === 0)              setPreview(null);
+      return renumbered;
+    });
+  };
+
+  // ── 全ページ収集完了 → AI確認モーダルへ ──
+  // 全ページのOCRデータをマージしてからAI確認UIに渡す
+  const handleStartAnalysis = () => {
+    const merged = buildMergedOcrData(pageGroup);
+    setAiConfirmData(merged);
+    setMode("aiConfirm");
   };
 
   // ── AI確認モーダルで「反映」が押された時のコールバック ──
@@ -11507,17 +11577,28 @@ function SoudanGenanTab({u, user, store}) {
 
     // AI確認メタ情報を保存（handleSave 時にドキュメントへ付与）
     // snapshot には全フィールドの ai_original_text / user_corrected_text / adoption_status を含む
+    // ページグループ情報（複数ページの場合）
+    const pageCount      = pageGroup.length;
+    const mergeConfidence = pageCount > 1
+      ? Math.round(pageGroup.slice(1).reduce((s, p) => s + (p.confidence ?? 100), 0) / (pageCount - 1))
+      : 100;
+
     const meta = {
       aiReviewed:          true,
       reviewedBy:          user.displayName || "",
       reviewedAt:          new Date().toISOString(),
       corrections:         snapshot,            // 全フィールドの完全スナップショット
       allFieldsConfirmed:  allConfirmed,
-      correctionCount:     correctionCount ?? 0, // AI修正フィールド数
-      // 採用/修正サマリー（監査説明・AI改善学習用）
+      correctionCount:     correctionCount ?? 0,
+      // 採用/修正サマリー
       adoptedCount:  snapshot.filter(s => s.adoption_status === "ai_adopted").length,
       modifiedCount: correctionCount ?? 0,
       manualCount:   snapshot.filter(s => s.adoption_status === "manual_added").length,
+      // OCRページ自動結合AI 情報
+      pageCount,
+      mergeConfidence,
+      pageGroupIds:         pageGroup.map(p => p.id),
+      hasDifferentDocWarning: pageGroup.some(p => !p.isSameDoc),
     };
     setAiMeta(meta);
 
@@ -11588,6 +11669,24 @@ function SoudanGenanTab({u, user, store}) {
       priorityItems:      form.priorityItems || [],   // ← 優先課題テーブル
       status: "受領済み", imagePreview: preview, ocrData: ocrResult,
       createdBy: user.displayName,
+      totalPages: pageGroup.length,    // ページ数（複数ページ統合の場合）
+      // ── ページマージ履歴（監査ログ）──
+      // 複数ページが統合された場合のみ設定
+      pageMergeHistory: pageGroup.length > 1 ? {
+        pageCount:       pageGroup.length,
+        mergeConfidence: aiMeta?.mergeConfidence ?? 100,
+        reorderedBy:     user.displayName || null,
+        mergedAt:        new Date().toISOString(),
+        combinedText:    buildCombinedText(pageGroup),
+        pages: pageGroup.map(pg => ({
+          pageNo:    pg.pageNo,
+          pageRole:  pg.pageRole,
+          isSameDoc: pg.isSameDoc,
+          confidence: pg.confidence,
+          warnings:  pg.warnings,
+          hasOcr:    !!pg.ocrData,
+        })),
+      } : null,
       // ── AI確認メタ情報（監査・AI改善学習・誤抽出分析用）──
       // corrections は全フィールドのスナップショット
       // （ai_original_text / user_corrected_text / adoption_status / correction_reason を含む）
@@ -11667,9 +11766,170 @@ function SoudanGenanTab({u, user, store}) {
 
     store.showToast("✅ 相談支援原案を保存しました");
     setMode("list"); setPreview(null); setOcrResult(null);
-    setAiConfirmData(null); setAiMeta(null); // AI確認状態もリセット
-    setExtraPages([]); setAddingPage(false); // P4: 複数ページ状態リセット
+    setAiConfirmData(null); setAiMeta(null);
+    setPageGroup([]); setAddingPage(false); // ページグループ状態リセット
   };
+
+  // ===== 続きページ確認プロンプト =====
+  // OCR1枚目完了後に表示。「1枚だけ」か「複数ページ追加」かをスタッフが選ぶ
+  if (mode === "pagePrompt") return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+        <button className="bback"
+          onClick={()=>{ setMode("list"); setPreview(null); setPageGroup([]); setAddingPage(false); }}
+          style={{padding:"6px 12px",fontSize:12}}>← キャンセル</button>
+        <div style={{fontSize:13,fontWeight:700}}>📄 ページ確認</div>
+      </div>
+
+      {/* 収集済みページ一覧 */}
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--tx3)",marginBottom:7}}>
+          読み取り済み: <strong style={{color:"var(--pu)"}}>{pageGroup.length}ページ</strong>
+        </div>
+
+        {/* ページカード（サムネイル + 分析結果 + 操作ボタン）*/}
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {pageGroup.map((pg, i) => (
+            <div key={pg.id} style={{
+              display:"flex",gap:10,alignItems:"flex-start",
+              border:`1.5px solid ${
+                pg.pageRole === "different_document" ? "rgba(224,56,56,0.5)"
+                : pg.pageRole === "first"            ? "rgba(58,160,216,0.4)"
+                : "rgba(144,72,216,0.3)"}`,
+              borderRadius:10,padding:"10px 12px",background:"var(--wh)",
+            }}>
+              {/* サムネイル */}
+              <div style={{flexShrink:0,cursor:"pointer"}} onClick={()=>window.open(pg.preview)}>
+                <img src={pg.preview} alt={`P${pg.pageNo}`}
+                  style={{width:52,height:70,objectFit:"cover",borderRadius:6,display:"block",
+                    border:`2px solid ${pg.pageRole==="different_document"?"rgba(224,56,56,0.6)":"rgba(58,160,216,0.4)"}`}}/>
+                <div style={{textAlign:"center",fontSize:9,fontWeight:700,
+                  color:pg.pageRole==="different_document"?"var(--ro)":"var(--tl)",marginTop:3}}>
+                  P{pg.pageNo}
+                </div>
+              </div>
+
+              {/* 分析情報 */}
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",marginBottom:4}}>
+                  {/* ページロール */}
+                  <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:8,
+                    background: pg.pageRole==="first"            ? "rgba(58,160,216,0.15)"
+                               : pg.pageRole==="different_document" ? "rgba(224,56,56,0.12)"
+                               : "rgba(144,72,216,0.12)",
+                    color:      pg.pageRole==="first"            ? "var(--tl)"
+                               : pg.pageRole==="different_document" ? "var(--ro)"
+                               : "var(--pu)"}}>
+                    {pg.pageRole==="first" ? "📄 表紙"
+                     : pg.pageRole==="different_document" ? "⚠️ 別書類?"
+                     : "📑 続き"}
+                  </span>
+                  {/* 信頼度バッジ（2ページ目以降）*/}
+                  {pg.pageNo > 1 && (
+                    <span style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:8,
+                      background: pg.confidence>=80?"rgba(26,158,69,0.12)":pg.confidence>=55?"rgba(224,168,40,0.15)":"rgba(224,56,56,0.12)",
+                      color:      pg.confidence>=80?"var(--gr)":pg.confidence>=55?"#8a6200":"var(--ro)"}}>
+                      一致度 {pg.confidence}%
+                    </span>
+                  )}
+                  {/* OCR失敗バッジ */}
+                  {!pg.ocrData && (
+                    <span style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:8,
+                      background:"rgba(224,56,56,0.12)",color:"var(--ro)"}}>OCR失敗</span>
+                  )}
+                </div>
+
+                {/* 警告メッセージ */}
+                {pg.warnings?.map((w, wi) => (
+                  <div key={wi} style={{fontSize:10,color:"var(--ro)",background:"rgba(224,56,56,0.07)",
+                    borderRadius:5,padding:"3px 7px",marginBottom:4,lineHeight:1.4}}>
+                    ⚠️ {w}
+                  </div>
+                ))}
+
+                {/* OCR抽出サマリー */}
+                {pg.ocrData && (
+                  <div style={{fontSize:10,color:"var(--tx3)",lineHeight:1.5}}>
+                    {pg.ocrData.specialistOrg  && <span>🏢 {pg.ocrData.specialistOrg.slice(0,20)}<br/></span>}
+                    {pg.ocrData.planPeriodStart && <span>📅 {pg.ocrData.planPeriodStart}〜{pg.ocrData.planPeriodEnd||"?"}<br/></span>}
+                    {(pg.ocrData.priorityItems||[]).length>0 && (
+                      <span>📊 優先課題 {pg.ocrData.priorityItems.length}件</span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* 操作ボタン（並び替え・削除）*/}
+              <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
+                <button onClick={()=>handleReorderPage(i,-1)} disabled={i===0}
+                  style={{padding:"3px 7px",fontSize:11,borderRadius:6,border:"1px solid var(--bd)",
+                    background:i===0?"var(--bg)":"var(--wh)",color:i===0?"var(--tx3)":"var(--tx)",
+                    cursor:i===0?"default":"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                  ▲
+                </button>
+                <button onClick={()=>handleReorderPage(i,1)} disabled={i===pageGroup.length-1}
+                  style={{padding:"3px 7px",fontSize:11,borderRadius:6,border:"1px solid var(--bd)",
+                    background:i===pageGroup.length-1?"var(--bg)":"var(--wh)",
+                    color:i===pageGroup.length-1?"var(--tx3)":"var(--tx)",
+                    cursor:i===pageGroup.length-1?"default":"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                  ▼
+                </button>
+                {pageGroup.length > 1 && (
+                  <button onClick={()=>handleRemovePage(i)}
+                    style={{padding:"3px 7px",fontSize:11,borderRadius:6,cursor:"pointer",
+                      border:"1px solid rgba(224,56,56,0.4)",background:"rgba(224,56,56,0.08)",
+                      color:"var(--ro)",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 次ページ追加ボタン */}
+      <div style={{background:"rgba(144,72,216,0.06)",border:"1px dashed rgba(144,72,216,0.4)",
+        borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--pu)",marginBottom:8}}>
+          📷 次のページを追加しますか？
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <label htmlFor="pp_cam"
+            style={{padding:"7px 13px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",
+              display:"flex",alignItems:"center",gap:5,fontFamily:"'Noto Sans JP',sans-serif",
+              border:`1.5px solid ${addingPage?"var(--bd)":"rgba(144,72,216,0.55)"}`,
+              background:addingPage?"var(--bg)":"rgba(144,72,216,0.1)",
+              color:addingPage?"var(--tx3)":"var(--pu)",
+              pointerEvents:addingPage?"none":"auto"}}>
+            {addingPage ? "⏳ 読み取り中..." : "📷 カメラで撮影"}
+          </label>
+          <label htmlFor="pp_alb"
+            style={{padding:"7px 13px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",
+              display:"flex",alignItems:"center",gap:5,fontFamily:"'Noto Sans JP',sans-serif",
+              border:`1.5px solid ${addingPage?"var(--bd)":"rgba(144,72,216,0.55)"}`,
+              background:addingPage?"var(--bg)":"rgba(144,72,216,0.1)",
+              color:addingPage?"var(--tx3)":"var(--pu)",
+              pointerEvents:addingPage?"none":"auto"}}>
+            {addingPage ? "..." : "🖼️ アルバムから"}
+          </label>
+        </div>
+        <input id="pp_cam" type="file" accept="image/*,application/pdf" capture="environment"
+          style={{display:"none"}} onChange={e=>{ handleAddPage(e.target.files[0]); e.target.value=""; }}/>
+        <input id="pp_alb" type="file" accept="image/*,application/pdf"
+          style={{display:"none"}} onChange={e=>{ handleAddPage(e.target.files[0]); e.target.value=""; }}/>
+      </div>
+
+      {/* 解析開始ボタン（= aiConfirmモードへ）*/}
+      <button className="bsave" style={{width:"100%",fontSize:13}} onClick={handleStartAnalysis}
+        disabled={pageGroup.length === 0}>
+        🔍 {pageGroup.length}ページを結合してAI解析を開始
+      </button>
+      <div style={{fontSize:10,color:"var(--tx3)",textAlign:"center",marginTop:6}}>
+        ※ 全ページのOCR結果を統合してスタッフ確認UIに進みます
+      </div>
+    </div>
+  );
 
   // ===== AI抽出確認モーダル =====
   // OCR成功後に自動表示される。スタッフが確認・修正してから「反映」を押すと result へ
@@ -11681,13 +11941,11 @@ function SoudanGenanTab({u, user, store}) {
       userName={user.displayName || ""}
       onConfirm={handleAiConfirmed}
       onRetry={() => {
-        // 再解析: スキャン画面に戻ってファイル再選択へ
-        setMode("list");
+        // 再解析: ページプロンプトに戻る（収集済みページを維持）
         setAiConfirmData(null);
-        setPreview(null);
-        setOcrResult(null);
         setAiMeta(null);
-        store.showToast("📷 再撮影してください", "info");
+        setMode("pagePrompt");
+        store.showToast("📷 ページ確認画面に戻りました", "info");
       }}
       onCancel={() => {
         // キャンセル: AI確認をスキップして手動入力 result へ移行
@@ -11795,68 +12053,105 @@ function SoudanGenanTab({u, user, store}) {
   if (mode==="result") return (
     <div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
-        <button className="bback" onClick={()=>{setMode("list");setPreview(null);setExtraPages([]);setAddingPage(false);}} style={{padding:"6px 12px",fontSize:12}}>← 戻る</button>
+        <button className="bback" onClick={()=>{setMode("list");setPreview(null);setPageGroup([]);setAddingPage(false);}} style={{padding:"6px 12px",fontSize:12}}>← 戻る</button>
         <div style={{fontSize:13,fontWeight:700}}>📑 読み取り結果を確認</div>
       </div>
-      {/* ── P4: 複数ページ サムネイルストリップ ── */}
-      {(preview || extraPages.length > 0) && (
-        <div style={{marginBottom:10}}>
-          {/* ページ数バッジ */}
-          <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",marginBottom:5}}>
-            📄 読み取り済み: <strong>{1 + extraPages.length}ページ</strong>
-          </div>
-          <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,
-            scrollbarWidth:"thin",WebkitOverflowScrolling:"touch"}}>
-            {/* 1枚目 */}
-            {preview && (
-              <div style={{flexShrink:0,position:"relative",cursor:"pointer"}}
-                onClick={()=>window.open(preview)}>
-                <img src={preview} alt="P1"
-                  style={{width:56,height:76,objectFit:"cover",borderRadius:6,
-                    border:"2px solid var(--tl)",display:"block"}}/>
-                <div style={{position:"absolute",bottom:0,left:0,right:0,textAlign:"center",
-                  fontSize:9,fontWeight:700,color:"#fff",
-                  background:"rgba(0,0,0,0.5)",borderRadius:"0 0 4px 4px",padding:"1px 0"}}>P1</div>
-              </div>
+      {/* ── OCRページ自動結合AI: ページグループ表示 ── */}
+      {pageGroup.length > 0 && (
+        <div style={{marginBottom:12}}>
+          {/* ページ数 + 別書類警告 */}
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:7,flexWrap:"wrap"}}>
+            <span style={{fontSize:10,fontWeight:700,color:"var(--tx3)"}}>
+              📄 統合: <strong style={{color:"var(--pu)"}}>{pageGroup.length}ページ</strong>
+            </span>
+            {pageGroup.some(p => p.pageRole === "different_document") && (
+              <span style={{fontSize:10,fontWeight:700,color:"var(--ro)",
+                background:"rgba(224,56,56,0.1)",borderRadius:6,padding:"2px 7px"}}>
+                ⚠️ 別書類混在の可能性あり
+              </span>
             )}
-            {/* 追加ページ */}
-            {extraPages.map((pg, i) => (
-              <div key={i} style={{flexShrink:0,position:"relative",cursor:"pointer"}}
-                onClick={()=>window.open(pg.preview)}>
-                <img src={pg.preview} alt={`P${i+2}`}
-                  style={{width:56,height:76,objectFit:"cover",borderRadius:6,display:"block",
-                    border:`2px solid ${pg.ocrData?"rgba(26,158,69,0.6)":"rgba(224,168,40,0.6)"}`}}/>
-                <div style={{position:"absolute",bottom:0,left:0,right:0,textAlign:"center",
-                  fontSize:9,fontWeight:700,color:"#fff",
-                  background:pg.ocrData?"rgba(26,158,69,0.6)":"rgba(224,168,40,0.6)",
-                  borderRadius:"0 0 4px 4px",padding:"1px 0"}}>P{i+2}</div>
+            {pageGroup.length > 1 && (
+              <span style={{fontSize:9,color:"var(--tx3)"}}>
+                平均一致度: {Math.round(pageGroup.slice(1).reduce((s,p)=>s+(p.confidence??100),0)/(pageGroup.length-1))}%
+              </span>
+            )}
+          </div>
+
+          {/* サムネイルストリップ（横スクロール）*/}
+          <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,
+            scrollbarWidth:"thin",WebkitOverflowScrolling:"touch",marginBottom:7}}>
+            {pageGroup.map((pg, i) => (
+              <div key={pg.id} style={{flexShrink:0,position:"relative",textAlign:"center"}}>
+                <div style={{position:"relative",cursor:"pointer"}} onClick={()=>window.open(pg.preview)}>
+                  <img src={pg.preview} alt={`P${pg.pageNo}`}
+                    style={{width:52,height:70,objectFit:"cover",borderRadius:6,display:"block",
+                      border:`2px solid ${
+                        pg.pageRole==="different_document" ? "rgba(224,56,56,0.7)"
+                        : pg.pageRole==="first"            ? "rgba(58,160,216,0.6)"
+                        : pg.confidence>=80               ? "rgba(26,158,69,0.6)"
+                        : pg.confidence>=55               ? "rgba(224,168,40,0.6)"
+                        : "rgba(224,56,56,0.5)"}`}}/>
+                  {/* ページ番号 */}
+                  <div style={{position:"absolute",bottom:0,left:0,right:0,
+                    textAlign:"center",fontSize:9,fontWeight:700,color:"#fff",
+                    background:pg.pageRole==="different_document"?"rgba(224,56,56,0.7)":"rgba(0,0,0,0.5)",
+                    borderRadius:"0 0 4px 4px",padding:"1px 0"}}>P{pg.pageNo}</div>
+                  {/* 別書類警告アイコン */}
+                  {pg.pageRole==="different_document" && (
+                    <div style={{position:"absolute",top:-5,right:-5,fontSize:12}}>⚠️</div>
+                  )}
+                </div>
+                {/* 信頼度（2ページ目以降）*/}
+                {pg.pageNo > 1 && pg.confidence != null && (
+                  <div style={{fontSize:8,fontWeight:700,marginTop:2,
+                    color: pg.confidence>=80?"var(--gr)":pg.confidence>=55?"#8a6200":"var(--ro)"}}>
+                    {pg.confidence}%
+                  </div>
+                )}
+                {/* 並び替え・削除ボタン */}
+                <div style={{display:"flex",gap:2,justifyContent:"center",marginTop:3}}>
+                  <button onClick={()=>handleReorderPage(i,-1)} disabled={i===0}
+                    style={{padding:"1px 4px",fontSize:9,borderRadius:4,border:"1px solid var(--bd)",
+                      background:i===0?"var(--bg)":"var(--wh)",cursor:i===0?"default":"pointer",
+                      color:i===0?"var(--tx3)":"var(--tx)",fontFamily:"'Noto Sans JP',sans-serif"}}>▲</button>
+                  <button onClick={()=>handleReorderPage(i,1)} disabled={i===pageGroup.length-1}
+                    style={{padding:"1px 4px",fontSize:9,borderRadius:4,border:"1px solid var(--bd)",
+                      background:i===pageGroup.length-1?"var(--bg)":"var(--wh)",
+                      cursor:i===pageGroup.length-1?"default":"pointer",
+                      color:i===pageGroup.length-1?"var(--tx3)":"var(--tx)",
+                      fontFamily:"'Noto Sans JP',sans-serif"}}>▼</button>
+                  {pageGroup.length > 1 && (
+                    <button onClick={()=>handleRemovePage(i)}
+                      style={{padding:"1px 4px",fontSize:9,borderRadius:4,cursor:"pointer",
+                        border:"1px solid rgba(224,56,56,0.4)",background:"rgba(224,56,56,0.08)",
+                        color:"var(--ro)",fontFamily:"'Noto Sans JP',sans-serif"}}>✕</button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
-          {/* P4: 次ページ追加ボタン */}
-          <div style={{display:"flex",gap:6,marginTop:7,flexWrap:"wrap"}}>
+
+          {/* 次ページ追加（result モードからも追加可能）*/}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             <label htmlFor="sg_addpage_cam"
               style={{padding:"5px 11px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",
-                display:"flex",alignItems:"center",gap:4,
-                fontFamily:"'Noto Sans JP',sans-serif",
+                display:"flex",alignItems:"center",gap:4,fontFamily:"'Noto Sans JP',sans-serif",
                 border:`1.5px solid ${addingPage?"var(--bd)":"rgba(144,72,216,0.55)"}`,
-                background:addingPage?"rgba(180,180,180,0.1)":"rgba(144,72,216,0.08)",
+                background:addingPage?"var(--bg)":"rgba(144,72,216,0.08)",
                 color:addingPage?"var(--tx3)":"var(--pu)",
                 pointerEvents:addingPage?"none":"auto"}}>
-              {addingPage ? "⏳ 読み取り中..." : "📷 次ページ追加（カメラ）"}
+              {addingPage ? "⏳ 読み取り中..." : "📷 次ページ追加"}
             </label>
             <label htmlFor="sg_addpage_alb"
               style={{padding:"5px 11px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",
-                display:"flex",alignItems:"center",gap:4,
-                fontFamily:"'Noto Sans JP',sans-serif",
+                display:"flex",alignItems:"center",gap:4,fontFamily:"'Noto Sans JP',sans-serif",
                 border:`1.5px solid ${addingPage?"var(--bd)":"rgba(144,72,216,0.55)"}`,
-                background:addingPage?"rgba(180,180,180,0.1)":"rgba(144,72,216,0.08)",
+                background:addingPage?"var(--bg)":"rgba(144,72,216,0.08)",
                 color:addingPage?"var(--tx3)":"var(--pu)",
                 pointerEvents:addingPage?"none":"auto"}}>
-              {addingPage ? "..." : "🖼️ 次ページ追加（アルバム）"}
+              {addingPage ? "..." : "🖼️ アルバムから"}
             </label>
           </div>
-          {/* hidden inputs: P4 ページ追加用 */}
           <input id="sg_addpage_cam" type="file" accept="image/*,application/pdf"
             capture="environment" style={{display:"none"}}
             onChange={e=>{ handleAddPage(e.target.files[0]); e.target.value=""; }}/>
@@ -12056,6 +12351,97 @@ function SoudanGenanTab({u, user, store}) {
   );
 
   return null;
+}
+
+// ==================== OCRページ自動結合AI ヘルパー ====================
+
+/**
+ * analyzePageRelation
+ * 2ページのOCR構造化データを比較し「同一書類か」「続きページか」を判定する
+ * 戦略: 両ページに共通フィールドがある場合のみ比較（片方にないフィールドはスキップ）
+ * @param {Object} base      - 1ページ目のOCRデータ
+ * @param {Object} candidate - 追加ページのOCRデータ
+ * @returns {{ isSameDoc, confidence, warnings, pageRole, mismatchFields }}
+ */
+function analyzePageRelation(base, candidate) {
+  const checks = [];
+  const compare = (f1, f2, weight, name) => {
+    if (!f1 || !f2) return; // どちらかが空なら比較しない（続きページでは正常）
+    checks.push({ match: f1.trim() === f2.trim(), weight, name });
+  };
+  compare(base.guardianName,    candidate.guardianName,    40, "保護者氏名");
+  compare(base.jukyushaNo,      candidate.jukyushaNo,      35, "受給者証番号");
+  compare(base.specialistName,  candidate.specialistName,  30, "担当専門員名");
+  compare(base.specialistOrg,   candidate.specialistOrg,   20, "事業所名");
+  compare(base.planPeriodStart, candidate.planPeriodStart, 25, "計画開始日");
+  compare(base.planCreatedDate, candidate.planCreatedDate, 20, "作成日");
+
+  if (checks.length === 0) {
+    // 比較できるフィールドなし → 判定不能なので続きページとして扱う
+    return { isSameDoc: true, confidence: 60, pageRole: "continuation",
+      warnings: ["共通フィールドがなく判定不能（続きページとして処理）"], mismatchFields: [] };
+  }
+
+  const totalW     = checks.reduce((s, c) => s + c.weight, 0);
+  const matchW     = checks.filter(c =>  c.match).reduce((s, c) => s + c.weight, 0);
+  const mismatch   = checks.filter(c => !c.match).map(c => c.name);
+  const keyMiss    = checks.some(c => !c.match && c.weight >= 30);
+
+  // キーフィールド（保護者名・受給者証番号・担当者名）が不一致なら信頼度を大幅減点
+  const confidence = keyMiss
+    ? Math.max(10, Math.round((matchW / totalW) * 50))
+    : Math.round(55 + (matchW / totalW) * 45);
+
+  const isSameDoc  = confidence >= 55;
+  const warnings   = isSameDoc ? [] :
+    [`別の書類の可能性があります（${mismatch.join("・")}が一致しません）`];
+
+  return { isSameDoc, confidence, pageRole: isSameDoc ? "continuation" : "different_document",
+    warnings, mismatchFields: mismatch };
+}
+
+/**
+ * buildMergedOcrData
+ * 複数ページのOCR構造化データをマージする
+ * ルール: テキストフィールドは「未入力のみ上書き」/ priorityItemsは「連結」
+ */
+function buildMergedOcrData(group) {
+  const base = { ...(group[0]?.ocrData || {}) };
+  const TEXT_FIELDS = [
+    "guardianName","specialistName","specialistOrg","jukyushaNo","maxBurden",
+    "planCreatedDate","monitoringInterval","planPeriodStart","planPeriodEnd",
+    "userNeeds","parentNeeds","longTermGoal","shortTermGoal","supportPolicy",
+    "specialistComment","nextMonitoringDate",
+  ];
+  group.slice(1).forEach(pg => {
+    const ext = pg.ocrData || {};
+    TEXT_FIELDS.forEach(k => { if (!base[k] && ext[k]) base[k] = ext[k]; });
+    if (ext.priorityItems?.length)
+      base.priorityItems = [...(base.priorityItems || []), ...ext.priorityItems];
+  });
+  return base;
+}
+
+/**
+ * buildCombinedText
+ * 全ページのOCRテキストを結合 → 監査ログ・AI再解析用
+ */
+function buildCombinedText(group) {
+  return group.map(pg => {
+    const d = pg.ocrData || {};
+    const roleLabel = pg.pageRole === "first" ? "表紙" : pg.pageRole === "different_document" ? "別書類?" : "続き";
+    return [
+      `【P${pg.pageNo} ${roleLabel}（信頼度:${pg.confidence ?? 100}%）】`,
+      d.guardianName    && `保護者: ${d.guardianName}`,
+      d.specialistName  && `担当: ${d.specialistName}`,
+      d.specialistOrg   && `事業所: ${d.specialistOrg}`,
+      d.planPeriodStart && `期間: ${d.planPeriodStart}〜${d.planPeriodEnd || "?"}`,
+      d.userNeeds       && `意向: ${d.userNeeds.slice(0, 80)}`,
+      d.longTermGoal    && `長期目標: ${d.longTermGoal.slice(0, 80)}`,
+      (d.priorityItems||[]).length && `優先課題: ${d.priorityItems.length}件`,
+      pg.rawText        && `[OCR断片]: ${String(pg.rawText).slice(0, 150)}`,
+    ].filter(Boolean).join("\n");
+  }).join("\n\n---\n\n");
 }
 
 // ==================== P6: 日付バリデーションヘルパー ====================
