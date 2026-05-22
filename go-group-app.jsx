@@ -4927,6 +4927,7 @@ function LoginScreen({onLogin, store}){
 function StaffClockIn({user,onBack,store}){
   // ワンタップ出勤記録 — カードをタップ→ボトムシートで即保存
   const [sheet,setSheet]=useState(null);
+  const [editRec,setEditRec]=useState(null); // 編集対象の既存出勤レコード（null=新規登録）
   const [temp,setTemp]=useState("");
   const [note,setNote]=useState("");
   const [time,setTime]=useState(nowHM());
@@ -4938,11 +4939,36 @@ function StaffClockIn({user,onBack,store}){
   // 選択日に出勤済みのID
   const clockedIds=[...new Set(store.recs.filter(r=>isDateRec(r,selDate)&&r.type==="staff_in"&&(r.facilityId===user.selectedFacilityId||user.role==="admin")).map(r=>r.staffId))];
 
-  const openSheet=(s)=>{setSheet(s);setTemp("");setNote("");setTime(nowHM());};
-  const closeSheet=()=>setSheet(null);
+  const openSheet=(s)=>{
+    // 編集ロックは「月次締め済み」のみ。出勤済み(checked_in)は編集ロックにしない。
+    const ym=selDate.slice(0,7);
+    if(store.isMonthLocked&&store.isMonthLocked(user.selectedFacilityId,ym)){
+      store.showToast?.("この月は締め済みのため編集できません。管理者が締めを解除すると編集可能になります。","error");
+      return;
+    }
+    // その日に既存の出勤記録があれば「編集モード」で開く（出勤済みでも修正可能）
+    const ex=store.recs.find(r=>r.type==="staff_in"&&r.staffId===s.id&&isDateRec(r,selDate)&&(r.facilityId===user.selectedFacilityId||user.role==="admin"));
+    if(ex){
+      const p=parseRecTime(ex.time);
+      setEditRec(ex);
+      setTemp(ex.temp&&ex.temp!=="-"?ex.temp:"");setNote(ex.note||"");setTime(p.time||nowHM());
+    }else{
+      setEditRec(null);
+      setTemp("");setNote("");setTime(nowHM());
+    }
+    setSheet(s);
+  };
+  const closeSheet=()=>{setSheet(null);setEditRec(null);};
   const save=()=>{
     if(!sheet) return;
     const t=buildDTForDate(selDate,time); // 選択日付で記録
+    if(editRec){
+      // 編集モード: 既存レコードを更新（重複を作らない・修正履歴を残す）
+      store.updRec(editRec.id,{time:t,temp,note},user.displayName,"出勤記録の修正");
+      store.showToast?.("✅ 出勤記録を更新しました");
+      setEditRec(null);setSheet(null);
+      return;
+    }
     store.addRec({id:genId(),type:"staff_in",staffId:sheet.id,staffName:sheet.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:t,temp,photo:true,note,createdBy:user.displayName,history:[]});
     setDone(sheet.name);setSheet(null);
   };
@@ -4973,10 +4999,11 @@ function StaffClockIn({user,onBack,store}){
     <div className="tap-card-grid">
       {staffList.map(s=>{
         const clocked=clockedIds.includes(s.id);
-        return <div key={s.id} className={`tap-card${clocked?" arrived":""}`} onClick={()=>!clocked&&openSheet(s)}>
+        // 出勤済みでもタップで編集できる（編集ロックは月次締めのみ）
+        return <div key={s.id} className={`tap-card${clocked?" arrived":""}`} onClick={()=>openSheet(s)}>
           <div className="tap-card-avatar">🧑‍💼</div>
           <div className="tap-card-name">{s.name}</div>
-          <div className="tap-card-status" style={{color:clocked?"var(--gr)":"var(--tl)"}}>{clocked?"✓ 出勤済":"タップで記録"}</div>
+          <div className="tap-card-status" style={{color:clocked?"var(--gr)":"var(--tl)"}}>{clocked?"✓ 出勤済（タップで修正）":"タップで記録"}</div>
         </div>;
       })}
     </div>
@@ -4987,7 +5014,7 @@ function StaffClockIn({user,onBack,store}){
         <div className="bsheet-hd">
           <div>
             <div className="bsheet-title">🟢 {sheet.name}</div>
-            <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>出勤時刻と体温を入力してください</div>
+            <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>{editRec?"出勤記録を修正できます（時刻・体温）":"出勤時刻と体温を入力してください"}</div>
           </div>
           <button className="bsheet-close" onClick={closeSheet}>×</button>
         </div>
@@ -5011,7 +5038,7 @@ function StaffClockIn({user,onBack,store}){
         </div>
 
         <button className="bsave" disabled={!temp} style={{marginTop:8,background:parseFloat(temp)>=37.5?"rgba(224,56,56,0.7)":undefined}} onClick={save}>
-          ✓ {sheet.name} の出勤を記録する
+          ✓ {sheet.name} の出勤を{editRec?"更新する":"記録する"}
         </button>
       </div>
     </div>}
