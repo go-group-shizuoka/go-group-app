@@ -27668,16 +27668,19 @@ function BillingCheckScreen({user, store, onNav, onBack}){
 // 予定→実績を自動生成し、カメラ打刻・ステータス変更をワンタップで行う
 function JissekiScreen({user, store, onBack}){
   const today = todayISO();
+  // selDate: 編集対象日（初期=本日）。過去日の実績も入力・編集できるようにする
+  const [selDate,setSelDate]=useState(today);
   const facilityId = user.selectedFacilityId;
   // 自施設の有効ユーザー
   const myUsers = store.dynUsers.filter(u=>u.facilityId===facilityId&&u.active!==false);
-  // 本日の来所予定・出席者
+  // 選択日の来所予定・出席者
   const plannedUsers = myUsers.filter(u=>{
-    const s=store.getAtt(u.id,today);
+    const s=store.getAtt(u.id,selDate);
     return s==="予定"||s==="出席";
   });
-  // 本日の実績レコード
-  const todayRecs = (store.serviceRecs||[]).filter(r=>r.visit_date===today&&r.facility_id===facilityId);
+  // 選択日の実績レコード
+  const dayRecs = (store.serviceRecs||[]).filter(r=>r.visit_date===selDate&&r.facility_id===facilityId);
+  const isToday = selDate===today;
 
   const [camMode,setCamMode]=useState(null); // {userId,type:"in"|"out"}
   const [editId,setEditId]=useState(null);   // 時間編集展開中の利用者ID
@@ -27694,12 +27697,12 @@ function JissekiScreen({user, store, onBack}){
 
   // 実績レコード取得（なければデフォルト生成）
   const getRec=userId=>{
-    const ex=todayRecs.find(r=>r.child_id===userId);
+    const ex=dayRecs.find(r=>r.child_id===userId);
     if(ex) return ex;
     const u=myUsers.find(x=>x.id===userId);
     return {
-      id:userId+"_"+today, child_id:userId, child_name:u?.name||userId,
-      facility_id:facilityId, visit_date:today,
+      id:userId+"_"+selDate, child_id:userId, child_name:u?.name||userId,
+      facility_id:facilityId, visit_date:selDate,
       planned_start:null, planned_end:null,
       actual_start:null, actual_end:null,
       attendance_status:"attended",
@@ -27713,8 +27716,8 @@ function JissekiScreen({user, store, onBack}){
   // 実績保存（att状態にも反映）
   const saveRec=rec=>{
     store.saveServiceRec(rec);
-    if(rec.attendance_status==="attended") store.setAtt(rec.child_id,today,"出席");
-    else if(rec.attendance_status==="absent") store.setAtt(rec.child_id,today,"欠席");
+    if(rec.attendance_status==="attended") store.setAtt(rec.child_id,selDate,"出席");
+    else if(rec.attendance_status==="absent") store.setAtt(rec.child_id,selDate,"欠席");
   };
 
   // ステータスワンタップ変更
@@ -27741,7 +27744,7 @@ function JissekiScreen({user, store, onBack}){
   // 自動チェック警告生成
   const warnings=[];
   plannedUsers.forEach(u=>{
-    const rec=todayRecs.find(r=>r.child_id===u.id);
+    const rec=dayRecs.find(r=>r.child_id===u.id);
     if(!rec||rec.attendance_status==="attended"){
       if(!rec?.actual_start) warnings.push({icon:"📥",text:`${u.name} — 来所打刻 未記録`});
       if(rec?.actual_start&&!rec?.actual_end) warnings.push({icon:"⏰",text:`${u.name} — 退所打刻 未記録`});
@@ -27762,11 +27765,36 @@ function JissekiScreen({user, store, onBack}){
     return m>0?m:null;
   };
 
+  // 日付を1日ずらす（YYYY-MM-DD）。未来日は本日まで
+  // ※ toISOString()はUTC変換で日付がずれるため、ローカル日付で組み立てる
+  const shiftDate=(diff)=>{
+    const d=new Date(selDate+"T00:00:00");
+    d.setDate(d.getDate()+diff);
+    const ns=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    if(ns>today) return; // 本日より先には進めない
+    setSelDate(ns);
+    setEditId(null);
+  };
+
   return <div className="fl-wrap">
     <div className="fl-hd">
       <button className="bback" onClick={onBack}>← 戻る</button>
-      <div className="fl-title">📋 実績管理 {today.slice(5).replace("-","/")} </div>
+      <div className="fl-title">📋 実績管理</div>
     </div>
+
+    {/* ── 日付選択バー（過去日の実績も入力・編集できる）── */}
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"8px 10px"}}>
+      <button onClick={()=>shiftDate(-1)}
+        style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--bd)",background:"var(--bg)",color:"var(--tx2)",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>‹ 前日</button>
+      <input type="date" value={selDate} max={today}
+        onChange={e=>{ if(e.target.value){ setSelDate(e.target.value); setEditId(null); } }}
+        style={{flex:1,padding:"7px 8px",border:"1px solid var(--bd)",borderRadius:8,fontSize:14,fontWeight:700,textAlign:"center",background:"var(--bg)",color:"var(--tx)",fontFamily:"'Noto Sans JP',sans-serif"}}/>
+      <button onClick={()=>shiftDate(1)} disabled={isToday}
+        style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--bd)",background:isToday?"var(--bg2)":"var(--bg)",color:isToday?"var(--tx3)":"var(--tx2)",fontSize:14,fontWeight:700,cursor:isToday?"not-allowed":"pointer",opacity:isToday?0.5:1,fontFamily:"'Noto Sans JP',sans-serif"}}>翌日 ›</button>
+    </div>
+    {!isToday&&<div style={{margin:"-4px 0 12px",padding:"6px 10px",background:"rgba(255,160,0,0.1)",border:"1px solid rgba(255,160,0,0.3)",borderRadius:8,fontSize:11,fontWeight:700,color:"var(--ac)"}}>
+      📅 過去日（{selDate.replace(/-/g,"/")}）の実績を編集中です
+    </div>}
 
     {/* 隠しカメラ入力 */}
     <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleCam}/>
@@ -27781,8 +27809,8 @@ function JissekiScreen({user, store, onBack}){
     <div style={{display:"flex",gap:8,marginBottom:14}}>
       {[
         {label:"来所予定",val:plannedUsers.length,color:"var(--tx)"},
-        {label:"出席",val:todayRecs.filter(r=>r.attendance_status==="attended").length,color:"var(--gr)"},
-        {label:"欠席",val:todayRecs.filter(r=>r.attendance_status==="absent"||r.attendance_status==="cancelled").length,color:"var(--ro)"},
+        {label:"出席",val:dayRecs.filter(r=>r.attendance_status==="attended").length,color:"var(--gr)"},
+        {label:"欠席",val:dayRecs.filter(r=>r.attendance_status==="absent"||r.attendance_status==="cancelled").length,color:"var(--ro)"},
       ].map(s=><div key={s.label} style={{flex:1,background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 6px",textAlign:"center"}}>
         <div style={{fontSize:10,color:"var(--tx3)",marginBottom:2}}>{s.label}</div>
         <div style={{fontSize:22,fontWeight:800,color:s.color}}>{s.val}</div>
@@ -27791,13 +27819,13 @@ function JissekiScreen({user, store, onBack}){
 
     {/* 予定者ゼロ */}
     {plannedUsers.length===0&&<div style={{textAlign:"center",padding:"48px 20px",color:"var(--tx3)",fontSize:13,background:"var(--wh)",borderRadius:12,border:"1px solid var(--bd)"}}>
-      本日の来所予定者がいません<br/>
+      {isToday?"本日":selDate.replace(/-/g,"/")}の来所予定者がいません<br/>
       <span style={{fontSize:11}}>予定表読み取りか出欠管理から登録してください</span>
     </div>}
 
     {/* 実績カード */}
     {plannedUsers.map(u=>{
-      const rec=todayRecs.find(r=>r.child_id===u.id)||getRec(u.id);
+      const rec=dayRecs.find(r=>r.child_id===u.id)||getRec(u.id);
       const st=ST[rec.attendance_status]||ST.attended;
       const mins=calcMin(rec.actual_start,rec.actual_end);
       return <div key={u.id} style={{background:"var(--wh)",border:"1.5px solid var(--bd)",borderRadius:12,marginBottom:12,overflow:"hidden"}}>
