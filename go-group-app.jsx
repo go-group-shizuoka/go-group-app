@@ -11308,6 +11308,10 @@ function SoudanGenanTab({u, user, store}) {
     }
 
     setOcrError("");
+    // BUG-M2修正: 新規スキャン開始時に pageGroup をリセット
+    // ※ 次ページ追加（handleAddPage）ではここは通らないので安全
+    setPageGroup([]);
+    setPreview(null);
     setScanning(true);
     setMode("scan");
 
@@ -11400,6 +11404,8 @@ function SoudanGenanTab({u, user, store}) {
           "📌 画像が暗い・斜め・文字切れの可能性があります。" +
           "明るい場所で書類全体が収まるよう撮影し直してください。"
         );
+        // BUG-C2修正: OCR失敗時にpageGroupをリセット（残骸が残らないようにする）
+        setPageGroup([]);
         // フォームを空で表示して手動入力に切り替え
         setForm({
           specialistName:"", specialistOrg:"", guardianName:"", jukyushaNo:"",
@@ -11417,6 +11423,9 @@ function SoudanGenanTab({u, user, store}) {
         "通信エラー: " + e.message + "\n" +
         "📌 ネットワーク接続を確認してください。"
       );
+      // BUG-C2修正: 例外時もpageGroupをリセット
+      setPageGroup([]);
+      setPreview(null);
       setMode("result");
     } finally {
       setScanning(false);
@@ -11705,6 +11714,60 @@ function SoudanGenanTab({u, user, store}) {
       } : null,
     };
     store.addSoudanGenan(doc);
+
+    // ── BUG-C1修正: document_page_groups / page_merge_history テーブルへ永続化 ──
+    // 複数ページがある場合のみ保存（1ページのみの場合は不要）
+    if (pageGroup.length > 0) {
+      const groupId = "pg_" + id; // soudan_genans.id をベースにグループIDを生成
+
+      // ① 各ページを document_page_groups に個別保存
+      pageGroup.forEach(pg => {
+        const sbPage = {
+          id:             "dpg_" + genId(),
+          group_id:       groupId,
+          child_id:       u.id,
+          facility_id:    u.facilityId || null,
+          document_type:  "soudan",
+          page_no:        pg.pageNo,
+          total_pages:    pageGroup.length,
+          thumbnail_url:  null, // 将来: Supabase Storage アップロード後に更新
+          ocr_text:       pg.rawText   || null,
+          ocr_data:       pg.ocrData   ? JSON.stringify(pg.ocrData) : null,
+          ai_page_role:   pg.pageRole  || "first",
+          confidence:     pg.confidence ?? 100,
+          is_same_doc:    pg.isSameDoc  ?? true,
+          warnings:       pg.warnings?.length ? JSON.stringify(pg.warnings) : null,
+          mismatch_fields: pg.mismatchFields?.length ? JSON.stringify(pg.mismatchFields) : null,
+          soudan_genan_id: id,
+          child_doc_id:   null, // addChildDoc 後に更新が必要だが非同期なのでここでは null
+          created_by:     user.displayName || null,
+          created_at:     new Date().toISOString(),
+          updated_at:     new Date().toISOString(),
+        };
+        // Supabase に保存（バックグラウンド・失敗しても本体保存には影響しない）
+        sbSave("document_page_groups", sbPage);
+      });
+
+      // ② 結合履歴を page_merge_history に保存（複数ページの場合のみ）
+      if (pageGroup.length > 1) {
+        const pmh = {
+          id:              "pmh_" + genId(),
+          group_id:        groupId,
+          child_id:        u.id,
+          facility_id:     u.facilityId || null,
+          document_type:   "soudan",
+          page_count:      pageGroup.length,
+          merge_confidence: doc.pageMergeHistory?.mergeConfidence ?? 100,
+          combined_text:   doc.pageMergeHistory?.combinedText?.slice(0, 10000) || null,
+          merged_by:       user.displayName || null,
+          reordered_by:    user.displayName || null,
+          page_snapshot:   JSON.stringify(doc.pageMergeHistory?.pages || []),
+          merged_at:       new Date().toISOString(),
+          created_at:      new Date().toISOString(),
+        };
+        sbSave("page_merge_history", pmh);
+      }
+    }
 
     // ── BUG-01 修正: child_documents に登録 → DocBox・version管理・期限アラートを連動 ──
     // documentType: "service_plan" = サービス等利用計画（相談支援原案の書類種別）
@@ -12356,48 +12419,109 @@ function SoudanGenanTab({u, user, store}) {
 // ==================== OCRページ自動結合AI ヘルパー ====================
 
 /**
- * analyzePageRelation
+ * analyzePageRelation（改善版）
  * 2ページのOCR構造化データを比較し「同一書類か」「続きページか」を判定する
- * 戦略: 両ページに共通フィールドがある場合のみ比較（片方にないフィールドはスキップ）
+ *
+ * 改善ポイント:
+ * ① 「両方にある場合だけ比較」→ 2ページ目に氏名がなくても不利にならない
+ * ② 「内容フィールドの存在」で続きページらしさを加算（構成ボーナス）
+ * ③ 「別書類キーフィールドの不一致」は強力な警告ペナルティ
+ * ④ confidence の根拠 reasons[] を返す
+ *
  * @param {Object} base      - 1ページ目のOCRデータ
  * @param {Object} candidate - 追加ページのOCRデータ
- * @returns {{ isSameDoc, confidence, warnings, pageRole, mismatchFields }}
+ * @returns {{ isSameDoc, confidence, reasons, warnings, pageRole, mismatchFields }}
  */
 function analyzePageRelation(base, candidate) {
-  const checks = [];
-  const compare = (f1, f2, weight, name) => {
-    if (!f1 || !f2) return; // どちらかが空なら比較しない（続きページでは正常）
-    checks.push({ match: f1.trim() === f2.trim(), weight, name });
-  };
-  compare(base.guardianName,    candidate.guardianName,    40, "保護者氏名");
-  compare(base.jukyushaNo,      candidate.jukyushaNo,      35, "受給者証番号");
-  compare(base.specialistName,  candidate.specialistName,  30, "担当専門員名");
-  compare(base.specialistOrg,   candidate.specialistOrg,   20, "事業所名");
-  compare(base.planPeriodStart, candidate.planPeriodStart, 25, "計画開始日");
-  compare(base.planCreatedDate, candidate.planCreatedDate, 20, "作成日");
+  let score     = 0;   // 加算スコア（信頼度の根拠）
+  let maxScore  = 0;   // 比較できた最大スコア
+  const reasons      = []; // 信頼度の根拠テキスト（UIに表示可能）
+  const warnings     = [];
+  const mismatchFields = [];
 
-  if (checks.length === 0) {
-    // 比較できるフィールドなし → 判定不能なので続きページとして扱う
-    return { isSameDoc: true, confidence: 60, pageRole: "continuation",
-      warnings: ["共通フィールドがなく判定不能（続きページとして処理）"], mismatchFields: [] };
+  // ── ① 共通フィールド一致チェック（両方にある場合のみ比較）──
+  const compareField = (f1, f2, weight, name) => {
+    if (!f1 || !f2) return; // 片方が空 = 省略ページ → 比較しない（不利にしない）
+    maxScore += weight;
+    if (f1.trim() === f2.trim()) {
+      score += weight;
+      reasons.push(`✓ ${name}が一致（+${weight}pt）`);
+    } else {
+      mismatchFields.push(name);
+      reasons.push(`✗ ${name}が不一致（-0pt、警告）`);
+    }
+  };
+  compareField(base.guardianName,    candidate.guardianName,    40, "保護者氏名");
+  compareField(base.jukyushaNo,      candidate.jukyushaNo,      35, "受給者証番号");
+  compareField(base.specialistName,  candidate.specialistName,  25, "担当専門員名");
+  compareField(base.specialistOrg,   candidate.specialistOrg,   20, "事業所名");
+  compareField(base.planPeriodStart, candidate.planPeriodStart, 25, "計画開始日");
+  compareField(base.planCreatedDate, candidate.planCreatedDate, 15, "作成日");
+
+  // ── ② 構成ボーナス: 2ページ目が「続き」らしい内容を持つ場合 ──
+  // 優先課題テーブルがある → 典型的な2ページ目（表ページ）
+  if ((candidate.priorityItems || []).length > 0) {
+    score    += 25; maxScore += 25;
+    reasons.push(`✓ 優先課題テーブルあり（続きページの典型構成、+25pt）`);
+  }
+  // 支援目標・方針テキストがある → 内容ページ
+  if (candidate.longTermGoal || candidate.shortTermGoal || candidate.supportPolicy) {
+    score    += 15; maxScore += 15;
+    reasons.push(`✓ 支援目標・方針テキストあり（+15pt）`);
+  }
+  // 本人の意向・保護者意向がある
+  if (candidate.userNeeds || candidate.parentNeeds) {
+    score    += 10; maxScore += 10;
+    reasons.push(`✓ 意向・ニーズテキストあり（+10pt）`);
+  }
+  // ベースに担当者名があるが候補ページには担当者名がない → 省略は正常（ボーナス）
+  if (base.specialistName && !candidate.specialistName) {
+    score    += 10; maxScore += 10;
+    reasons.push(`✓ 2ページ目では担当者名省略（続きページの正常パターン、+10pt）`);
   }
 
-  const totalW     = checks.reduce((s, c) => s + c.weight, 0);
-  const matchW     = checks.filter(c =>  c.match).reduce((s, c) => s + c.weight, 0);
-  const mismatch   = checks.filter(c => !c.match).map(c => c.name);
-  const keyMiss    = checks.some(c => !c.match && c.weight >= 30);
+  // ── ③ ペナルティ: キーフィールドが不一致（別書類の強いシグナル）──
+  const hasKeyMismatch = mismatchFields.some(n =>
+    ["保護者氏名","受給者証番号"].includes(n)
+  );
+  if (hasKeyMismatch) {
+    score = Math.max(0, score - 40);
+    reasons.push(`⚠️ キーフィールド不一致（保護者氏名or受給者証番号）→ -40pt`);
+  }
 
-  // キーフィールド（保護者名・受給者証番号・担当者名）が不一致なら信頼度を大幅減点
-  const confidence = keyMiss
-    ? Math.max(10, Math.round((matchW / totalW) * 50))
-    : Math.round(55 + (matchW / totalW) * 45);
+  // ── ④ スコアから confidence を計算 ──
+  let confidence;
+  if (maxScore === 0) {
+    // 全く比較できるフィールドがない（候補ページが表のみなど）
+    // → 構成ボーナスのみで判定
+    confidence = score > 0 ? Math.min(80, 50 + score) : 60;
+    reasons.push(`ℹ️ 共通フィールドなし（構成スコアのみで判定）`);
+  } else {
+    confidence = Math.min(95, Math.max(10,
+      Math.round((score / Math.max(maxScore, 1)) * 100)
+    ));
+  }
 
-  const isSameDoc  = confidence >= 55;
-  const warnings   = isSameDoc ? [] :
-    [`別の書類の可能性があります（${mismatch.join("・")}が一致しません）`];
+  const isSameDoc = confidence >= 50;
 
-  return { isSameDoc, confidence, pageRole: isSameDoc ? "continuation" : "different_document",
-    warnings, mismatchFields: mismatch };
+  if (!isSameDoc) {
+    warnings.push(
+      `別の書類の可能性があります` +
+      (mismatchFields.length ? `（${mismatchFields.join("・")}が一致しません）` : "")
+    );
+  }
+  if (hasKeyMismatch) {
+    warnings.push("⚠️ 保護者氏名または受給者証番号が異なります。別の利用者の書類が混入していないか確認してください。");
+  }
+
+  return {
+    isSameDoc,
+    confidence,
+    reasons,   // UI表示・デバッグ用
+    warnings,
+    pageRole:       isSameDoc ? "continuation" : "different_document",
+    mismatchFields,
+  };
 }
 
 /**
@@ -19638,14 +19762,6 @@ function getUserAlerts(u, store) {
     jukyusha:"受給者証", isp:"個別支援計画", monitoring:"モニタリング記録",
     service_plan:"サービス等利用計画",
   };
-
-  // デバッグ: is_latestの状態とアラート対象を確認
-  const latestDocsDebug = (store.childDocuments||[]).filter(d => d.childId === u.id);
-  if(latestDocsDebug.length > 0) {
-    console.log("LATEST_DOCS ["+u.name+"]",
-      latestDocsDebug.map(d=>({id:d.id,type:d.documentType,isLatest:d.isLatest,ver:d.versionNo,expiry:d.expiryDate}))
-    );
-  }
 
   myChildDocs.forEach(d => {
     if (!d.expiryDate) return;
