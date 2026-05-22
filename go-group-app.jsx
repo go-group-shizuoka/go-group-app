@@ -9013,11 +9013,13 @@ function UserManagement({user,store,onBack}){
     const isJidou   = u.serviceType==="jidouhattatsu";
     const isVisit   = u.serviceType==="hoikuvisit";
     // タブ定義: よく使う順に並べ、ラベルを短縮してスマホ横幅に最適化
+    // タブ順: アセスメント二重構造の解消に合わせ、アセスメントを支援計画の前に配置
+    // （FS → アセスメント → 個別支援計画 → モニタリング → 原案 → …）
     const TABS=[
       {k:"facesheet",   l:"FS",       ic:"📋"},  // フェイスシート（最頻用）
-      {k:"isp",         l:"支援計画",  ic:"📝"},  // 個別支援計画
+      {k:"assessment",  l:"アセスメント",ic:"📊"},// ★ 正式なアセスメント（支援計画の基礎）
+      {k:"isp",         l:"個別支援計画",ic:"📝"},// 個別支援計画（旧:支援計画）
       {k:"monitoring",  l:"モニタリング",ic:"🔍"},
-      {k:"assessment",  l:"アセスメント",ic:"📊"},
       {k:"isp_draft",   l:"原案",     ic:"📄"},  // 個別支援計画（原案）
       {k:"jukyusha",    l:"受給者証", ic:"🪪"},
       {k:"soudan_genan",l:"相談支援", ic:"📑"},
@@ -15153,7 +15155,22 @@ function IspUserDetail({u, user, store, onBack}){
     const saved=()=>{setCreating(false);setEditRec(null);};
     // ★ バグ修正: key={editRec?.id||"new"} を付けることで、新規作成と編集で
     // コンポーネントが確実に再マウントされ、useState が正しく再初期化される。
-    if(tab==="assessment")  return <IspAssessmentForm  key={editRec?.id||"new"} record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
+    // アセスメントは上部の「アセスメント」タブに一本化。ここでは新規・編集を行わず誘導する
+    // （既存の支援計画内アセスメント記録は下の一覧で参照のみ可能）
+    if(tab==="assessment")  return <div style={{paddingBottom:28}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+        <button className="bback" onClick={cancel}>← 戻る</button>
+        <div style={{fontSize:15,fontWeight:900}}>🔍 アセスメント</div>
+      </div>
+      <div style={{background:"rgba(58,160,216,0.08)",border:"1px solid rgba(58,160,216,0.3)",borderRadius:12,padding:"18px 16px",textAlign:"center"}}>
+        <div style={{fontSize:32,marginBottom:8}}>📊</div>
+        <div style={{fontSize:14,fontWeight:700,color:"var(--tl)",marginBottom:8}}>アセスメントは上部の「アセスメント」タブで管理します</div>
+        <div style={{fontSize:12,color:"var(--tx3)",lineHeight:1.8}}>
+          二重管理を防ぐため、アセスメントの作成・編集は<br/>上部の「📊 アセスメント」タブに一本化しました。<br/>
+          AI原案生成もそのアセスメントを参照します。
+        </div>
+      </div>
+    </div>;
     if(tab==="isp_plan")    return <IspPlanForm        key={editRec?.id||"new"} record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
     if(tab==="weekly_plan") return <IspWeeklyPlanForm  key={editRec?.id||"new"} record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
     if(tab==="monitoring")  return <IspMonitoringForm  key={editRec?.id||"new"} record={rec} u={u} user={user} store={store} onSave={saved} onCancel={cancel}/>;
@@ -15292,10 +15309,15 @@ function IspUserDetail({u, user, store, onBack}){
           onDelete={id=>{if(store.delIspRecord)store.delIspRecord(id);}}/>)
     }
 
-    {/* 新規作成ボタン */}
-    <button className="bsave" style={{marginTop:8}} onClick={()=>setCreating(true)}>
-      ＋ {ISP_DOC_LABELS[tab]||tab}を新規作成
-    </button>
+    {/* 新規作成ボタン（アセスメントは上部タブに一本化したため非表示・誘導に変更） */}
+    {tab==="assessment"
+      ? <div style={{marginTop:8,background:"rgba(58,160,216,0.06)",border:"1px solid rgba(58,160,216,0.25)",borderRadius:10,padding:"12px 14px",fontSize:12,color:"var(--tl)",fontWeight:700,textAlign:"center"}}>
+          📊 アセスメントの作成・編集は上部の「アセスメント」タブで行ってください（ここでは過去の記録を参照できます）
+        </div>
+      : <button className="bsave" style={{marginTop:8}} onClick={()=>setCreating(true)}>
+          ＋ {ISP_DOC_LABELS[tab]||tab}を新規作成
+        </button>
+    }
   </div>;
 }
 
