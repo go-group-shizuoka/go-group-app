@@ -11360,7 +11360,9 @@ function SoudanGenanTab({u, user, store}) {
   // confirmedFields: スタッフが確認・修正した値のオブジェクト
   // corrections:     修正されたフィールドの差分リスト（監査用）
   // allConfirmed:    「すべて反映」か「個別反映」か
-  const handleAiConfirmed = (confirmedFields, corrections, allConfirmed) => {
+  // corrections: buildFullSnapshot の結果（全フィールドのスナップショット）
+  // correctionCount: AI提案を修正したフィールドの数
+  const handleAiConfirmed = (confirmedFields, snapshot, allConfirmed, correctionCount) => {
     // 確認済みフィールドをフォームに展開
     // aiConfirmData から補完（individual 反映時に未選択フィールドは空にしない）
     const base = aiConfirmData || {};
@@ -11386,42 +11388,59 @@ function SoudanGenanTab({u, user, store}) {
     setForm(newForm);
 
     // AI確認メタ情報を保存（handleSave 時にドキュメントへ付与）
+    // snapshot には全フィールドの ai_original_text / user_corrected_text / adoption_status を含む
     const meta = {
       aiReviewed:          true,
       reviewedBy:          user.displayName || "",
       reviewedAt:          new Date().toISOString(),
-      corrections,                   // 修正されたフィールドの差分
+      corrections:         snapshot,            // 全フィールドの完全スナップショット
       allFieldsConfirmed:  allConfirmed,
-      correctionCount:     corrections.length,
+      correctionCount:     correctionCount ?? 0, // AI修正フィールド数
+      // 採用/修正サマリー（監査説明・AI改善学習用）
+      adoptedCount:  snapshot.filter(s => s.adoption_status === "ai_adopted").length,
+      modifiedCount: correctionCount ?? 0,
+      manualCount:   snapshot.filter(s => s.adoption_status === "manual_added").length,
     };
     setAiMeta(meta);
 
-    // 修正ログを store に記録（監査・品質改善用）
-    corrections.forEach(c => {
+    // 修正ログを store に記録（監査・品質改善・AI誤抽出分析用）
+    // 全フィールドのスナップショットを記録（採用・修正・手動入力すべて）
+    snapshot.forEach(c => {
       store.addOcrCorrectionLog({
-        id:           genId(),
-        fieldName:    c.fieldName,
-        fieldLabel:   c.fieldLabel,
-        aiOriginal:   c.aiOriginal,
-        userCorrected:c.userCorrected,
-        correctedBy:  c.correctedBy,
-        correctedAt:  c.correctedAt,
-        documentType: "soudan",
-        childId:      u.id,
-        facilityId:   u.facilityId,
+        id:                  genId(),
+        fieldName:           c.fieldName,
+        fieldLabel:          c.fieldLabel,
+        ai_original_text:    c.ai_original_text,      // AI抽出原文
+        user_corrected_text: c.user_corrected_text,   // スタッフ確認後テキスト
+        adoption_status:     c.adoption_status,        // "ai_adopted" / "ai_modified" etc.
+        correction_reason:   c.correction_reason || null, // 修正理由（任意）
+        is_corrected:        c.is_corrected,
+        // 後方互換
+        aiOriginal:          c.ai_original_text,
+        userCorrected:       c.user_corrected_text,
+        correctedBy:         c.correctedBy,
+        correctedAt:         c.correctedAt,
+        documentType:        "soudan",
+        childId:             u.id,
+        facilityId:          u.facilityId,
       });
     });
 
+    // 採用/修正/手動入力の内訳をコンソールに出力（デバッグ・確認用）
+    const modifiedFields = snapshot.filter(s => s.is_corrected).map(s => s.fieldName);
     console.log("AI_CONFIRM_DONE", {
-      totalFields: Object.keys(confirmedFields).length,
-      correctedFields: corrections.length,
+      totalFields:     snapshot.length,
+      adoptedCount:    meta.adoptedCount,
+      modifiedCount:   meta.modifiedCount,
+      manualCount:     meta.manualCount,
+      modifiedFields,
       allConfirmed,
     });
 
     store.showToast(
-      corrections.length > 0
-        ? `✅ ${corrections.length}件のフィールドを修正してフォームに反映しました`
-        : "✅ AI抽出結果をフォームに反映しました"
+      correctionCount > 0
+        ? `✅ AI採用 ${meta.adoptedCount}件 / 修正 ${correctionCount}件 をフォームに反映しました`
+        : "✅ AI抽出結果をすべて採用してフォームに反映しました"
     );
     setMode("result"); // 確認フォーム（result）へ移行
   };
@@ -11451,13 +11470,22 @@ function SoudanGenanTab({u, user, store}) {
       priorityItems:      form.priorityItems || [],   // ← 優先課題テーブル
       status: "受領済み", imagePreview: preview, ocrData: ocrResult,
       createdBy: user.displayName,
-      // ── AI確認メタ情報（監査・品質管理用）──
+      // ── AI確認メタ情報（監査・AI改善学習・誤抽出分析用）──
+      // corrections は全フィールドのスナップショット
+      // （ai_original_text / user_corrected_text / adoption_status / correction_reason を含む）
       aiReviewed:         aiMeta?.aiReviewed          ?? false,
       reviewedBy:         aiMeta?.reviewedBy           ?? null,
       reviewedAt:         aiMeta?.reviewedAt           ?? null,
-      corrections:        aiMeta?.corrections          ?? [],
-      correctionCount:    aiMeta?.correctionCount      ?? 0,
+      corrections:        aiMeta?.corrections          ?? [], // 全フィールドスナップショット
+      correction_count:   aiMeta?.correctionCount      ?? 0,  // AI修正フィールド数
       allFieldsConfirmed: aiMeta?.allFieldsConfirmed   ?? null,
+      // 採用/修正サマリー（監査説明用）
+      ai_adoption_summary: aiMeta ? {
+        adopted:  aiMeta.adoptedCount  ?? 0,
+        modified: aiMeta.modifiedCount ?? 0,
+        manual:   aiMeta.manualCount   ?? 0,
+        total:    (aiMeta.adoptedCount??0) + (aiMeta.modifiedCount??0) + (aiMeta.manualCount??0),
+      } : null,
     };
     store.addSoudanGenan(doc);
     store.showToast("✅ 相談支援原案を保存しました");
@@ -11778,8 +11806,23 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
     return init;
   });
 
-  // ── 確認済みフラグ（タップ or 編集で確認済みになる）──
+  // ── 確認済みフラグ（タップ or 編集で自動確認済みになる）──
   const [checked, setChecked] = useState(() => {
+    const init = {};
+    FIELDS.forEach(f => { init[f.key] = false; });
+    return init;
+  });
+
+  // ── 修正理由（任意・フィールドごと）──
+  // AI改善学習・監査説明・誤抽出分析に使用
+  const [reasons, setReasons] = useState(() => {
+    const init = {};
+    FIELDS.forEach(f => { init[f.key] = ""; });
+    return init;
+  });
+
+  // ── 修正理由入力欄の表示フラグ（フィールドごと）──
+  const [showReason, setShowReason] = useState(() => {
     const init = {};
     FIELDS.forEach(f => { init[f.key] = false; });
     return init;
@@ -11794,7 +11837,6 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
   });
 
   // ── フィールドごとの信頼度を推定 ──
-  // OCR APIが per-field confidence を返す場合はそれを優先
   const getFieldConf = (key) => {
     if (aiData.fieldConfidence && typeof aiData.fieldConfidence[key] === "number") {
       return aiData.fieldConfidence[key];
@@ -11808,16 +11850,50 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
     return 90;
   };
 
-  // 全体信頼度（ヘッダー表示用）
+  // ── フィールドの採用ステータスを判定（AI改善学習・監査説明に使用）──
+  // "ai_adopted"    : AIが抽出し、スタッフがそのまま採用
+  // "ai_modified"   : AIが抽出したが、スタッフが修正
+  // "ai_deleted"    : AIが抽出したが、スタッフが削除（空にした）
+  // "manual_added"  : AIが未検出、スタッフが手動入力
+  // "empty"         : AIも未検出、スタッフも入力なし
+  // "unchecked"     : まだ確認していない
+  const getAdoptionStatus = (key) => {
+    const aiVal  = String(aiData[key]  || "").trim();
+    const userVal = String(values[key] || "").trim();
+    if (!checked[key])          return "unchecked";
+    if (!aiVal && !userVal)     return "empty";
+    if (!aiVal && userVal)      return "manual_added";
+    if (aiVal && !userVal)      return "ai_deleted";
+    if (aiVal === userVal)      return "ai_adopted";
+    return "ai_modified";
+  };
+
+  // ── 採用ステータスのスタイル定義 ──
+  const STATUS_STYLE = {
+    unchecked:   { label:"未確認",     bg:"rgba(180,180,180,0.18)", color:"var(--tx3)",  border:"rgba(180,180,180,0.3)" },
+    empty:       { label:"未検出",     bg:"rgba(120,120,120,0.1)",  color:"var(--tx3)",  border:"var(--bd)" },
+    ai_adopted:  { label:"✓ AI採用",  bg:"rgba(26,158,69,0.18)",   color:"#1a9e45",     border:"rgba(26,158,69,0.45)" },
+    ai_modified: { label:"✏️ AI修正",  bg:"rgba(58,160,216,0.18)",  color:"var(--tl)",   border:"rgba(58,160,216,0.45)" },
+    ai_deleted:  { label:"✕ AI削除",  bg:"rgba(224,56,56,0.14)",   color:"var(--ro)",   border:"rgba(224,56,56,0.35)" },
+    manual_added:{ label:"✍️ 手動入力",bg:"rgba(144,72,216,0.16)", color:"var(--pu)",   border:"rgba(144,72,216,0.4)" },
+  };
+
+  // ── 全体信頼度（ヘッダー表示用）──
   const filledCount = FIELDS.filter(f => aiData[f.key] && aiData[f.key] !== "").length;
   const overallConf = aiData.confidence != null
     ? aiData.confidence
     : Math.round(FIELDS.reduce((s, f) => s + getFieldConf(f.key), 0) / FIELDS.length);
 
+  // ── サマリーカウント（ヘッダー表示用）──
+  // checked かつ ai_adopted / ai_modified の件数をリアルタイム集計
+  const adoptedCount  = FIELDS.filter(f => getAdoptionStatus(f.key) === "ai_adopted").length;
+  const modifiedCount = FIELDS.filter(f => getAdoptionStatus(f.key) === "ai_modified").length;
+  const manualCount   = FIELDS.filter(f => getAdoptionStatus(f.key) === "manual_added").length;
+
   // フィールド値を更新 → 自動で確認済みにする
   const upd = (k, v) => {
-    setValues(p => ({ ...p, [k]: v }));
-    setChecked(p => ({ ...p, [k]: true }));
+    setValues(p  => ({ ...p,  [k]: v    }));
+    setChecked(p => ({ ...p,  [k]: true }));
   };
 
   const toggleCheck = (k) => setChecked(p => ({ ...p, [k]: !p[k] }));
@@ -11826,46 +11902,76 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
     const r = {}; FIELDS.forEach(f => { r[f.key] = true; }); setChecked(r);
   };
 
-  // ── 信頼度に応じたスタイルヘルパー ──
+  // ── 信頼度スタイルヘルパー ──
   const confColor = (c) => c >= 80 ? "#1a9e45" : c >= 60 ? "#c07800" : "#cc3333";
   const confBg    = (c) => c >= 80 ? "rgba(26,158,69,0.12)" : c >= 60 ? "rgba(224,168,40,0.15)" : "rgba(224,56,56,0.12)";
   const confLabel = (c) => c >= 80 ? "高" : c >= 60 ? "中" : "低";
 
-  // ── 差分（修正箇所）を収集する共通処理 ──
-  const buildCorrections = (targetFields) => {
-    const corrections = [];
-    FIELDS.forEach(f => {
-      if (targetFields && !targetFields[f.key] && targetFields[f.key] !== "") return;
-      const aiOrig  = String(aiData[f.key] || "");
-      const userVal = String(values[f.key]  || "");
-      if (aiOrig !== userVal) {
-        corrections.push({
-          fieldName: f.key, fieldLabel: f.label,
-          aiOriginal: aiOrig, userCorrected: userVal,
-          correctedBy: userName, correctedAt: new Date().toISOString(),
+  // ── 差分ハイライト用: 文字単位で変更箇所を検出 ──
+  // 短いフィールド（50文字未満）のみ適用。長文は AI原文を全表示する
+  const buildDiffSegments = (aiStr, userStr) => {
+    if (!aiStr || !userStr) return null;
+    if (aiStr.length > 120 || userStr.length > 120) return null; // 長文は適用しない
+    // 共通部分を先頭・末尾から検出してハイライト
+    const a = aiStr, b = userStr;
+    let pfx = 0;
+    while (pfx < a.length && pfx < b.length && a[pfx] === b[pfx]) pfx++;
+    let sfxA = a.length, sfxB = b.length;
+    while (sfxA > pfx && sfxB > pfx && a[sfxA-1] === b[sfxB-1]) { sfxA--; sfxB--; }
+    return {
+      before:   a.slice(0, pfx),
+      removed:  a.slice(pfx, sfxA),
+      added:    b.slice(pfx, sfxB),
+      after:    a.slice(sfxA),         // 後続共通部分（AI原文表示用）
+      afterUser:b.slice(sfxB),         // 後続共通部分（修正後表示用）
+    };
+  };
+
+  // ── 全フィールドのスナップショットを構築（AI改善学習・監査ログ用）──
+  // 変更の有無に関わらず全フィールドを保存する（採用状況の分析に必要）
+  const buildFullSnapshot = (targetKeys) => {
+    const now = new Date().toISOString();
+    return FIELDS
+      .filter(f => !targetKeys || targetKeys[f.key])
+      .map(f => {
+        const aiOrig  = String(aiData[f.key]  || "");
+        const userVal = String(values[f.key]   || "");
+        const status  = getAdoptionStatus(f.key);
+        return {
+          fieldName:           f.key,
+          fieldLabel:          f.label,
+          // ── 保存項目（追加仕様）──
+          ai_original_text:    aiOrig,            // AI抽出結果（元テキスト）
+          user_corrected_text: userVal,            // スタッフ確認後テキスト
+          adoption_status:     status,             // "ai_adopted" | "ai_modified" | ...
+          correction_reason:   reasons[f.key] || null, // 修正理由（任意）
+          is_corrected:        aiOrig !== userVal && !!aiOrig, // AI提案を修正したか
+          // ── 既存互換フィールド ──
+          aiOriginal:          aiOrig,             // 後方互換
+          userCorrected:       userVal,            // 後方互換
+          correctedBy:         userName,
+          correctedAt:         now,
           documentType,
-        });
-      }
-    });
-    return corrections;
+        };
+      });
   };
 
   // ── 「すべて反映」ボタン ──
   const handleConfirmAll = () => {
     markAllChecked();
-    const corrections = buildCorrections(null);
-    onConfirm(values, corrections, true);
+    const snapshot = buildFullSnapshot(null);
+    // correction_count: AIが抽出済みなのにスタッフが変更したフィールド数
+    const correctionCount = snapshot.filter(s => s.is_corrected).length;
+    onConfirm(values, snapshot, true, correctionCount);
   };
 
-  // ── 「選択した項目を反映」ボタン ──
+  // ── 「選択した項目のみ反映」ボタン ──
   const handleConfirmSelected = () => {
-    // 選択されたフィールドの値のみ返す
     const selectedValues = {};
-    FIELDS.forEach(f => {
-      if (selected[f.key]) selectedValues[f.key] = values[f.key];
-    });
-    const corrections = buildCorrections(selected);
-    onConfirm(selectedValues, corrections, false);
+    FIELDS.forEach(f => { if (selected[f.key]) selectedValues[f.key] = values[f.key]; });
+    const snapshot = buildFullSnapshot(selected);
+    const correctionCount = snapshot.filter(s => s.is_corrected).length;
+    onConfirm(selectedValues, snapshot, false, correctionCount);
   };
 
   // 未確認フィールド数（バナー表示用）
@@ -11875,18 +11981,19 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9000,
       display:"flex",alignItems:"flex-start",justifyContent:"center",
       overflowY:"auto",padding:"16px 8px",WebkitOverflowScrolling:"touch"}}>
-      <div style={{background:"var(--wh)",borderRadius:16,width:"100%",maxWidth:620,
+      <div style={{background:"var(--wh)",borderRadius:16,width:"100%",maxWidth:640,
         boxShadow:"0 8px 40px rgba(0,0,0,0.25)",overflow:"hidden",marginBottom:40}}>
 
-        {/* ── ヘッダー ── */}
+        {/* ──────────── ヘッダー ──────────── */}
         <div style={{background:"linear-gradient(135deg,#6c3fc5 0%,#9048d8 100%)",
           padding:"16px 18px",color:"#fff"}}>
           <div style={{fontSize:16,fontWeight:900,marginBottom:4}}>🤖 AI抽出結果の確認</div>
           <div style={{fontSize:11,opacity:0.85,marginBottom:10}}>
             内容を確認・修正してからフォームに反映してください
           </div>
-          {/* 信頼度バッジ */}
-          <div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"center"}}>
+
+          {/* 信頼度 + 読取フィールド数 */}
+          <div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"center",marginBottom:8}}>
             <div style={{background:"rgba(255,255,255,0.22)",borderRadius:8,
               padding:"5px 12px",fontSize:12,fontWeight:700}}>
               総合信頼度: {overallConf}%
@@ -11896,9 +12003,34 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
             </div>
             <div style={{background:"rgba(255,255,255,0.15)",borderRadius:8,
               padding:"5px 10px",fontSize:11}}>
-              読取フィールド: {filledCount} / {FIELDS.length}件
+              読取: {filledCount}/{FIELDS.length}件
             </div>
           </div>
+
+          {/* 採用/修正サマリー（確認済みフィールドが増えるとリアルタイム更新）*/}
+          {(adoptedCount + modifiedCount + manualCount) > 0 && (
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {adoptedCount > 0 && (
+                <span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:8,
+                  background:"rgba(26,158,69,0.35)",color:"#fff"}}>
+                  ✓ AI採用 {adoptedCount}件
+                </span>
+              )}
+              {modifiedCount > 0 && (
+                <span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:8,
+                  background:"rgba(58,160,216,0.45)",color:"#fff"}}>
+                  ✏️ AI修正 {modifiedCount}件
+                </span>
+              )}
+              {manualCount > 0 && (
+                <span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:8,
+                  background:"rgba(144,72,216,0.45)",color:"#fff"}}>
+                  ✍️ 手動入力 {manualCount}件
+                </span>
+              )}
+            </div>
+          )}
+
           {overallConf < 60 && (
             <div style={{marginTop:8,fontSize:11,background:"rgba(255,220,0,0.25)",
               padding:"6px 10px",borderRadius:7}}>
@@ -11911,12 +12043,14 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
         {preview && (
           <details style={{borderBottom:"1px solid var(--bd)"}}>
             <summary style={{padding:"9px 18px",fontSize:12,color:"var(--tl)",
-              cursor:"pointer",userSelect:"none",listStyle:"none",display:"flex",alignItems:"center",gap:6}}>
-              <span>▶</span> 📷 撮影画像を確認する
+              cursor:"pointer",userSelect:"none",listStyle:"none",
+              display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:9}}>▶</span> 📷 撮影画像を確認する
             </summary>
             <div style={{padding:"0 18px 12px"}}>
               <img src={preview} alt="撮影画像"
-                style={{maxWidth:"100%",maxHeight:300,borderRadius:8,objectFit:"contain",display:"block"}}/>
+                style={{maxWidth:"100%",maxHeight:300,borderRadius:8,
+                  objectFit:"contain",display:"block"}}/>
             </div>
           </details>
         )}
@@ -11926,35 +12060,38 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
           <div style={{padding:"8px 18px",background:"rgba(224,168,40,0.12)",
             borderBottom:"1px solid rgba(224,168,40,0.3)",fontSize:11,color:"#8a6200",
             display:"flex",alignItems:"center",gap:6}}>
-            <span>⚠️</span>
-            <span>未確認のフィールドが <strong>{uncheckedCount}件</strong> あります。
-              各フィールドを確認し、「✓ 確認済」にしてください。</span>
+            ⚠️ <span>未確認のフィールドが <strong>{uncheckedCount}件</strong> あります。
+              各フィールドを確認し「✓ 確認済」にしてください。</span>
           </div>
         )}
 
-        {/* ── フィールド一覧（スクロール可能）── */}
+        {/* ──────────── フィールド一覧（スクロール可能）──────────── */}
         <div style={{maxHeight:"52vh",overflowY:"auto",padding:"14px 18px",
           display:"flex",flexDirection:"column",gap:10}}>
           {FIELDS.map(f => {
-            const conf     = getFieldConf(f.key);
-            const aiVal    = aiData[f.key] || "";
-            const isEmpty  = !aiVal;
-            const isModified = !isEmpty && String(values[f.key]) !== String(aiVal);
+            const conf      = getFieldConf(f.key);
+            const aiVal     = String(aiData[f.key] || "");
+            const userVal   = values[f.key] || "";
+            const isEmpty   = !aiVal;
+            const isModified= !isEmpty && String(userVal) !== aiVal;
+            const isAdded   = isEmpty && !!userVal;
+            const status    = getAdoptionStatus(f.key);
+            const ss        = STATUS_STYLE[status] || STATUS_STYLE.unchecked;
+            const diff      = isModified ? buildDiffSegments(aiVal, String(userVal)) : null;
+
             return (
               <div key={f.key} style={{
-                border:`1.5px solid ${checked[f.key]
-                  ? "rgba(26,158,69,0.45)"
-                  : conf < 60 && !isEmpty
-                    ? "rgba(224,56,56,0.35)"
-                    : "var(--bd)"}`,
+                border:`1.5px solid ${ss.border}`,
                 borderRadius:10,padding:"10px 12px",
-                background:checked[f.key] ? "rgba(26,158,69,0.04)" : "var(--wh)",
+                background: status==="ai_adopted"  ? "rgba(26,158,69,0.03)"
+                          : status==="ai_modified" ? "rgba(58,160,216,0.03)"
+                          : status==="manual_added"? "rgba(144,72,216,0.03)"
+                          : "var(--wh)",
                 transition:"border-color 0.2s,background 0.2s",
               }}>
 
-                {/* フィールドヘッダー行 */}
+                {/* ── フィールドヘッダー行 ── */}
                 <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:6,flexWrap:"wrap"}}>
-                  {/* 個別選択チェックボックス */}
                   {selMode && (
                     <input type="checkbox" checked={selected[f.key]||false}
                       onChange={e => setSelected(p => ({...p,[f.key]:e.target.checked}))}
@@ -11965,26 +12102,28 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
                     {f.label}
                   </span>
 
-                  {/* 信頼度バッジ */}
+                  {/* 信頼度バッジ（AI抽出値がある場合のみ）*/}
                   {!isEmpty && (
                     <span style={{fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:10,
                       background:confBg(conf),color:confColor(conf)}}>
                       {conf}% {confLabel(conf)}
                     </span>
                   )}
-                  {isEmpty && (
+                  {isEmpty && !isAdded && (
                     <span style={{fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:10,
                       background:"rgba(120,120,120,0.12)",color:"var(--tx3)"}}>
                       未検出
                     </span>
                   )}
-                  {/* 修正済みバッジ */}
-                  {isModified && (
+
+                  {/* 採用ステータスバッジ（確認済みのみ表示）*/}
+                  {checked[f.key] && status !== "unchecked" && status !== "empty" && (
                     <span style={{fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:10,
-                      background:"rgba(58,160,216,0.15)",color:"var(--tl)"}}>
-                      ✏️ 修正済
+                      background:ss.bg,color:ss.color}}>
+                      {ss.label}
                     </span>
                   )}
+
                   {/* 確認済みトグルボタン */}
                   <button onClick={() => toggleCheck(f.key)} style={{
                     fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:10,
@@ -11995,31 +12134,115 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
                   }}>{checked[f.key] ? "✓ 確認済" : "未確認"}</button>
                 </div>
 
-                {/* AI原文（修正された場合のみグレー表示）*/}
+                {/* ── AI原文 vs 修正後 差分表示エリア ── */}
                 {isModified && (
-                  <div style={{fontSize:10,color:"var(--tx3)",
-                    background:"rgba(180,180,180,0.12)",borderRadius:6,
-                    padding:"4px 8px",marginBottom:5,lineHeight:1.5}}>
-                    <span style={{fontWeight:700}}>AI原文: </span>
-                    {String(aiVal)}
+                  <div style={{marginBottom:7,fontSize:11,lineHeight:1.6}}>
+                    {/* AI原文（削除部分を赤でハイライト）*/}
+                    <div style={{background:"rgba(224,56,56,0.07)",border:"1px solid rgba(224,56,56,0.2)",
+                      borderRadius:"6px 6px 0 0",padding:"5px 8px",position:"relative"}}>
+                      <span style={{fontSize:9,fontWeight:700,color:"var(--ro)",
+                        position:"absolute",top:3,right:7}}>AI原文</span>
+                      {diff ? (
+                        <span>
+                          {diff.before}
+                          {diff.removed && (
+                            <span style={{background:"rgba(224,56,56,0.2)",color:"var(--ro)",
+                              textDecoration:"line-through",borderRadius:3,padding:"0 2px"}}>
+                              {diff.removed}
+                            </span>
+                          )}
+                          {diff.after}
+                        </span>
+                      ) : (
+                        <span style={{color:"var(--tx2)"}}>{aiVal}</span>
+                      )}
+                    </div>
+                    {/* 修正後（追加部分を青でハイライト）*/}
+                    <div style={{background:"rgba(58,160,216,0.07)",border:"1px solid rgba(58,160,216,0.2)",
+                      borderTop:"none",borderRadius:"0 0 6px 6px",padding:"5px 8px",position:"relative"}}>
+                      <span style={{fontSize:9,fontWeight:700,color:"var(--tl)",
+                        position:"absolute",top:3,right:7}}>修正後</span>
+                      {diff ? (
+                        <span>
+                          {diff.before}
+                          {diff.added && (
+                            <span style={{background:"rgba(58,160,216,0.22)",color:"var(--tl)",
+                              fontWeight:700,borderRadius:3,padding:"0 2px"}}>
+                              {diff.added}
+                            </span>
+                          )}
+                          {diff.afterUser}
+                        </span>
+                      ) : (
+                        <span style={{color:"var(--tx)"}}>{userVal}</span>
+                      )}
+                    </div>
                   </div>
                 )}
 
-                {/* 編集可能フィールド */}
+                {/* AI未検出 + 手動入力済みの表示 */}
+                {isAdded && (
+                  <div style={{marginBottom:6,fontSize:10,color:"var(--pu)",
+                    background:"rgba(144,72,216,0.08)",borderRadius:6,
+                    padding:"4px 8px",display:"flex",alignItems:"center",gap:4}}>
+                    ✍️ <span>AIが検出できなかったフィールドを手動入力しました</span>
+                  </div>
+                )}
+
+                {/* ── 編集可能フィールド ── */}
                 {f.multi ? (
                   <textarea className="fta"
                     style={{minHeight:isEmpty?40:56,fontSize:12,
-                      borderColor:conf<60&&!isEmpty?"rgba(224,168,40,0.5)":undefined}}
-                    value={values[f.key]||""}
+                      borderColor: isModified ? "rgba(58,160,216,0.5)"
+                                 : isAdded    ? "rgba(144,72,216,0.4)"
+                                 : conf<60&&!isEmpty ? "rgba(224,168,40,0.5)"
+                                 : undefined}}
+                    value={userVal}
                     onChange={e => upd(f.key, e.target.value)}
                     placeholder={isEmpty ? "（未検出 ─ 手動入力してください）" : f.label}/>
                 ) : (
                   <input className="fi"
                     style={{fontSize:12,
-                      borderColor:conf<60&&!isEmpty?"rgba(224,168,40,0.5)":undefined}}
-                    value={values[f.key]||""}
+                      borderColor: isModified ? "rgba(58,160,216,0.5)"
+                                 : isAdded    ? "rgba(144,72,216,0.4)"
+                                 : conf<60&&!isEmpty ? "rgba(224,168,40,0.5)"
+                                 : undefined}}
+                    value={userVal}
                     onChange={e => upd(f.key, e.target.value)}
                     placeholder={isEmpty ? "（未検出 ─ 手動入力）" : f.label}/>
+                )}
+
+                {/* ── 修正理由入力（AI修正時のみ表示リンク）── */}
+                {/* 監査説明・AI改善学習のために理由を任意記録できる */}
+                {(isModified || isAdded) && (
+                  <div style={{marginTop:5}}>
+                    {!showReason[f.key] ? (
+                      <button onClick={() => setShowReason(p => ({...p,[f.key]:true}))}
+                        style={{fontSize:9,color:"var(--tx3)",background:"none",border:"none",
+                          cursor:"pointer",padding:"0",fontFamily:"'Noto Sans JP',sans-serif",
+                          textDecoration:"underline"}}>
+                        + 修正理由を入力（任意・監査用）
+                      </button>
+                    ) : (
+                      <div>
+                        <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:3}}>
+                          <span style={{fontSize:9,fontWeight:700,color:"var(--tx3)"}}>
+                            修正理由（任意）
+                          </span>
+                          <button onClick={() => setShowReason(p => ({...p,[f.key]:false}))}
+                            style={{fontSize:9,color:"var(--tx3)",background:"none",border:"none",
+                              cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                            ▲閉じる
+                          </button>
+                        </div>
+                        <input className="fi"
+                          style={{fontSize:11}}
+                          value={reasons[f.key]||""}
+                          onChange={e => setReasons(p => ({...p,[f.key]:e.target.value}))}
+                          placeholder="例：OCRの読み取りが誤っていた、原本と異なっていた など"/>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             );
@@ -12054,16 +12277,14 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
           )}
         </div>
 
-        {/* ── ボタンエリア ── */}
+        {/* ──────────── ボタンエリア ──────────── */}
         <div style={{borderTop:"1px solid var(--bd)",padding:"14px 18px",background:"var(--bg)"}}>
 
           {/* メインボタン行 */}
           <div style={{display:"flex",gap:8}}>
-            {/* すべて反映 */}
             <button className="bsave" style={{flex:2,fontSize:13}} onClick={handleConfirmAll}>
               ✅ すべて反映
             </button>
-            {/* 個別選択トグル */}
             <button onClick={() => setSelMode(p => !p)} style={{
               flex:1,padding:"9px 10px",borderRadius:9,fontSize:12,fontWeight:700,
               border:`1.5px solid ${selMode?"var(--tl)":"var(--bd)"}`,
@@ -12073,7 +12294,6 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
             }}>☑️ 個別選択</button>
           </div>
 
-          {/* 個別選択が有効な場合の反映ボタン */}
           {selMode && (
             <button onClick={handleConfirmSelected} style={{
               width:"100%",marginTop:8,padding:"9px",borderRadius:9,
