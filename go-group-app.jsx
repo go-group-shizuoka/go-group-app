@@ -11488,6 +11488,65 @@ function SoudanGenanTab({u, user, store}) {
       } : null,
     };
     store.addSoudanGenan(doc);
+
+    // ── BUG-01 修正: child_documents に登録 → DocBox・version管理・期限アラートを連動 ──
+    // documentType: "service_plan" = サービス等利用計画（相談支援原案の書類種別）
+    const cdSgId = "cd_sg_" + Date.now();
+    store.addChildDoc({
+      id:              cdSgId,
+      childId:         u.id,
+      documentType:    "service_plan",
+      documentDate:    form.planCreatedDate || new Date().toISOString().slice(0,10),
+      expiryDate:      form.planPeriodEnd   || null, // 計画期間終了日を有効期限として管理
+      ocrLogId:        null,
+      extractedFields: {
+        // 相談支援原案の主要フィールドを格納
+        specialistName:    form.specialistName    || "",
+        specialistOrg:     form.specialistOrg     || "",
+        guardianName:      form.guardianName      || "",
+        jukyushaNo:        form.jukyushaNo        || "",
+        planPeriodStart:   form.planPeriodStart   || "",
+        planPeriodEnd:     form.planPeriodEnd     || "",
+        planCreatedDate:   form.planCreatedDate   || "",
+        longTermGoal:      form.longTermGoal      || "",
+        shortTermGoal:     form.shortTermGoal     || "",
+        userNeeds:         form.userNeeds         || "",
+        parentNeeds:       form.parentNeeds       || "",
+        supportPolicy:     form.supportPolicy     || "",
+        // AI確認メタ情報（BUG-02: extracted_fields に埋め込んで永続化）
+        ai_reviewed:       aiMeta?.aiReviewed     ?? false,
+        reviewed_by:       aiMeta?.reviewedBy     ?? null,
+        reviewed_at:       aiMeta?.reviewedAt     ?? null,
+        correction_count:  aiMeta?.correctionCount ?? 0,
+        // 元の soudanGenan への参照
+        soudanGenanId:     id,
+      },
+      aiSummary:       null,
+      matchConfidence: 100,
+      matchStatus:     "confirmed",
+      uploadedBy:      user.displayName,
+      facilityId:      u.facilityId,
+      createdAt:       new Date().toISOString(),
+    });
+    // バックグラウンドでAI要約生成（失敗しても保存には影響しない）
+    if (ocrResult || form.longTermGoal) {
+      fetch("/api/summarize", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          extractedFields: ocrResult || {
+            specialistOrg:   form.specialistOrg,
+            longTermGoal:    form.longTermGoal,
+            shortTermGoal:   form.shortTermGoal,
+            userNeeds:       form.userNeeds,
+            supportPolicy:   form.supportPolicy,
+          },
+          documentType: "service_plan",
+        }),
+      }).then(r => r.json()).then(data => {
+        if (data?.success && data.summary) store.updChildDoc(cdSgId, { aiSummary: data.summary });
+      }).catch(() => {});
+    }
+
     store.showToast("✅ 相談支援原案を保存しました");
     setMode("list"); setPreview(null); setOcrResult(null);
     setAiConfirmData(null); setAiMeta(null); // AI確認状態もリセット
@@ -11928,27 +11987,38 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
   };
 
   // ── 全フィールドのスナップショットを構築（AI改善学習・監査ログ用）──
-  // 変更の有無に関わらず全フィールドを保存する（採用状況の分析に必要）
-  const buildFullSnapshot = (targetKeys) => {
+  // overrideAllChecked=true: 「すべて反映」ボタン専用。
+  // React の state batching により markAllChecked() 直後に checked が false のまま
+  // buildFullSnapshot が実行されると全フィールドが "unchecked" 扱いになる問題（BUG-09）を修正。
+  // overrideAllChecked=true の場合は checked を無視して採用判定を行う。
+  const buildFullSnapshot = (targetKeys, overrideAllChecked = false) => {
     const now = new Date().toISOString();
     return FIELDS
       .filter(f => !targetKeys || targetKeys[f.key])
       .map(f => {
         const aiOrig  = String(aiData[f.key]  || "");
         const userVal = String(values[f.key]   || "");
-        const status  = getAdoptionStatus(f.key);
+        // overrideAllChecked=true なら checked state を無視して正しい採用判定をする
+        const effectiveChecked = overrideAllChecked || checked[f.key];
+        const ao = aiOrig.trim(), uv = userVal.trim();
+        let status;
+        if (!effectiveChecked)   status = "unchecked";
+        else if (!ao && !uv)     status = "empty";
+        else if (!ao && uv)      status = "manual_added";
+        else if (ao && !uv)      status = "ai_deleted";
+        else if (ao === uv)      status = "ai_adopted";
+        else                     status = "ai_modified";
         return {
           fieldName:           f.key,
           fieldLabel:          f.label,
-          // ── 保存項目（追加仕様）──
-          ai_original_text:    aiOrig,            // AI抽出結果（元テキスト）
-          user_corrected_text: userVal,            // スタッフ確認後テキスト
-          adoption_status:     status,             // "ai_adopted" | "ai_modified" | ...
-          correction_reason:   reasons[f.key] || null, // 修正理由（任意）
-          is_corrected:        aiOrig !== userVal && !!aiOrig, // AI提案を修正したか
-          // ── 既存互換フィールド ──
-          aiOriginal:          aiOrig,             // 後方互換
-          userCorrected:       userVal,            // 後方互換
+          ai_original_text:    aiOrig,
+          user_corrected_text: userVal,
+          adoption_status:     status,
+          correction_reason:   reasons[f.key] || null,
+          is_corrected:        ao !== uv && !!ao,
+          // 後方互換
+          aiOriginal:          aiOrig,
+          userCorrected:       userVal,
           correctedBy:         userName,
           correctedAt:         now,
           documentType,
@@ -11957,10 +12027,10 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
   };
 
   // ── 「すべて反映」ボタン ──
+  // BUG-09 修正: overrideAllChecked=true を渡して state の非同期性を回避
   const handleConfirmAll = () => {
     markAllChecked();
-    const snapshot = buildFullSnapshot(null);
-    // correction_count: AIが抽出済みなのにスタッフが変更したフィールド数
+    const snapshot = buildFullSnapshot(null, true);
     const correctionCount = snapshot.filter(s => s.is_corrected).length;
     onConfirm(values, snapshot, true, correctionCount);
   };
@@ -11969,7 +12039,7 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
   const handleConfirmSelected = () => {
     const selectedValues = {};
     FIELDS.forEach(f => { if (selected[f.key]) selectedValues[f.key] = values[f.key]; });
-    const snapshot = buildFullSnapshot(selected);
+    const snapshot = buildFullSnapshot(selected, false);
     const correctionCount = snapshot.filter(s => s.is_corrected).length;
     onConfirm(selectedValues, snapshot, false, correctionCount);
   };
@@ -18866,6 +18936,41 @@ function getUserAlerts(u, store) {
     const thisMonthVisits = (store.visitRecords||[]).filter(r=>r.userId===u.id&&(r.date||"").startsWith(thisMonth));
     if(thisMonthVisits.length===0) {
       alerts.push({type:"訪問記録",date:null,status:"warn",tab:"visit_record",msg:"当月訪問なし"});
+    }
+  }
+
+  // ─── BUG-03 修正: 相談支援原案の計画期限アラート ───
+  // soudanGenans の planPeriodEnd をチェック（最新原案のみ対象）
+  {
+    const mySoudans = (store.soudanGenans||[])
+      .filter(d => d.userId === u.id)
+      .sort((a,b) => (b.receivedDate||"") > (a.receivedDate||"") ? 1 : -1);
+    if (mySoudans.length > 0) {
+      const latest = mySoudans[0];
+      // 計画期間終了アラート
+      if (latest.planPeriodEnd) {
+        const st = expiryStatus(latest.planPeriodEnd);
+        if (st && st !== "ok") {
+          alerts.push({
+            type: "相談支援計画期間",
+            date: latest.planPeriodEnd,
+            status: st,
+            tab:  "soudan_genan",
+            msg:  st === "expired" ? "計画期間が終了しています" : null,
+          });
+        }
+      }
+      // BUG-04 修正: OCR未確認（aiReviewed=false）アラート
+      // OCRを実行したのに確認モーダルをスキップして保存した場合
+      if (latest.ocrData && !latest.aiReviewed) {
+        alerts.push({
+          type:   "相談支援原案OCR未確認",
+          date:   latest.receivedDate || null,
+          status: "warn",
+          tab:    "soudan_genan",
+          msg:    "AI抽出結果を未確認",
+        });
+      }
     }
   }
 
