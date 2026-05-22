@@ -8293,6 +8293,26 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
 
       {/* 受給者証情報 */}
       <FormSection title="■ 受給者証情報" color="var(--pu)">
+
+        {/* ── 編集時のみ: AIドキュメントBOXとの連動バナー ── */}
+        {isEdit && (
+          <div style={{
+            display:"flex", alignItems:"flex-start", gap:10,
+            background:"rgba(58,160,216,0.08)", border:"1.5px solid rgba(58,160,216,0.4)",
+            borderRadius:10, padding:"10px 14px", marginBottom:12,
+          }}>
+            <span style={{fontSize:18, lineHeight:1}}>🔗</span>
+            <div style={{fontSize:11, color:"var(--tl)", lineHeight:1.6}}>
+              <div style={{fontWeight:700, marginBottom:2}}>受給者証はAIドキュメントBOXと連動しています</div>
+              <div style={{color:"var(--tx2)"}}>
+                ここで更新すると<strong>最新版として保存</strong>され、
+                受給者証タブ・DocBox・期限アラートすべてに即時反映されます。
+                旧バージョンは削除されず履歴に保持されます。
+              </div>
+            </div>
+          </div>
+        )}
+
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
           <FormField form={form} upd={upd} errors={errors}  label="受給者証番号" fkey="jukyushaNo" placeholder="0000000000" required/>
           <FormField form={form} upd={upd} errors={errors}  label="有効期限" fkey="jukyushaExpiry" type="date"/>
@@ -8646,6 +8666,15 @@ function UserManagement({user,store,onBack}){
     const isEdit = screen==="edit";
     // 編集時は常にdynUsersから最新データを取得（JukyushaTab等で更新された受給者証情報を反映するため）
     const freshUser = isEdit&&selUser ? (store.dynUsers.find(x=>x.id===selUser.id)||selUser) : null;
+
+    // ── 受給者証の正データ: child_documents の is_latest=true を優先 ──
+    // JukyushaTab・編集フォームどちらから更新しても同じ正データを参照する
+    const latestJukyushaCd = isEdit && freshUser
+      ? (store.childDocuments||[])
+          .filter(d => d.childId===freshUser.id && d.documentType==="jukyusha" && d.isLatest)
+          .sort((a,b)=>((b.createdAt||"")>(a.createdAt||"")?1:-1))[0]
+      : null;
+
     // ── 編集時のinit：既存データを展開しつつ、旧データに欠けているフィールドにはデフォルト値を設定 ──
     // serviceType が未設定の旧ユーザーもバリデーションを通過できるよう "houkago" をデフォルトとして先置きし
     // 既存データで上書きする（freshUser.serviceType があればそちらが優先される）
@@ -8657,6 +8686,21 @@ function UserManagement({user,store,onBack}){
       ...freshUser,
       // select から文字列で保存された active を boolean に正規化
       active: freshUser.active === true || freshUser.active === "true",
+      // ── 受給者証は child_documents.is_latest=true を正ソースとして上書き ──
+      // child_documents がない場合は users_data(freshUser) にフォールバック
+      ...(latestJukyushaCd ? {
+        jukyushaNo:     latestJukyushaCd.extractedFields?.jukyushaNo
+                          || freshUser.jukyushaNo     || "",
+        jukyushaExpiry: latestJukyushaCd.expiryDate
+                          || latestJukyushaCd.extractedFields?.expiryDate
+                          || freshUser.jukyushaExpiry || "",
+        jukyushaCity:   latestJukyushaCd.extractedFields?.city
+                          || latestJukyushaCd.extractedFields?.jukyushaCity
+                          || freshUser.jukyushaCity   || "",
+        maxBurden:      latestJukyushaCd.extractedFields?.maxBurden != null
+                          ? String(latestJukyushaCd.extractedFields.maxBurden)
+                          : (freshUser.maxBurden != null ? String(freshUser.maxBurden) : ""),
+      } : {}),
     } : {
       id:"", name:"", nameKana:"", facilityId:user.selectedFacilityId||"f1",
       serviceType:"houkago",
@@ -8675,13 +8719,14 @@ function UserManagement({user,store,onBack}){
       onSave={async (u)=>{
         if(isEdit){
           // ── 受給者証が変更されたか判定（変更時のみ履歴追加・タイムスタンプ更新）──
-          // freshUser = dynUsersから取得した保存前の最新データ
+          // init と比較する（init は latestJukyushaCd で上書き済みの正しい初期値）
+          // freshUser と比較すると latestJukyushaCd の値と乖離する場合に誤検知するため
           const jukyushaChanged =
-            u.jukyushaNo     !== (freshUser?.jukyushaNo     || "") ||
-            u.jukyushaExpiry !== (freshUser?.jukyushaExpiry || "") ||
-            u.jukyushaCity   !== (freshUser?.jukyushaCity   || "") ||
-            String(u.maxBurden||"") !== String(freshUser?.maxBurden||"") ||
-            (u.isLimitMgmtOffice ?? false) !== (freshUser?.isLimitMgmtOffice ?? false);
+            u.jukyushaNo     !== (init.jukyushaNo     || "") ||
+            u.jukyushaExpiry !== (init.jukyushaExpiry || "") ||
+            u.jukyushaCity   !== (init.jukyushaCity   || "") ||
+            String(u.maxBurden||"") !== String(init.maxBurden||"") ||
+            (u.isLimitMgmtOffice ?? false) !== (init.isLimitMgmtOffice ?? false);
 
           // 受給者証変更があれば jukyushaUpdatedAt を付与してまとめて保存
           const saveData = jukyushaChanged && (u.jukyushaNo || u.jukyushaExpiry)
@@ -8691,39 +8736,82 @@ function UserManagement({user,store,onBack}){
           // 編集: ローカル state を即時更新 + Supabase に非同期保存
           store.updUser2(u.id, saveData);
 
-          // ── 受給者証が変更された場合: JukyushaTab の履歴一覧にも反映 ──
-          // addJukyushaDoc を呼ぶことで「利用者情報編集」と「受給者証タブ」が双方向に連動する
+          // ── 受給者証が変更された場合: 全データストアに反映して完全一本化 ──
           if(jukyushaChanged && (u.jukyushaNo || u.jukyushaExpiry)){
-            // 旧受給者証を「旧」に更新（有効なものだけ）
+            const nowIso = new Date().toISOString();
+            const todayStr = nowIso.slice(0,10);
+
+            // ① jukyusha_docs: 旧受給者証を「旧」に更新、新しい履歴を追加
             (store.jukyushaDocs||[])
               .filter(d => d.userId===u.id && d.status==="有効")
               .forEach(d => store.updJukyushaDoc(d.id, {status:"旧"}));
-
             store.addJukyushaDoc({
-              id:           "jd_edit_" + Date.now(),
-              facilityId:   u.facilityId,
-              userId:       u.id,
-              scanDate:     new Date().toISOString().slice(0,10),
-              jukyushaNo:   u.jukyushaNo       || null,
-              city:         u.jukyushaCity      || null,
-              expiryDate:   u.jukyushaExpiry    || null,
-              serviceType:  u.serviceType       || null,
-              maxBurden:    u.maxBurden ? parseInt(u.maxBurden) : null,
-              isLimitMgmtOffice: u.isLimitMgmtOffice ?? false,
-              hasTransport:      u.hasTransport      ?? false,
-              status:       "有効",
-              // 編集フォームで写真撮影している場合は画像も含める
-              imagePreview: u.jukyushaCopyPreview
-                ? u.jukyushaCopyPreview.replace(/^data:image\/\w+;base64,/,"")
-                : null,
-              imagePreviews: u.jukyushaCopyPreview
-                ? [u.jukyushaCopyPreview.replace(/^data:image\/\w+;base64,/,"")]
-                : [],
-              ocrData:      u.jukyushaCopyOcrParsed || null,
-              createdBy:    user.displayName,
-              note:         "利用者情報編集より更新",
+              id:               "jd_edit_" + Date.now(),
+              facilityId:       u.facilityId,
+              userId:           u.id,
+              scanDate:         todayStr,
+              jukyushaNo:       u.jukyushaNo       || null,
+              city:             u.jukyushaCity      || null,
+              expiryDate:       u.jukyushaExpiry    || null,
+              serviceType:      u.serviceType       || null,
+              maxBurden:        u.maxBurden ? parseInt(u.maxBurden) : null,
+              isLimitMgmtOffice:u.isLimitMgmtOffice ?? false,
+              hasTransport:     u.hasTransport      ?? false,
+              status:           "有効",
+              imagePreview:     u.jukyushaCopyPreview
+                                  ? u.jukyushaCopyPreview.replace(/^data:image\/\w+;base64,/,"")
+                                  : null,
+              imagePreviews:    u.jukyushaCopyPreview
+                                  ? [u.jukyushaCopyPreview.replace(/^data:image\/\w+;base64,/,"")]
+                                  : [],
+              ocrData:          u.jukyushaCopyOcrParsed || null,
+              createdBy:        user.displayName,
+              note:             "利用者情報編集より更新",
             });
-            console.log("[isEdit] 受給者証変更検知 → jukyushaDoc追加・JukyushaTabと連動");
+
+            // ② child_documents: 正データに version追加（AIドキュメントBOX・DocBoxと連動）
+            // addChildDoc 内部でバージョン番号の採番・旧版の is_latest=false 切替を自動処理する
+            store.addChildDoc({
+              id:              "cd_edit_" + Date.now(),
+              childId:         u.id,
+              documentType:    "jukyusha",
+              documentDate:    todayStr,
+              expiryDate:      u.jukyushaExpiry    || null,
+              // extractedFields: 受給者証の各フィールドを格納（アラート・DocBox参照用）
+              extractedFields: {
+                jukyushaNo:    u.jukyushaNo         || null,
+                expiryDate:    u.jukyushaExpiry      || null,
+                city:          u.jukyushaCity        || null,
+                jukyushaCity:  u.jukyushaCity        || null,
+                maxBurden:     u.maxBurden ? parseInt(u.maxBurden) : null,
+                isLimitMgmtOffice: u.isLimitMgmtOffice ?? false,
+                hasTransport:  u.hasTransport        ?? false,
+                serviceType:   u.serviceType         || null,
+              },
+              fileUrl:         null,  // 編集フォームからはファイルなし
+              aiSummary:       null,
+              matchConfidence: 100,   // 利用者詳細から直接なので信頼度100%
+              matchStatus:     "confirmed",
+              uploadedBy:      user.displayName,
+              facilityId:      u.facilityId,
+              createdAt:       nowIso,
+            });
+
+            // ③ users_data: jukyushaUpdatedAt を更新（キャッシュ同期）
+            // saveJukyushaCertificate を使うことで jukyushaCertificateImageUrl 等も同期
+            store.saveJukyushaCertificate(u.id, {
+              jukyushaNo:        u.jukyushaNo        || "",
+              jukyushaExpiry:    u.jukyushaExpiry     || "",
+              jukyushaCity:      u.jukyushaCity       || "",
+              maxBurden:         u.maxBurden ? parseInt(u.maxBurden) : null,
+              isLimitMgmtOffice: u.isLimitMgmtOffice ?? false,
+              hasTransport:      u.hasTransport       ?? false,
+              imagePreview:      u.jukyushaCopyPreview || null,
+              ocrRaw:            null,
+              ocrParsed:         u.jukyushaCopyOcrParsed || null,
+            });
+
+            console.log("[isEdit] 受給者証変更 → jukyushaDocs / child_documents / users_data を3ストア同期完了");
           }
 
           setSelUser(saveData);
@@ -17891,11 +17979,15 @@ function getUserAlerts(u, store) {
   const rules = svcType.alertRules || [];
 
   // ─── 共通：受給者証 ───
-  // ⚠️ u.jukyushaExpiry（users_data = saveJukyushaCertificate で更新される最新値）を優先
-  // fs.jukyushaExpiry（フェイスシートの記録）は古い場合があるためフォールバックのみ
+  // 優先順位: ① child_documents.is_latest=true → ② users_data → ③ facesheets
+  // child_documents を正データとすることで、どの画面から更新しても同じ値を参照する
   if(rules.includes("jukyusha")) {
+    const latestCd = (store.childDocuments||[])
+      .filter(d => d.childId===u.id && d.documentType==="jukyusha" && d.isLatest)
+      .sort((a,b)=>((b.createdAt||"")>(a.createdAt||"")?1:-1))[0];
     const fs = store.facesheets.find(f=>f.userId===u.id);
-    const jExpiry = u.jukyushaExpiry || (fs?.jukyushaExpiry);
+    // ① child_documents.is_latest → ② users_data.jukyushaExpiry → ③ facesheet（最終フォールバック）
+    const jExpiry = latestCd?.expiryDate || u.jukyushaExpiry || (fs?.jukyushaExpiry);
     if(jExpiry) {
       const st = expiryStatus(jExpiry);
       if(st && st!=="ok") alerts.push({type:"受給者証",date:jExpiry,status:st,tab:"jukyusha"});
