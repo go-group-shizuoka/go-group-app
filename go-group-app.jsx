@@ -5187,7 +5187,8 @@ function StaffClockOut({user,onBack,store}){
 }
 function UserArrive({user,onBack,store,filterIds}){
   // ワンタップ来所記録 — カードをタップ→ボトムシートで即保存
-  const [sheet,setSheet]=useState(null);   // 選択中の利用者（新規来所登録用）
+  const [sheet,setSheet]=useState(null);   // 選択中の利用者（来所登録/編集用）
+  const [editRec,setEditRec]=useState(null); // 編集対象の既存来所レコード（null=新規登録）
   const [temp,setTemp]=useState("");
   const [tr,setTr]=useState("あり");
   const [note,setNote]=useState("");
@@ -5224,9 +5225,26 @@ function UserArrive({user,onBack,store,filterIds}){
     : [];
 
   const openSheet=(u)=>{
-    setSheet(u);setTemp("");setTr("あり");setNote("");setTime(nowHM());setDayType("放課後");
+    // 編集ロックは「月次締め済み」のみ。来所済み(出席)は編集ロックにしない。
+    const ym=selDate.slice(0,7);
+    if(store.isMonthLocked&&store.isMonthLocked(user.selectedFacilityId,ym)){
+      store.showToast?.("この月は締め済みのため編集できません。管理者が締めを解除すると編集可能になります。","error");
+      return;
+    }
+    // その日に既存の来所記録があれば「編集モード」で開く（来所済みでも修正可能）
+    const ex=store.recs.find(r=>r.type==="user_in"&&r.userId===u.id&&isDateRec(r,selDate)&&(r.facilityId===user.selectedFacilityId||user.role==="admin"));
+    if(ex){
+      const p=parseRecTime(ex.time);
+      setEditRec(ex);
+      setTemp(ex.temp||"");setTr(ex.transport||"あり");setNote(ex.note||"");
+      setTime(p.time||nowHM());setDayType(ex.dayType||"放課後");
+    }else{
+      setEditRec(null);
+      setTemp("");setTr("あり");setNote("");setTime(nowHM());setDayType("放課後");
+    }
+    setSheet(u);
   };
-  const closeSheet=()=>setSheet(null);
+  const closeSheet=()=>{setSheet(null);setEditRec(null);};
 
   // ── 体温編集モーダルを開く（既存の来所記録を編集）──
   const openTempEdit=(u)=>{
@@ -5256,6 +5274,14 @@ function UserArrive({user,onBack,store,filterIds}){
   const save=()=>{
     if(!sheet) return;
     const t=buildDTForDate(selDate,time); // 選択日付で記録
+    if(editRec){
+      // 編集モード: 既存レコードを更新（重複を作らない・修正履歴を残す）
+      store.updRec(editRec.id,{time:t,temp,transport:tr,dayType,note},user.displayName,"来所記録の修正");
+      store.showToast?.("✅ 来所記録を更新しました");
+      setEditRec(null);
+      setSheet(null);
+      return;
+    }
     store.addRec({id:genId(),type:"user_in",userId:sheet.id,userName:sheet.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:t,temp,transport:tr,dayType,photo:true,note,createdBy:user.displayName,history:[]});
     setDone(sheet.name);
     setSheet(null);
@@ -5370,10 +5396,11 @@ function UserArrive({user,onBack,store,filterIds}){
       <div className="tap-card-grid">
         {users.map(u=>{
           const arrived=arrivedIds.includes(u.id);
-          return <div key={u.id} className={`tap-card${arrived?" arrived":""}`} onClick={()=>!arrived&&openSheet(u)}>
+          // 来所済みでもタップで編集できる（編集ロックは月次締めのみ）
+          return <div key={u.id} className={`tap-card${arrived?" arrived":""}`} onClick={()=>openSheet(u)}>
             <div className="tap-card-avatar">👤</div>
             <div className="tap-card-name">{u.name}</div>
-            <div className="tap-card-status" style={{color:arrived?"var(--gr)":"var(--ac)"}}>{arrived?"✓ 来所済":"タップで記録"}</div>
+            <div className="tap-card-status" style={{color:arrived?"var(--gr)":"var(--ac)"}}>{arrived?"✓ 来所済（タップで修正）":"タップで記録"}</div>
           </div>;
         })}
       </div>
@@ -5385,7 +5412,7 @@ function UserArrive({user,onBack,store,filterIds}){
         <div className="bsheet-hd">
           <div>
             <div className="bsheet-title">🌟 {sheet.name}</div>
-            <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>来所記録を入力してください</div>
+            <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>{editRec?"来所記録を修正できます（時刻・体温・送迎）":"来所記録を入力してください"}</div>
           </div>
           <button className="bsheet-close" onClick={closeSheet}>×</button>
         </div>
@@ -5429,7 +5456,7 @@ function UserArrive({user,onBack,store,filterIds}){
         </div>
 
         <button className="bsave" style={{marginTop:4,background:temp&&parseFloat(temp)>=37.5?"rgba(224,56,56,0.7)":undefined}} onClick={save}>
-          ✓ {sheet.name} の来所を記録する
+          ✓ {sheet.name} の来所を{editRec?"更新する":"記録する"}
         </button>
       </div>
     </div>}
