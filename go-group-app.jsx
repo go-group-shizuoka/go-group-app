@@ -3545,6 +3545,34 @@ function useStore() {
     });
     // 未分類書類キュー（pending/reviewedを最大100件）
     sbLoad("manual_review_queue").then(d=>{ if(d?.length) setManualReviewQueue(d.sort((a,b)=>b.created_at>a.created_at?1:-1).slice(0,100)); });
+    // P5: OCR修正ログ（AI改善学習・監査説明用・最新500件）
+    // migration_ocr_correction_logs.sql を先に Supabase で実行してから有効になる
+    sbLoad("ocr_correction_logs").then(d=>{
+      if(!d?.length) return;
+      const norm = d
+        .sort((a,b) => (b.corrected_at||b.correctedAt||"") > (a.corrected_at||a.correctedAt||"") ? 1 : -1)
+        .slice(0, 500)
+        .map(l => ({
+          ...l,
+          fieldName:          l.fieldName          ?? l.field_name          ?? "",
+          fieldLabel:         l.fieldLabel         ?? l.field_label         ?? null,
+          ai_original_text:   l.ai_original_text   ?? null,
+          user_corrected_text:l.user_corrected_text ?? null,
+          adoption_status:    l.adoption_status    ?? null,
+          correction_reason:  l.correction_reason  ?? null,
+          is_corrected:       l.is_corrected       ?? false,
+          correctedBy:        l.correctedBy        ?? l.corrected_by        ?? null,
+          correctedAt:        l.correctedAt        ?? l.corrected_at        ?? null,
+          childId:            l.childId            ?? l.child_id            ?? null,
+          facilityId:         l.facilityId         ?? l.facility_id         ?? null,
+          documentType:       l.documentType       ?? l.document_type       ?? "soudan",
+        }));
+      setOcrCorrectionLogs(norm);
+      console.log("[init] ocr_correction_logs loaded:", norm.length, "件");
+    }).catch(() => {
+      // テーブルが未作成の場合はエラーを無視（migration_ocr_correction_logs.sql 未実行）
+      console.log("[init] ocr_correction_logs: テーブル未作成（migration_ocr_correction_logs.sql を実行してください）");
+    });
     // 児童別 AIドキュメントBOX（最新500件）
     // ⚠️ DBはスネークケース(is_latest, child_id, version_no...)で返るが
     //    コード全体でキャメルケース(isLatest, childId...)を使用するため正規化が必須
@@ -3692,11 +3720,29 @@ function useStore() {
   };
   // ─── OCR修正ログ（AI抽出確認UIでの修正記録）───
   // スタッフがAI抽出結果を修正した場合の差分を保存する
-  // corrections は soudan_genans / child_documents の data 列に埋め込んで永続化
+  // P5修正: sbSave でDB永続化（migration_ocr_correction_logs.sql 実行後に有効）
   const [ocrCorrectionLogs, setOcrCorrectionLogs] = useState([]);
   const addOcrCorrectionLog = (entry) => {
-    // { id, fieldName, fieldLabel, aiOriginal, userCorrected, correctedBy, correctedAt, documentType, childId }
-    setOcrCorrectionLogs(p => [entry, ...p].slice(0, 500)); // 直近500件をメモリ保持
+    // メモリ保持（直近500件）
+    setOcrCorrectionLogs(p => [entry, ...p].slice(0, 500));
+    // P5: DB永続化（ocr_correction_logs テーブルへ保存）
+    sbSave("ocr_correction_logs", {
+      id:                  entry.id,
+      facility_id:         entry.facilityId         || null,
+      child_id:            entry.childId             || null,
+      document_type:       entry.documentType        || "soudan",
+      field_name:          entry.fieldName           || "",
+      field_label:         entry.fieldLabel          || null,
+      ai_original_text:    entry.ai_original_text    || entry.aiOriginal    || null,
+      user_corrected_text: entry.user_corrected_text || entry.userCorrected || null,
+      adoption_status:     entry.adoption_status     || null,
+      correction_reason:   entry.correction_reason   || null,
+      is_corrected:        entry.is_corrected        ?? false,
+      corrected_by:        entry.correctedBy         || null,
+      corrected_at:        entry.correctedAt         || new Date().toISOString(),
+      created_at:          new Date().toISOString(),
+      updated_at:          new Date().toISOString(),
+    });
   };
 
   // ─── 未分類書類キュー ───
@@ -11235,6 +11281,12 @@ function SoudanGenanTab({u, user, store}) {
   // aiMeta: スタッフ確認後のメタ情報（保存時にドキュメントに付与）
   const [aiMeta, setAiMeta] = useState(null);
 
+  // ── P4: 複数ページ対応 state ──
+  // extraPages: 2枚目以降のページ情報（preview URL + OCR結果）
+  const [extraPages, setExtraPages] = useState([]);
+  // addingPage: 追加ページのOCR中フラグ
+  const [addingPage, setAddingPage] = useState(false);
+
   const myDocs = (store.soudanGenans||[]).filter(d=>d.userId===u.id).sort((a,b)=>b.receivedDate>a.receivedDate?1:-1);
   const upd = (k,v) => setForm(p=>({...p,[k]:v}));
 
@@ -11353,6 +11405,72 @@ function SoudanGenanTab({u, user, store}) {
       setMode("result");
     } finally {
       setScanning(false);
+    }
+  };
+
+  // ============================================================
+  // P4: 複数ページ追加処理
+  // result モードで「次ページを追加」ボタンから呼ばれる
+  // ルール: 未入力フィールドのみ上書き / priorityItems は連結
+  // ============================================================
+  const handleAddPage = async (file) => {
+    if (!file || addingPage) return;
+
+    if (file.size > 50 * 1024 * 1024) {
+      store.showToast("⚠️ ファイルが大きすぎます（50MB超）", "warn");
+      return;
+    }
+
+    setAddingPage(true);
+    try {
+      const base64Raw = await fileToBase64(file);
+      const isPdf    = file.type === "application/pdf";
+      const base64   = isPdf ? base64Raw : await compressBase64(base64Raw, 1500, 1200, 0.85);
+      const previewDataUrl = "data:image/jpeg;base64," + base64;
+
+      const res = await fetch("/api/ocr", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ imageBase64: base64, mediaType: isPdf ? file.type : "image/jpeg", mode: "soudan" }),
+      });
+      const data = await res.json();
+
+      if (data.success && data.data) {
+        const ext = data.data;
+        // フォームマージ: 未入力フィールドのみ上書き（入力済みは保持）
+        setForm(prev => {
+          const merged = { ...prev };
+          const textFields = [
+            "specialistName","specialistOrg","guardianName","jukyushaNo",
+            "maxBurden","planCreatedDate","monitoringInterval",
+            "planPeriodStart","planPeriodEnd","userNeeds","parentNeeds",
+            "longTermGoal","shortTermGoal","supportPolicy","specialistComment","nextMonitoringDate",
+          ];
+          textFields.forEach(k => {
+            if (!merged[k] && ext[k]) merged[k] = ext[k];
+          });
+          // priorityItems は連結（重複チェックなし）
+          if (ext.priorityItems?.length) {
+            merged.priorityItems = [...(merged.priorityItems || []), ...ext.priorityItems];
+          }
+          return merged;
+        });
+        setExtraPages(p => [...p, { preview: previewDataUrl, ocrData: ext }]);
+        const addedItems = (ext.priorityItems || []).length;
+        store.showToast(
+          `✅ ${extraPages.length + 2}ページ目を追加しました` +
+          (addedItems > 0 ? `（優先課題 +${addedItems}件を統合）` : "")
+        );
+      } else {
+        // OCR失敗でもプレビューだけ登録（手動入力に対応）
+        setExtraPages(p => [...p, { preview: previewDataUrl, ocrData: null }]);
+        store.showToast("⚠️ 追加ページの読み取りに失敗しました。手動で確認してください。", "warn");
+      }
+    } catch(e) {
+      console.error("ADD_PAGE_ERROR", e);
+      store.showToast("⚠️ 追加ページ処理でエラーが発生しました。", "warn");
+    } finally {
+      setAddingPage(false);
     }
   };
 
@@ -11550,6 +11668,7 @@ function SoudanGenanTab({u, user, store}) {
     store.showToast("✅ 相談支援原案を保存しました");
     setMode("list"); setPreview(null); setOcrResult(null);
     setAiConfirmData(null); setAiMeta(null); // AI確認状態もリセット
+    setExtraPages([]); setAddingPage(false); // P4: 複数ページ状態リセット
   };
 
   // ===== AI抽出確認モーダル =====
@@ -11676,10 +11795,77 @@ function SoudanGenanTab({u, user, store}) {
   if (mode==="result") return (
     <div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
-        <button className="bback" onClick={()=>{setMode("list");setPreview(null);}} style={{padding:"6px 12px",fontSize:12}}>← 戻る</button>
+        <button className="bback" onClick={()=>{setMode("list");setPreview(null);setExtraPages([]);setAddingPage(false);}} style={{padding:"6px 12px",fontSize:12}}>← 戻る</button>
         <div style={{fontSize:13,fontWeight:700}}>📑 読み取り結果を確認</div>
       </div>
-      {preview&&<img src={preview} className="ocr-preview" alt="撮影画像"/>}
+      {/* ── P4: 複数ページ サムネイルストリップ ── */}
+      {(preview || extraPages.length > 0) && (
+        <div style={{marginBottom:10}}>
+          {/* ページ数バッジ */}
+          <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",marginBottom:5}}>
+            📄 読み取り済み: <strong>{1 + extraPages.length}ページ</strong>
+          </div>
+          <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,
+            scrollbarWidth:"thin",WebkitOverflowScrolling:"touch"}}>
+            {/* 1枚目 */}
+            {preview && (
+              <div style={{flexShrink:0,position:"relative",cursor:"pointer"}}
+                onClick={()=>window.open(preview)}>
+                <img src={preview} alt="P1"
+                  style={{width:56,height:76,objectFit:"cover",borderRadius:6,
+                    border:"2px solid var(--tl)",display:"block"}}/>
+                <div style={{position:"absolute",bottom:0,left:0,right:0,textAlign:"center",
+                  fontSize:9,fontWeight:700,color:"#fff",
+                  background:"rgba(0,0,0,0.5)",borderRadius:"0 0 4px 4px",padding:"1px 0"}}>P1</div>
+              </div>
+            )}
+            {/* 追加ページ */}
+            {extraPages.map((pg, i) => (
+              <div key={i} style={{flexShrink:0,position:"relative",cursor:"pointer"}}
+                onClick={()=>window.open(pg.preview)}>
+                <img src={pg.preview} alt={`P${i+2}`}
+                  style={{width:56,height:76,objectFit:"cover",borderRadius:6,display:"block",
+                    border:`2px solid ${pg.ocrData?"rgba(26,158,69,0.6)":"rgba(224,168,40,0.6)"}`}}/>
+                <div style={{position:"absolute",bottom:0,left:0,right:0,textAlign:"center",
+                  fontSize:9,fontWeight:700,color:"#fff",
+                  background:pg.ocrData?"rgba(26,158,69,0.6)":"rgba(224,168,40,0.6)",
+                  borderRadius:"0 0 4px 4px",padding:"1px 0"}}>P{i+2}</div>
+              </div>
+            ))}
+          </div>
+          {/* P4: 次ページ追加ボタン */}
+          <div style={{display:"flex",gap:6,marginTop:7,flexWrap:"wrap"}}>
+            <label htmlFor="sg_addpage_cam"
+              style={{padding:"5px 11px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",
+                display:"flex",alignItems:"center",gap:4,
+                fontFamily:"'Noto Sans JP',sans-serif",
+                border:`1.5px solid ${addingPage?"var(--bd)":"rgba(144,72,216,0.55)"}`,
+                background:addingPage?"rgba(180,180,180,0.1)":"rgba(144,72,216,0.08)",
+                color:addingPage?"var(--tx3)":"var(--pu)",
+                pointerEvents:addingPage?"none":"auto"}}>
+              {addingPage ? "⏳ 読み取り中..." : "📷 次ページ追加（カメラ）"}
+            </label>
+            <label htmlFor="sg_addpage_alb"
+              style={{padding:"5px 11px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",
+                display:"flex",alignItems:"center",gap:4,
+                fontFamily:"'Noto Sans JP',sans-serif",
+                border:`1.5px solid ${addingPage?"var(--bd)":"rgba(144,72,216,0.55)"}`,
+                background:addingPage?"rgba(180,180,180,0.1)":"rgba(144,72,216,0.08)",
+                color:addingPage?"var(--tx3)":"var(--pu)",
+                pointerEvents:addingPage?"none":"auto"}}>
+              {addingPage ? "..." : "🖼️ 次ページ追加（アルバム）"}
+            </label>
+          </div>
+          {/* hidden inputs: P4 ページ追加用 */}
+          <input id="sg_addpage_cam" type="file" accept="image/*,application/pdf"
+            capture="environment" style={{display:"none"}}
+            onChange={e=>{ handleAddPage(e.target.files[0]); e.target.value=""; }}/>
+          <input id="sg_addpage_alb" type="file" accept="image/*,application/pdf"
+            style={{display:"none"}}
+            onChange={e=>{ handleAddPage(e.target.files[0]); e.target.value=""; }}/>
+        </div>
+      )}
+
       {ocrError&&<div style={{background:"rgba(224,168,40,0.15)",border:"1px solid rgba(224,168,40,0.4)",borderRadius:9,padding:"10px 12px",fontSize:12,color:"#8a6200",marginBottom:12}}>⚠️ {ocrError}<br/>内容を手動で入力してください。</div>}
       {ocrResult&&<div style={{background:"rgba(144,72,216,0.1)",border:"1px solid rgba(144,72,216,0.3)",borderRadius:9,padding:"8px 12px",fontSize:11,color:"var(--pu)",marginBottom:12}}>✅ AIが自動読み取りしました。内容を確認・修正して保存してください。</div>}
 
@@ -11703,16 +11889,51 @@ function SoudanGenanTab({u, user, store}) {
 
         {/* 計画期間 */}
         <div style={{fontSize:11,fontWeight:900,color:"var(--pu)",margin:"12px 0 8px",letterSpacing:1}}>📅 計画期間</div>
-        <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <div style={{display:"flex",gap:8,marginBottom:4}}>
           <div style={{flex:1}}>
             <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>開始日</label>
             <input className="fi" type="date" value={form.planPeriodStart||""} onChange={e=>upd("planPeriodStart",e.target.value)}/>
+            {/* P6: 開始日バリデーション */}
+            {(() => {
+              const w = validateDateStr(form.planPeriodStart);
+              const m = w ? dateValidMsg(form.planPeriodStart, w) : null;
+              return m ? (
+                <div style={{fontSize:10,fontWeight:700,color:"#cc3333",
+                  background:"rgba(224,56,56,0.09)",border:"1px solid rgba(224,56,56,0.25)",
+                  borderRadius:5,padding:"4px 8px",marginTop:3,lineHeight:1.5}}>
+                  ⚠️ {m}
+                </div>
+              ) : null;
+            })()}
           </div>
           <div style={{flex:1}}>
             <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>終了日</label>
             <input className="fi" type="date" value={form.planPeriodEnd||""} onChange={e=>upd("planPeriodEnd",e.target.value)}/>
+            {/* P6: 終了日バリデーション（書式 + 逆転チェック）*/}
+            {(() => {
+              const w = validateDateStr(form.planPeriodEnd);
+              const m = w ? dateValidMsg(form.planPeriodEnd, w) : null;
+              const orderErr = validateDateOrder(form.planPeriodStart, form.planPeriodEnd);
+              return (m || orderErr) ? (
+                <div style={{fontSize:10,fontWeight:700,color:"#cc3333",
+                  background:"rgba(224,56,56,0.09)",border:"1px solid rgba(224,56,56,0.25)",
+                  borderRadius:5,padding:"4px 8px",marginTop:3,lineHeight:1.5}}>
+                  ⚠️ {orderErr ? "終了日が開始日より前になっています。確認してください。" : m}
+                </div>
+              ) : null;
+            })()}
           </div>
         </div>
+        {/* P6: 開始〜終了が正常な場合のみ期間表示 */}
+        {form.planPeriodStart && form.planPeriodEnd
+          && !validateDateOrder(form.planPeriodStart, form.planPeriodEnd)
+          && !validateDateStr(form.planPeriodStart)
+          && !validateDateStr(form.planPeriodEnd) && (
+          <div style={{fontSize:10,color:"var(--tl)",marginBottom:10,paddingLeft:2}}>
+            ✓ 期間: {form.planPeriodStart} 〜 {form.planPeriodEnd}（
+            {Math.round((new Date(form.planPeriodEnd)-new Date(form.planPeriodStart))/(1000*60*60*24*30))}ヶ月）
+          </div>
+        )}
 
         {/* ニーズ・目標 */}
         <div style={{fontSize:11,fontWeight:900,color:"var(--pu)",margin:"12px 0 8px",letterSpacing:1}}>🎯 意向・目標</div>
@@ -11758,7 +11979,8 @@ function SoudanGenanTab({u, user, store}) {
           ))}
         </>}
         {(form.priorityItems||[]).length===0&&ocrResult&&<div style={{marginTop:12,padding:"8px 12px",background:"rgba(224,168,40,0.1)",borderRadius:8,fontSize:11,color:"#8a6200"}}>
-          ⚠️ 優先課題テーブルが読み取れませんでした。別ページを撮影して追加登録してください。
+          ⚠️ 優先課題テーブルが読み取れませんでした。
+          上の「📷 次ページ追加」から優先課題ページを撮影すると自動統合されます。
         </div>}
       </div>
       <button className="bsave" style={{marginTop:14,width:"100%"}} onClick={handleSave}>💾 保存する</button>
@@ -11836,20 +12058,45 @@ function SoudanGenanTab({u, user, store}) {
   return null;
 }
 
+// ==================== P6: 日付バリデーションヘルパー ====================
+// AI誤読対策: 相談支援原案の日付フィールドを検証する
+// returns: null（正常）| "format"（形式不正）| "range"（年が異常）| "future_end"（終了が開始より前）
+function validateDateStr(str) {
+  if (!str || str.trim() === "") return null;
+  // YYYY-MM-DD 形式チェック
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(str.trim())) return "format";
+  const year = parseInt(str.slice(0, 4), 10);
+  // 2015年未満・2040年超は誤読と判定（支援計画の実用範囲外）
+  if (year < 2015 || year > 2040) return "range";
+  return null;
+}
+// 計画終了日が開始日より前かチェック
+function validateDateOrder(start, end) {
+  if (!start || !end) return false;
+  return end.trim() < start.trim(); // true = 異常（終了 < 開始）
+}
+// バリデーション結果を日本語メッセージに変換
+function dateValidMsg(str, kind) {
+  if (!kind) return null;
+  if (kind === "format") return `⚠️ 形式が不正です（YYYY-MM-DDで入力）。AI誤読の可能性があります`;
+  if (kind === "range")  return `⚠️ 年が「${str.slice(0,4)}年」になっています。誤読の可能性があります`;
+  return null;
+}
+
 // ==================== AI抽出確認モーダル ====================
 // OCR後にスタッフが抽出結果を確認・修正してからフォームへ反映するUI
 // documentType: "soudan"（相談支援原案）| "isp"（ISP原案）| "monitoring"（モニタリング）
 function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, documentType="soudan", userName="" }) {
 
-  // ── 確認対象フィールド（相談支援原案用）──
+  // ── 確認対象フィールド（日付フィールドに isDate フラグを追加）──
   const FIELDS = [
     { key:"specialistName",    label:"相談支援専門員名",      multi:false, icon:"👤" },
     { key:"specialistOrg",     label:"相談支援事業所名",      multi:false, icon:"🏢" },
     { key:"guardianName",      label:"保護者氏名",            multi:false, icon:"👨‍👩‍👦" },
     { key:"jukyushaNo",        label:"受給者証番号",          multi:false, icon:"🪪" },
-    { key:"planCreatedDate",   label:"計画作成日",            multi:false, icon:"📅" },
-    { key:"planPeriodStart",   label:"計画期間（開始）",       multi:false, icon:"▶" },
-    { key:"planPeriodEnd",     label:"計画期間（終了）",       multi:false, icon:"⏹" },
+    { key:"planCreatedDate",   label:"計画作成日",            multi:false, icon:"📅", isDate:true },
+    { key:"planPeriodStart",   label:"計画期間（開始）",       multi:false, icon:"▶",  isDate:true },
+    { key:"planPeriodEnd",     label:"計画期間（終了）",       multi:false, icon:"⏹",  isDate:true },
     { key:"userNeeds",         label:"本人の意向・ニーズ",    multi:true,  icon:"💬" },
     { key:"parentNeeds",       label:"保護者の意向・ニーズ",  multi:true,  icon:"👪" },
     { key:"longTermGoal",      label:"長期目標",              multi:true,  icon:"🎯" },
@@ -12148,6 +12395,13 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
             const status    = getAdoptionStatus(f.key);
             const ss        = STATUS_STYLE[status] || STATUS_STYLE.unchecked;
             const diff      = isModified ? buildDiffSegments(aiVal, String(userVal)) : null;
+            // P6: 日付フィールドのバリデーション（AI誤読対策）
+            const dateWarn  = f.isDate ? validateDateStr(String(userVal)) : null;
+            const dateMsg   = dateWarn ? dateValidMsg(String(userVal), dateWarn) : null;
+            // 計画終了 < 計画開始 の逆転チェック
+            const dateOrderErr = (f.key === "planPeriodEnd")
+              ? validateDateOrder(values.planPeriodStart, String(userVal))
+              : false;
 
             return (
               <div key={f.key} style={{
@@ -12280,6 +12534,22 @@ function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, docu
                     value={userVal}
                     onChange={e => upd(f.key, e.target.value)}
                     placeholder={isEmpty ? "（未検出 ─ 手動入力）" : f.label}/>
+                )}
+
+                {/* ── P6: 日付バリデーション警告 ── */}
+                {/* AI誤読対策: 形式不正・年範囲外・開始終了逆転を警告 */}
+                {(dateMsg || dateOrderErr) && (
+                  <div style={{fontSize:10,fontWeight:700,color:"#cc3333",
+                    background:"rgba(224,56,56,0.09)",border:"1px solid rgba(224,56,56,0.25)",
+                    borderRadius:6,padding:"5px 9px",marginTop:5,
+                    display:"flex",alignItems:"flex-start",gap:5,lineHeight:1.5}}>
+                    <span style={{flexShrink:0}}>⚠️</span>
+                    <span>
+                      {dateOrderErr
+                        ? "終了日が開始日より前になっています。AIが誤読した可能性があります。必ず目視で確認してください。"
+                        : dateMsg}
+                    </span>
+                  </div>
                 )}
 
                 {/* ── 修正理由入力（AI修正時のみ表示リンク）── */}
