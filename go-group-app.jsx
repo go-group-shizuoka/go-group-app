@@ -18757,6 +18757,26 @@ function DailyReport({user,store,onBack}){
     return t.includes(padded)||t.includes(short)||t.startsWith(d);
   };
 
+  // ── 重複行除去 ──
+  // 出勤職員一覧・利用者来所一覧で同一人物(id)が複数回打刻されると
+  // 行が重複する。id単位で最初の1件のみ残す（id無し行はそのまま保持）。
+  // 既存の保存済み日報・自動生成のどちらにも適用する。
+  const dedupeReportLists=(r)=>{
+    if(!r) return r;
+    const uniqById=(list)=>{
+      if(!Array.isArray(list)) return list;
+      const seen=new Set();
+      return list.filter(it=>{
+        const id=it?.id;
+        if(id==null||id==="") return true; // id無しは手動追加行とみなし残す
+        if(seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+    };
+    return {...r, staffList:uniqById(r.staffList), userList:uniqById(r.userList)};
+  };
+
   const buildAuto=(date)=>{
     const dk=date;
     const fid=user.selectedFacilityId;
@@ -18849,7 +18869,7 @@ function DailyReport({user,store,onBack}){
 
   const initReport=(date)=>{
     const auto=buildAuto(date);
-    return existingRep||{
+    return dedupeReportLists(existingRep||{
       date, facilityId:user.selectedFacilityId,
       weather:"晴れ", temperature:"",
       author:user.displayName,
@@ -18859,7 +18879,7 @@ function DailyReport({user,store,onBack}){
       activities:auto.activities,
       incidentDetail:"", parentNote:"", tomorrowNote:"", managerNote:"",
       incidents:0, status:"下書き",
-    };
+    });
   };
 
   const [rep,setRep]=useState(()=>initReport(todayISO()));
@@ -19019,7 +19039,7 @@ function DailyReport({user,store,onBack}){
   };
 
   // 日付変更時にレポートを再セット
-  const changeDate=(d)=>{setSelDate(d);const ex=store.dailyReports.find(r=>r.date===d&&r.facilityId===user.selectedFacilityId);setRep(ex||initReport(d));};
+  const changeDate=(d)=>{setSelDate(d);const ex=store.dailyReports.find(r=>r.date===d&&r.facilityId===user.selectedFacilityId);setRep(dedupeReportLists(ex||initReport(d)));};
 
   const WEATHER_OPTS=["晴れ","曇り","雨","雪","晴れのち曇り","曇りのち雨"];
   const reports=store.dailyReports.filter(r=>r.facilityId===user.selectedFacilityId).sort((a,b)=>b.date>a.date?1:-1);
@@ -19550,7 +19570,7 @@ function DailyReport({user,store,onBack}){
     <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>📋 過去の日報一覧</div>
     {reports.length===0?<div style={{textAlign:"center",color:"var(--tx3)",padding:"36px 0",fontSize:13}}>業務日報がありません</div>
     :reports.map(r=><div key={r.date} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:8,cursor:"pointer",boxShadow:"var(--sh)",transition:"all .15s"}}
-      onClick={()=>{setViewRep(r);setMode("view");}}
+      onClick={()=>{setViewRep(dedupeReportLists(r));setMode("view");}}
       onMouseEnter={e=>e.currentTarget.style.borderColor="var(--tl)"}
       onMouseLeave={e=>e.currentTarget.style.borderColor="var(--bd)"}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
