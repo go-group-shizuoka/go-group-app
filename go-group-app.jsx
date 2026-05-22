@@ -3690,6 +3690,15 @@ function useStore() {
       classification_reason:    log.classificationReason   || null,
     });
   };
+  // ─── OCR修正ログ（AI抽出確認UIでの修正記録）───
+  // スタッフがAI抽出結果を修正した場合の差分を保存する
+  // corrections は soudan_genans / child_documents の data 列に埋め込んで永続化
+  const [ocrCorrectionLogs, setOcrCorrectionLogs] = useState([]);
+  const addOcrCorrectionLog = (entry) => {
+    // { id, fieldName, fieldLabel, aiOriginal, userCorrected, correctedBy, correctedAt, documentType, childId }
+    setOcrCorrectionLogs(p => [entry, ...p].slice(0, 500)); // 直近500件をメモリ保持
+  };
+
   // ─── 未分類書類キュー ───
   // confidence < 70% または documentType="unknown" の書類を保留する
   const [manualReviewQueue, setManualReviewQueue] = useState([]);
@@ -4238,7 +4247,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,softDeleteUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,saveJukyushaCertificate,loadJukyushaCertificate,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck,auditSaveError,setAuditSaveError,saveErrors,facilityEvents,saveFacilityEvent,delFacilityEvent};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,softDeleteUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,saveJukyushaCertificate,loadJukyushaCertificate,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,ocrCorrectionLogs,addOcrCorrectionLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck,auditSaveError,setAuditSaveError,saveErrors,facilityEvents,saveFacilityEvent,delFacilityEvent};
 }
 
 
@@ -11211,7 +11220,7 @@ function TimelineTab({u, user, store}) {
 
 // ==================== ② 相談支援原案OCRタブ ====================
 function SoudanGenanTab({u, user, store}) {
-  const [mode, setMode] = useState("list"); // list | scan | result | detail
+  const [mode, setMode] = useState("list"); // list | scan | aiConfirm | result | detail
   const [scanning, setScanning] = useState(false);
   const [preview, setPreview] = useState(null);
   const [ocrResult, setOcrResult] = useState(null);
@@ -11219,6 +11228,12 @@ function SoudanGenanTab({u, user, store}) {
   const [form, setForm] = useState({});
   const [selDoc, setSelDoc] = useState(null);
   const fileRef = useRef(null);
+
+  // ── AI抽出確認UI用state ──
+  // aiConfirmData: OCRが返したAI抽出データ（確認モーダルに渡す）
+  const [aiConfirmData, setAiConfirmData] = useState(null);
+  // aiMeta: スタッフ確認後のメタ情報（保存時にドキュメントに付与）
+  const [aiMeta, setAiMeta] = useState(null);
 
   const myDocs = (store.soudanGenans||[]).filter(d=>d.userId===u.id).sort((a,b)=>b.receivedDate>a.receivedDate?1:-1);
   const upd = (k,v) => setForm(p=>({...p,[k]:v}));
@@ -11302,11 +11317,13 @@ function SoudanGenanTab({u, user, store}) {
         };
 
         console.log("AI_EXTRACT", aiExtract);
-        console.log("FORM_MERGE", newForm);
+        console.log("FORM_MERGE_PENDING", newForm); // ← 確認後にフォームへ反映するため、ここでは setForm しない
 
         setOcrResult(aiExtract);
-        setForm(newForm);
-        setMode("result");
+        // ⑤ AI確認モーダルへ（直接 result に進まず、スタッフ確認を挟む）
+        setAiConfirmData(aiExtract);
+        setAiMeta(null); // リセット
+        setMode("aiConfirm");
       } else {
         // OCR失敗: 原因と対処法を表示
         const errMsg = data.error || "OCR解析に失敗しました。";
@@ -11339,6 +11356,76 @@ function SoudanGenanTab({u, user, store}) {
     }
   };
 
+  // ── AI確認モーダルで「反映」が押された時のコールバック ──
+  // confirmedFields: スタッフが確認・修正した値のオブジェクト
+  // corrections:     修正されたフィールドの差分リスト（監査用）
+  // allConfirmed:    「すべて反映」か「個別反映」か
+  const handleAiConfirmed = (confirmedFields, corrections, allConfirmed) => {
+    // 確認済みフィールドをフォームに展開
+    // aiConfirmData から補完（individual 反映時に未選択フィールドは空にしない）
+    const base = aiConfirmData || {};
+    const newForm = {
+      specialistName:     confirmedFields.specialistName     ?? base.specialistName     ?? "",
+      specialistOrg:      confirmedFields.specialistOrg      ?? base.specialistOrg      ?? "",
+      guardianName:       confirmedFields.guardianName        ?? base.guardianName       ?? "",
+      jukyushaNo:         confirmedFields.jukyushaNo          ?? base.jukyushaNo         ?? "",
+      maxBurden:          confirmedFields.maxBurden           ?? base.maxBurden          ?? "",
+      planCreatedDate:    confirmedFields.planCreatedDate     ?? base.planCreatedDate    ?? "",
+      monitoringInterval: base.monitoringInterval             ?? "",
+      planPeriodStart:    confirmedFields.planPeriodStart     ?? base.planPeriodStart    ?? "",
+      planPeriodEnd:      confirmedFields.planPeriodEnd       ?? base.planPeriodEnd      ?? "",
+      userNeeds:          confirmedFields.userNeeds           ?? base.userNeeds          ?? "",
+      parentNeeds:        confirmedFields.parentNeeds         ?? base.parentNeeds        ?? "",
+      longTermGoal:       confirmedFields.longTermGoal        ?? base.longTermGoal       ?? "",
+      shortTermGoal:      confirmedFields.shortTermGoal       ?? base.shortTermGoal      ?? "",
+      supportPolicy:      confirmedFields.supportPolicy       ?? base.supportPolicy      ?? "",
+      specialistComment:  confirmedFields.specialistComment   ?? base.specialistComment  ?? "",
+      nextMonitoringDate: base.nextMonitoringDate             ?? "",
+      priorityItems:      base.priorityItems                  || [],
+    };
+    setForm(newForm);
+
+    // AI確認メタ情報を保存（handleSave 時にドキュメントへ付与）
+    const meta = {
+      aiReviewed:          true,
+      reviewedBy:          user.displayName || "",
+      reviewedAt:          new Date().toISOString(),
+      corrections,                   // 修正されたフィールドの差分
+      allFieldsConfirmed:  allConfirmed,
+      correctionCount:     corrections.length,
+    };
+    setAiMeta(meta);
+
+    // 修正ログを store に記録（監査・品質改善用）
+    corrections.forEach(c => {
+      store.addOcrCorrectionLog({
+        id:           genId(),
+        fieldName:    c.fieldName,
+        fieldLabel:   c.fieldLabel,
+        aiOriginal:   c.aiOriginal,
+        userCorrected:c.userCorrected,
+        correctedBy:  c.correctedBy,
+        correctedAt:  c.correctedAt,
+        documentType: "soudan",
+        childId:      u.id,
+        facilityId:   u.facilityId,
+      });
+    });
+
+    console.log("AI_CONFIRM_DONE", {
+      totalFields: Object.keys(confirmedFields).length,
+      correctedFields: corrections.length,
+      allConfirmed,
+    });
+
+    store.showToast(
+      corrections.length > 0
+        ? `✅ ${corrections.length}件のフィールドを修正してフォームに反映しました`
+        : "✅ AI抽出結果をフォームに反映しました"
+    );
+    setMode("result"); // 確認フォーム（result）へ移行
+  };
+
   // 保存
   const handleSave = () => {
     const id = "sg_" + Date.now();
@@ -11363,12 +11450,56 @@ function SoudanGenanTab({u, user, store}) {
       nextMonitoringDate: form.nextMonitoringDate,
       priorityItems:      form.priorityItems || [],   // ← 優先課題テーブル
       status: "受領済み", imagePreview: preview, ocrData: ocrResult,
-      createdBy: user.displayName
+      createdBy: user.displayName,
+      // ── AI確認メタ情報（監査・品質管理用）──
+      aiReviewed:         aiMeta?.aiReviewed          ?? false,
+      reviewedBy:         aiMeta?.reviewedBy           ?? null,
+      reviewedAt:         aiMeta?.reviewedAt           ?? null,
+      corrections:        aiMeta?.corrections          ?? [],
+      correctionCount:    aiMeta?.correctionCount      ?? 0,
+      allFieldsConfirmed: aiMeta?.allFieldsConfirmed   ?? null,
     };
     store.addSoudanGenan(doc);
     store.showToast("✅ 相談支援原案を保存しました");
     setMode("list"); setPreview(null); setOcrResult(null);
+    setAiConfirmData(null); setAiMeta(null); // AI確認状態もリセット
   };
+
+  // ===== AI抽出確認モーダル =====
+  // OCR成功後に自動表示される。スタッフが確認・修正してから「反映」を押すと result へ
+  if (mode === "aiConfirm" && aiConfirmData) return (
+    <AIOCRConfirmModal
+      aiData={aiConfirmData}
+      preview={preview}
+      documentType="soudan"
+      userName={user.displayName || ""}
+      onConfirm={handleAiConfirmed}
+      onRetry={() => {
+        // 再解析: スキャン画面に戻ってファイル再選択へ
+        setMode("list");
+        setAiConfirmData(null);
+        setPreview(null);
+        setOcrResult(null);
+        setAiMeta(null);
+        store.showToast("📷 再撮影してください", "info");
+      }}
+      onCancel={() => {
+        // キャンセル: AI確認をスキップして手動入力 result へ移行
+        setAiConfirmData(null);
+        setAiMeta(null);
+        // フォームは空で result に移行（手動入力）
+        setForm({
+          specialistName:"", specialistOrg:"", guardianName:"", jukyushaNo:"",
+          maxBurden:"", planCreatedDate:"", monitoringInterval:"",
+          planPeriodStart:"", planPeriodEnd:"",
+          userNeeds:"", parentNeeds:"", longTermGoal:"", shortTermGoal:"",
+          supportPolicy:"", specialistComment:"", nextMonitoringDate:"",
+          priorityItems:[],
+        });
+        setMode("result");
+      }}
+    />
+  );
 
   // ===== リスト =====
   if (mode==="list") return (
@@ -11618,7 +11749,362 @@ function SoudanGenanTab({u, user, store}) {
   return null;
 }
 
-// ==================== 発達段階記録タブ（児童発達支援専用） ====================
+// ==================== AI抽出確認モーダル ====================
+// OCR後にスタッフが抽出結果を確認・修正してからフォームへ反映するUI
+// documentType: "soudan"（相談支援原案）| "isp"（ISP原案）| "monitoring"（モニタリング）
+function AIOCRConfirmModal({ aiData, preview, onConfirm, onRetry, onCancel, documentType="soudan", userName="" }) {
+
+  // ── 確認対象フィールド（相談支援原案用）──
+  const FIELDS = [
+    { key:"specialistName",    label:"相談支援専門員名",      multi:false, icon:"👤" },
+    { key:"specialistOrg",     label:"相談支援事業所名",      multi:false, icon:"🏢" },
+    { key:"guardianName",      label:"保護者氏名",            multi:false, icon:"👨‍👩‍👦" },
+    { key:"jukyushaNo",        label:"受給者証番号",          multi:false, icon:"🪪" },
+    { key:"planCreatedDate",   label:"計画作成日",            multi:false, icon:"📅" },
+    { key:"planPeriodStart",   label:"計画期間（開始）",       multi:false, icon:"▶" },
+    { key:"planPeriodEnd",     label:"計画期間（終了）",       multi:false, icon:"⏹" },
+    { key:"userNeeds",         label:"本人の意向・ニーズ",    multi:true,  icon:"💬" },
+    { key:"parentNeeds",       label:"保護者の意向・ニーズ",  multi:true,  icon:"👪" },
+    { key:"longTermGoal",      label:"長期目標",              multi:true,  icon:"🎯" },
+    { key:"shortTermGoal",     label:"短期目標",              multi:true,  icon:"📌" },
+    { key:"supportPolicy",     label:"総合的な援助の方針",    multi:true,  icon:"📋" },
+    { key:"specialistComment", label:"専門員コメント",        multi:true,  icon:"💭" },
+  ];
+
+  // ── スタッフ編集値（AI抽出値で初期化）──
+  const [values, setValues] = useState(() => {
+    const init = {};
+    FIELDS.forEach(f => { init[f.key] = aiData[f.key] || ""; });
+    return init;
+  });
+
+  // ── 確認済みフラグ（タップ or 編集で確認済みになる）──
+  const [checked, setChecked] = useState(() => {
+    const init = {};
+    FIELDS.forEach(f => { init[f.key] = false; });
+    return init;
+  });
+
+  // ── 個別選択モード（「個別選択」ボタンで切替）──
+  const [selMode, setSelMode] = useState(false);
+  const [selected, setSelected] = useState(() => {
+    const init = {};
+    FIELDS.forEach(f => { init[f.key] = true; }); // デフォルト全選択
+    return init;
+  });
+
+  // ── フィールドごとの信頼度を推定 ──
+  // OCR APIが per-field confidence を返す場合はそれを優先
+  const getFieldConf = (key) => {
+    if (aiData.fieldConfidence && typeof aiData.fieldConfidence[key] === "number") {
+      return aiData.fieldConfidence[key];
+    }
+    const val = aiData[key];
+    if (!val || val === "" || (Array.isArray(val) && val.length === 0)) return 0;
+    const len = typeof val === "string" ? val.length : JSON.stringify(val).length;
+    if (len < 4)  return 45;
+    if (len < 15) return 68;
+    if (len < 50) return 82;
+    return 90;
+  };
+
+  // 全体信頼度（ヘッダー表示用）
+  const filledCount = FIELDS.filter(f => aiData[f.key] && aiData[f.key] !== "").length;
+  const overallConf = aiData.confidence != null
+    ? aiData.confidence
+    : Math.round(FIELDS.reduce((s, f) => s + getFieldConf(f.key), 0) / FIELDS.length);
+
+  // フィールド値を更新 → 自動で確認済みにする
+  const upd = (k, v) => {
+    setValues(p => ({ ...p, [k]: v }));
+    setChecked(p => ({ ...p, [k]: true }));
+  };
+
+  const toggleCheck = (k) => setChecked(p => ({ ...p, [k]: !p[k] }));
+
+  const markAllChecked = () => {
+    const r = {}; FIELDS.forEach(f => { r[f.key] = true; }); setChecked(r);
+  };
+
+  // ── 信頼度に応じたスタイルヘルパー ──
+  const confColor = (c) => c >= 80 ? "#1a9e45" : c >= 60 ? "#c07800" : "#cc3333";
+  const confBg    = (c) => c >= 80 ? "rgba(26,158,69,0.12)" : c >= 60 ? "rgba(224,168,40,0.15)" : "rgba(224,56,56,0.12)";
+  const confLabel = (c) => c >= 80 ? "高" : c >= 60 ? "中" : "低";
+
+  // ── 差分（修正箇所）を収集する共通処理 ──
+  const buildCorrections = (targetFields) => {
+    const corrections = [];
+    FIELDS.forEach(f => {
+      if (targetFields && !targetFields[f.key] && targetFields[f.key] !== "") return;
+      const aiOrig  = String(aiData[f.key] || "");
+      const userVal = String(values[f.key]  || "");
+      if (aiOrig !== userVal) {
+        corrections.push({
+          fieldName: f.key, fieldLabel: f.label,
+          aiOriginal: aiOrig, userCorrected: userVal,
+          correctedBy: userName, correctedAt: new Date().toISOString(),
+          documentType,
+        });
+      }
+    });
+    return corrections;
+  };
+
+  // ── 「すべて反映」ボタン ──
+  const handleConfirmAll = () => {
+    markAllChecked();
+    const corrections = buildCorrections(null);
+    onConfirm(values, corrections, true);
+  };
+
+  // ── 「選択した項目を反映」ボタン ──
+  const handleConfirmSelected = () => {
+    // 選択されたフィールドの値のみ返す
+    const selectedValues = {};
+    FIELDS.forEach(f => {
+      if (selected[f.key]) selectedValues[f.key] = values[f.key];
+    });
+    const corrections = buildCorrections(selected);
+    onConfirm(selectedValues, corrections, false);
+  };
+
+  // 未確認フィールド数（バナー表示用）
+  const uncheckedCount = FIELDS.filter(f => (aiData[f.key] || "") && !checked[f.key]).length;
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9000,
+      display:"flex",alignItems:"flex-start",justifyContent:"center",
+      overflowY:"auto",padding:"16px 8px",WebkitOverflowScrolling:"touch"}}>
+      <div style={{background:"var(--wh)",borderRadius:16,width:"100%",maxWidth:620,
+        boxShadow:"0 8px 40px rgba(0,0,0,0.25)",overflow:"hidden",marginBottom:40}}>
+
+        {/* ── ヘッダー ── */}
+        <div style={{background:"linear-gradient(135deg,#6c3fc5 0%,#9048d8 100%)",
+          padding:"16px 18px",color:"#fff"}}>
+          <div style={{fontSize:16,fontWeight:900,marginBottom:4}}>🤖 AI抽出結果の確認</div>
+          <div style={{fontSize:11,opacity:0.85,marginBottom:10}}>
+            内容を確認・修正してからフォームに反映してください
+          </div>
+          {/* 信頼度バッジ */}
+          <div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"center"}}>
+            <div style={{background:"rgba(255,255,255,0.22)",borderRadius:8,
+              padding:"5px 12px",fontSize:12,fontWeight:700}}>
+              総合信頼度: {overallConf}%
+              <span style={{marginLeft:6,fontSize:10,opacity:0.9}}>
+                {overallConf >= 80 ? "✅ 高精度" : overallConf >= 60 ? "⚠️ 確認推奨" : "🔴 要確認"}
+              </span>
+            </div>
+            <div style={{background:"rgba(255,255,255,0.15)",borderRadius:8,
+              padding:"5px 10px",fontSize:11}}>
+              読取フィールド: {filledCount} / {FIELDS.length}件
+            </div>
+          </div>
+          {overallConf < 60 && (
+            <div style={{marginTop:8,fontSize:11,background:"rgba(255,220,0,0.25)",
+              padding:"6px 10px",borderRadius:7}}>
+              📌 精度が低めです。画像を再撮影するか、手動で修正してください。
+            </div>
+          )}
+        </div>
+
+        {/* ── 撮影画像プレビュー（折りたたみ）── */}
+        {preview && (
+          <details style={{borderBottom:"1px solid var(--bd)"}}>
+            <summary style={{padding:"9px 18px",fontSize:12,color:"var(--tl)",
+              cursor:"pointer",userSelect:"none",listStyle:"none",display:"flex",alignItems:"center",gap:6}}>
+              <span>▶</span> 📷 撮影画像を確認する
+            </summary>
+            <div style={{padding:"0 18px 12px"}}>
+              <img src={preview} alt="撮影画像"
+                style={{maxWidth:"100%",maxHeight:300,borderRadius:8,objectFit:"contain",display:"block"}}/>
+            </div>
+          </details>
+        )}
+
+        {/* ── 未確認警告バナー ── */}
+        {uncheckedCount > 0 && (
+          <div style={{padding:"8px 18px",background:"rgba(224,168,40,0.12)",
+            borderBottom:"1px solid rgba(224,168,40,0.3)",fontSize:11,color:"#8a6200",
+            display:"flex",alignItems:"center",gap:6}}>
+            <span>⚠️</span>
+            <span>未確認のフィールドが <strong>{uncheckedCount}件</strong> あります。
+              各フィールドを確認し、「✓ 確認済」にしてください。</span>
+          </div>
+        )}
+
+        {/* ── フィールド一覧（スクロール可能）── */}
+        <div style={{maxHeight:"52vh",overflowY:"auto",padding:"14px 18px",
+          display:"flex",flexDirection:"column",gap:10}}>
+          {FIELDS.map(f => {
+            const conf     = getFieldConf(f.key);
+            const aiVal    = aiData[f.key] || "";
+            const isEmpty  = !aiVal;
+            const isModified = !isEmpty && String(values[f.key]) !== String(aiVal);
+            return (
+              <div key={f.key} style={{
+                border:`1.5px solid ${checked[f.key]
+                  ? "rgba(26,158,69,0.45)"
+                  : conf < 60 && !isEmpty
+                    ? "rgba(224,56,56,0.35)"
+                    : "var(--bd)"}`,
+                borderRadius:10,padding:"10px 12px",
+                background:checked[f.key] ? "rgba(26,158,69,0.04)" : "var(--wh)",
+                transition:"border-color 0.2s,background 0.2s",
+              }}>
+
+                {/* フィールドヘッダー行 */}
+                <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:6,flexWrap:"wrap"}}>
+                  {/* 個別選択チェックボックス */}
+                  {selMode && (
+                    <input type="checkbox" checked={selected[f.key]||false}
+                      onChange={e => setSelected(p => ({...p,[f.key]:e.target.checked}))}
+                      style={{marginRight:2,accentColor:"var(--tl)"}}/>
+                  )}
+                  <span style={{fontSize:13}}>{f.icon}</span>
+                  <span style={{fontSize:11,fontWeight:700,color:"var(--tx)",flex:1}}>
+                    {f.label}
+                  </span>
+
+                  {/* 信頼度バッジ */}
+                  {!isEmpty && (
+                    <span style={{fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:10,
+                      background:confBg(conf),color:confColor(conf)}}>
+                      {conf}% {confLabel(conf)}
+                    </span>
+                  )}
+                  {isEmpty && (
+                    <span style={{fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:10,
+                      background:"rgba(120,120,120,0.12)",color:"var(--tx3)"}}>
+                      未検出
+                    </span>
+                  )}
+                  {/* 修正済みバッジ */}
+                  {isModified && (
+                    <span style={{fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:10,
+                      background:"rgba(58,160,216,0.15)",color:"var(--tl)"}}>
+                      ✏️ 修正済
+                    </span>
+                  )}
+                  {/* 確認済みトグルボタン */}
+                  <button onClick={() => toggleCheck(f.key)} style={{
+                    fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:10,
+                    border:"none",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",
+                    background:checked[f.key]?"rgba(26,158,69,0.2)":"rgba(180,180,180,0.18)",
+                    color:checked[f.key]?"#1a9e45":"var(--tx3)",
+                    transition:"all 0.15s",
+                  }}>{checked[f.key] ? "✓ 確認済" : "未確認"}</button>
+                </div>
+
+                {/* AI原文（修正された場合のみグレー表示）*/}
+                {isModified && (
+                  <div style={{fontSize:10,color:"var(--tx3)",
+                    background:"rgba(180,180,180,0.12)",borderRadius:6,
+                    padding:"4px 8px",marginBottom:5,lineHeight:1.5}}>
+                    <span style={{fontWeight:700}}>AI原文: </span>
+                    {String(aiVal)}
+                  </div>
+                )}
+
+                {/* 編集可能フィールド */}
+                {f.multi ? (
+                  <textarea className="fta"
+                    style={{minHeight:isEmpty?40:56,fontSize:12,
+                      borderColor:conf<60&&!isEmpty?"rgba(224,168,40,0.5)":undefined}}
+                    value={values[f.key]||""}
+                    onChange={e => upd(f.key, e.target.value)}
+                    placeholder={isEmpty ? "（未検出 ─ 手動入力してください）" : f.label}/>
+                ) : (
+                  <input className="fi"
+                    style={{fontSize:12,
+                      borderColor:conf<60&&!isEmpty?"rgba(224,168,40,0.5)":undefined}}
+                    value={values[f.key]||""}
+                    onChange={e => upd(f.key, e.target.value)}
+                    placeholder={isEmpty ? "（未検出 ─ 手動入力）" : f.label}/>
+                )}
+              </div>
+            );
+          })}
+
+          {/* 優先課題テーブル（自動反映・表示のみ）*/}
+          {(aiData.priorityItems||[]).length > 0 && (
+            <div style={{border:"1.5px solid rgba(144,72,216,0.3)",borderRadius:10,
+              padding:"10px 12px",background:"rgba(144,72,216,0.04)"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"var(--pu)",marginBottom:6}}>
+                📊 優先課題・支援目標（{aiData.priorityItems.length}件 ─ 自動反映されます）
+              </div>
+              {(aiData.priorityItems||[]).slice(0,3).map((item,i) => (
+                <div key={i} style={{fontSize:11,color:"var(--tx2)",marginBottom:4,
+                  paddingLeft:8,borderLeft:"2px solid rgba(144,72,216,0.3)",lineHeight:1.5}}>
+                  {i+1}. {typeof item==="string" ? item : (item.issue||item.content||"—")}
+                </div>
+              ))}
+              {(aiData.priorityItems||[]).length > 3 && (
+                <div style={{fontSize:10,color:"var(--tx3)"}}>
+                  ...他 {aiData.priorityItems.length-3}件
+                </div>
+              )}
+            </div>
+          )}
+          {(aiData.priorityItems||[]).length === 0 && (
+            <div style={{fontSize:11,color:"#8a6200",background:"rgba(224,168,40,0.1)",
+              borderRadius:8,padding:"8px 12px"}}>
+              ⚠️ 優先課題テーブルが読み取れませんでした。
+              保存後に別ページを再撮影して追加できます。
+            </div>
+          )}
+        </div>
+
+        {/* ── ボタンエリア ── */}
+        <div style={{borderTop:"1px solid var(--bd)",padding:"14px 18px",background:"var(--bg)"}}>
+
+          {/* メインボタン行 */}
+          <div style={{display:"flex",gap:8}}>
+            {/* すべて反映 */}
+            <button className="bsave" style={{flex:2,fontSize:13}} onClick={handleConfirmAll}>
+              ✅ すべて反映
+            </button>
+            {/* 個別選択トグル */}
+            <button onClick={() => setSelMode(p => !p)} style={{
+              flex:1,padding:"9px 10px",borderRadius:9,fontSize:12,fontWeight:700,
+              border:`1.5px solid ${selMode?"var(--tl)":"var(--bd)"}`,
+              background:selMode?"rgba(58,160,216,0.15)":"var(--wh)",
+              color:selMode?"var(--tl)":"var(--tx2)",
+              cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",
+            }}>☑️ 個別選択</button>
+          </div>
+
+          {/* 個別選択が有効な場合の反映ボタン */}
+          {selMode && (
+            <button onClick={handleConfirmSelected} style={{
+              width:"100%",marginTop:8,padding:"9px",borderRadius:9,
+              fontSize:12,fontWeight:700,
+              border:"1.5px solid var(--tl)",background:"rgba(58,160,216,0.1)",
+              color:"var(--tl)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",
+            }}>
+              ↩️ 選択した項目のみ反映
+            </button>
+          )}
+
+          {/* サブボタン行（再解析・キャンセル）*/}
+          <div style={{display:"flex",gap:8,marginTop:8}}>
+            <button onClick={onRetry} style={{
+              flex:1,padding:"8px",borderRadius:9,fontSize:11,fontWeight:700,
+              border:"1.5px solid var(--tx3)",background:"var(--wh)",
+              color:"var(--tx2)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",
+            }}>🔄 再解析</button>
+            <button onClick={onCancel} style={{
+              flex:1,padding:"8px",borderRadius:9,fontSize:11,fontWeight:700,
+              border:"1.5px solid rgba(180,180,180,0.5)",background:"var(--wh)",
+              color:"var(--tx3)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",
+            }}>✕ キャンセル</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==================== 発達段階記録タブ（児童発達支援専用）====================
 function DevRecordTab({u, user, store}) {
   const [mode, setMode] = useState("list"); // list | new
   const [form, setForm] = useState({date:todayISO(), domain:"", level:"", goal:"", content:"", staffName:user.displayName||""});
