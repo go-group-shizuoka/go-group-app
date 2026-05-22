@@ -13997,7 +13997,7 @@ const ISP_DOC_LABELS = {
 // ※ アセスメントは「上部アセスメントタブ(assessments)」と「支援計画内アセスメント
 //   (ispRecords docType=assessment)」の二系統に保存され得るため、両方を child_id で
 //   統合して最新を採用する。これにより「どちらに入力してもAIが参照できない」問題を解消。
-function generateIspDraftContent(u, assessments, isps, recs, ispRecords) {
+function generateIspDraftContent(u, assessments, isps, recs, ispRecords, monitorings) {
   // 【child_idガード】児童未選択時は生成しない（全児童同一・別児童データ混入を防止）
   if(!u || !u.id){
     console.warn("[AI原案生成] 中止: 児童IDが未設定です", u);
@@ -14021,6 +14021,31 @@ function generateIspDraftContent(u, assessments, isps, recs, ispRecords) {
   const latestIsp = [...(isps||[])].filter(i=>i.userId===u.id)
     .sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0] || {};
   const svcs = (recs||[]).filter(r=>r.userId===u.id && r.type==="service").slice(-30);
+
+  // ── 直近モニタリングの統合（store.monitorings ＋ ispRecords[docType=monitoring]）──
+  // 上部モニタリングタブ・支援計画内モニタリングの両方を child_id で集約し最新を採用
+  const monCands = [];
+  (monitorings||[]).filter(m=>m.userId===u.id).forEach(m=>{
+    const c = m.content||m.data||m;
+    monCands.push({src:"monitorings", date:(c.monitoringDate||c.date||m.createdAt||""), c});
+  });
+  (ispRecords||[]).filter(r=>r.userId===u.id&&r.docType==="monitoring").forEach(r=>{
+    const c = r.content||{};
+    monCands.push({src:"ispRecords", date:(c.monitoringDate||c.date||r.createdAt||""), c});
+  });
+  monCands.sort((x,y)=> y.date>x.date?1:(y.date<x.date?-1:0));
+  const Mtop = monCands[0]||null;
+  const M = Mtop?.c || {};
+  // モニタリングから「次回計画に反映すべき要点」を抽出（複数フィールド対応）
+  const monReflectParts = [
+    M.nextPlanReflection,                                   // 次回計画への反映事項
+    M.remainingChallenges && `残る課題: ${M.remainingChallenges}`, // まだ課題として残ること
+    M.supportChanges && `支援変更案: ${M.supportChanges}`,         // 支援内容の変更案
+    Array.isArray(M.nextPlan)&&M.nextPlan.length ? `次期方針: ${M.nextPlan.join("、")}` : (typeof M.nextPlan==="string"?M.nextPlan:""),
+    M.overallNote,                                          // 総括メモ
+  ].filter(Boolean);
+  const monReflection = monReflectParts.join("\n");
+  const monRemaining  = (M.remainingChallenges||"").toString().trim();
 
   const grade  = u.grade  ? `${u.grade}` : "小学生";
   // 障害区分は アセスメント＞利用者マスタ(disability/diagnosis) の順で採用
@@ -14053,10 +14078,19 @@ function generateIspDraftContent(u, assessments, isps, recs, ispRecords) {
     defShort = `支援員のサポートを受けながら活動の切り替えをスムーズにできる場面を増やす`;
   }
 
+  // 前回モニタリングの反映を支援内容の先頭に追記（児童ごとの実績が反映される）
+  if(monReflection){
+    supportContent = `【前回モニタリングの反映】\n${monReflection}\n\n` + supportContent;
+  }
+
   const prevLong  = latestIsp.longGoal  || latestIsp.content?.longGoal  || "";
   const prevShort = latestIsp.shortGoal || latestIsp.content?.shortGoal || "";
   const concerns  = A.concerns  || "";
   const strengths = A.strengths || "";
+  // 短期目標: 前回計画＞モニタリングの残課題＞障害特性デフォルト の順で採用
+  const shortGoalFinal = prevShort
+    || (monRemaining ? `前回モニタリングで残った課題「${monRemaining.slice(0,40)}」の改善に取り組む` : "")
+    || defShort;
 
   const result = {
     // 本人・保護者のニーズ（アセスメント由来＝児童ごとに異なる）
@@ -14067,7 +14101,7 @@ function generateIspDraftContent(u, assessments, isps, recs, ispRecords) {
       ? `「${strengths}」という強みを活かし、自分の気持ちや考えを相手に伝えられるようになる（${grade}）`
       : `自分の感情や気持ちを言葉や表情で相手に伝えられるようになる（${grade}）`),
     longGoalTerm: "1年間",
-    shortGoal: prevShort || defShort,
+    shortGoal: shortGoalFinal,
     shortGoalTerm: "6ヶ月",
     supportContent,
     specificMethods,
@@ -14090,6 +14124,9 @@ function generateIspDraftContent(u, assessments, isps, recs, ispRecords) {
       svcCount: svcs.length,
       assessmentDate: top?.date || null,
       disabilityDetected: isASD?"ASD":isADHD?"ADHD":isLD?"LD":"その他",
+      hasMonitoring: !!Mtop,
+      monitoringSource: Mtop?.src || null,
+      monitoringDate: Mtop?.date || null,
     },
   };
 
@@ -14103,7 +14140,10 @@ function generateIspDraftContent(u, assessments, isps, recs, ispRecords) {
     assessmentChildId: top?.userId || null,
     assessmentCount: cands.length,
     disabilityDetected: result.generatedFrom.disabilityDetected,
-    promptPreview:   `児童=${u.name}(${u.id}) / 障害=${disText} / 困りごと=${concerns.slice(0,30)} / 強み=${strengths.slice(0,20)}`,
+    monitoringSource: Mtop?.src || "(なし)",
+    monitoringDate:   Mtop?.date || null,
+    monitoringReflected: !!monReflection,
+    promptPreview:   `児童=${u.name}(${u.id}) / 障害=${disText} / 困りごと=${concerns.slice(0,30)} / 強み=${strengths.slice(0,20)} / 前回モニタリング=${monReflection?monReflection.slice(0,40):"なし"}`,
   });
 
   return result;
@@ -14266,7 +14306,7 @@ function IspPlanForm({record, u, user, store, onSave, onCancel}){
     }
     setGenerating(true);
     setTimeout(()=>{
-      const draft = generateIspDraftContent(u, store.assessments||[], store.isps||[], store.recs||[], store.ispRecords||[]);
+      const draft = generateIspDraftContent(u, store.assessments||[], store.isps||[], store.recs||[], store.ispRecords||[], store.monitorings||[]);
       if(!draft){
         setGenerating(false);
         store.showToast?.("AI生成に失敗しました（児童IDが取得できません）","error");
