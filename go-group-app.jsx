@@ -2210,16 +2210,16 @@ select.fi option{background:var(--bg2);color:var(--tx);}
 .cn{padding:5px 11px;background:var(--bg3);border:1.5px solid var(--bd);border-radius:7px;color:var(--tx2);cursor:pointer;font-size:14px;}
 .cn:hover{border-color:var(--ac);}
 .cgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:12px;}
-.cdow{text-align:center;font-size:10px;font-weight:700;color:var(--tx3);padding:3px 0;}
+.cdow{text-align:center;font-size:13px;font-weight:700;color:var(--tx3);padding:3px 0;}
 .cdow.su{color:var(--ro);}
 .cdow.sa{color:var(--tl);}
-.cday{aspect-ratio:1;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;background:var(--bg3);border:1.5px solid var(--bd);font-size:11px;transition:all .15s;gap:2px;color:var(--tx);}
+.cday{aspect-ratio:1;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;background:var(--bg3);border:1.5px solid var(--bd);font-size:14px;transition:all .15s;gap:3px;color:var(--tx);}
 .cday:hover{border-color:var(--ac);background:rgba(240,112,32,0.1);}
 .cday.td{border-color:var(--ac);background:rgba(240,112,32,0.15);font-weight:700;}
 .cday.sel{border-color:var(--ac2);background:rgba(255,138,56,0.2);font-weight:700;}
 .cday.we{background:var(--bg2);border-color:var(--bd);opacity:.45;cursor:default;}
 .cday.emp{background:transparent;border-color:transparent;cursor:default;}
-.dot{width:5px;height:5px;border-radius:50%;}
+.dot{width:6px;height:6px;border-radius:50%;}
 .dg{background:var(--gr);}
 .da{background:var(--am);}
 .dr{background:var(--ro);}
@@ -28893,8 +28893,8 @@ function ScheduleScreen({ user, store, onBack }) {
             const ds=getDateStr(d); const we=isWe(d); const c=countByDay(d);
             const isToday=ds===todayISO(); const isSel=ds===selDate;
             return <div key={d} className={`cday ${isToday?"td":""} ${isSel?"sel":""} ${we?"we":""}`} onClick={()=>!we&&setSelDate(ds)}>
-              <span style={{fontSize:10}}>{d}</span>
-              {!we&&c.come>0&&<div style={{fontSize:9,fontWeight:700,color:"var(--gr)",lineHeight:1}}>{c.come}人</div>}
+              <span style={{fontSize:16,fontWeight:700}}>{d}</span>
+              {!we&&c.come>0&&<div style={{fontSize:13,fontWeight:700,color:"var(--gr)",lineHeight:1}}>{c.come}人</div>}
               {!we&&(c.come>0||c.absent>0)&&<div className="dots">{c.come>0&&<div className="dot dg"/>}{c.absent>0&&<div className="dot dr"/>}</div>}
             </div>;
           })}
