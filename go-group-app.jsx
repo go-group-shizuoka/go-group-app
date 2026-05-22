@@ -11223,58 +11223,120 @@ function SoudanGenanTab({u, user, store}) {
   const myDocs = (store.soudanGenans||[]).filter(d=>d.userId===u.id).sort((a,b)=>b.receivedDate>a.receivedDate?1:-1);
   const upd = (k,v) => setForm(p=>({...p,[k]:v}));
 
-  // ファイル選択 / カメラ撮影 → OCR実行（共通処理）
-  // ・カメラ撮影もファイル選択もこの関数に渡すことで処理を統一
-  // ・preview は data URL（base64）で保存 → ページ更新後も表示が消えない
-  const handleFile = async (file) => {
+  // ============================================================
+  // カメラ撮影 / ファイル選択 → 圧縮 → OCR 共通処理
+  // JukyushaTab と同じ実装パターンに統一することで
+  //   iPhone / Android / PC どの端末でも動作するようにする
+  // ============================================================
+  const handleDocumentUpload = async (file) => {
     if (!file) return;
-    if (!checkFileSize(file)) return; // 5MB上限チェック
+
+    // ── サイズチェック: 圧縮前なので 50MB 超えのみ拒否（5MB は厳しすぎる）──
+    // カメラ写真は 8〜12MB が普通なので、ここで弾かない
+    if (file.size > 50 * 1024 * 1024) {
+      setOcrError("ファイルが大きすぎます（50MB超）。別の写真を使用してください。");
+      setMode("result");
+      return;
+    }
+
     setOcrError("");
-    setScanning(true); setMode("scan");
+    setScanning(true);
+    setMode("scan");
+
     try {
-      const base64 = await fileToBase64(file);
-      // プレビューは data URL（永続）で保存 → ObjectURL（セッション限り）より安全
-      const previewDataUrl = "data:" + file.type + ";base64," + base64;
+      // ① 生 base64 取得（高解像度で OCR 精度を確保）
+      const base64Raw = await fileToBase64(file);
+
+      // ② 書類OCR用に圧縮（最大 1500×1200、品質 0.85）
+      // 文字が判別できるレベルを維持しつつ、カメラ写真を 200KB 程度に削減
+      // PDF はそのまま（圧縮できない）
+      const isPdf = file.type === "application/pdf";
+      const base64 = isPdf
+        ? base64Raw
+        : await compressBase64(base64Raw, 1500, 1200, 0.85);
+
+      // ③ プレビュー表示（永続的な data URL で保存）
+      const previewDataUrl = "data:image/jpeg;base64," + base64;
       setPreview(previewDataUrl);
+
+      console.log("OCR_INPUT", {
+        fileType: file.type,
+        origSize: (file.size / 1024).toFixed(0) + "KB",
+        compressedLen: base64.length,
+      });
+
+      // ④ OCR API 呼び出し（mode:"soudan" で相談支援原案専用プロンプトを使用）
       const res = await fetch("/api/ocr", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ imageBase64: base64, mediaType: file.type, mode: "soudan" })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: base64,
+          mediaType: isPdf ? file.type : "image/jpeg",
+          mode: "soudan",
+        }),
       });
       const data = await res.json();
+
+      console.log("OCR_RESULT", data);
+
       if (data.success && data.data) {
-        setOcrResult(data.data);
-        setForm({
-          specialistName:     data.data.specialistName     || "",
-          specialistOrg:      data.data.specialistOrg      || "",
-          guardianName:       data.data.guardianName        || "",
-          jukyushaNo:         data.data.jukyushaNo          || "",
-          maxBurden:          data.data.maxBurden           || "",
-          planCreatedDate:    data.data.planCreatedDate     || "",
-          monitoringInterval: data.data.monitoringInterval  || "",
-          planPeriodStart:    data.data.planPeriodStart     || "",
-          planPeriodEnd:      data.data.planPeriodEnd       || "",
-          userNeeds:          data.data.userNeeds           || "",
-          parentNeeds:        data.data.parentNeeds         || "",
-          longTermGoal:       data.data.longTermGoal        || "",
-          shortTermGoal:      data.data.shortTermGoal       || "",
-          supportPolicy:      data.data.supportPolicy       || "",
-          specialistComment:  data.data.specialistComment   || "",
-          nextMonitoringDate: data.data.nextMonitoringDate  || "",
-          priorityItems:      data.data.priorityItems       || [],
-        });
+        const aiExtract = data.data;
+        const newForm = {
+          specialistName:     aiExtract.specialistName     || "",
+          specialistOrg:      aiExtract.specialistOrg      || "",
+          guardianName:       aiExtract.guardianName        || "",
+          jukyushaNo:         aiExtract.jukyushaNo          || "",
+          maxBurden:          aiExtract.maxBurden           || "",
+          planCreatedDate:    aiExtract.planCreatedDate     || "",
+          monitoringInterval: aiExtract.monitoringInterval  || "",
+          planPeriodStart:    aiExtract.planPeriodStart     || "",
+          planPeriodEnd:      aiExtract.planPeriodEnd       || "",
+          userNeeds:          aiExtract.userNeeds           || "",
+          parentNeeds:        aiExtract.parentNeeds         || "",
+          longTermGoal:       aiExtract.longTermGoal        || "",
+          shortTermGoal:      aiExtract.shortTermGoal       || "",
+          supportPolicy:      aiExtract.supportPolicy       || "",
+          specialistComment:  aiExtract.specialistComment   || "",
+          nextMonitoringDate: aiExtract.nextMonitoringDate  || "",
+          priorityItems:      aiExtract.priorityItems       || [],
+        };
+
+        console.log("AI_EXTRACT", aiExtract);
+        console.log("FORM_MERGE", newForm);
+
+        setOcrResult(aiExtract);
+        setForm(newForm);
         setMode("result");
       } else {
-        setOcrError(data.error || "OCR解析に失敗しました。手動で入力してください。");
-        setForm({ specialistName:"", specialistOrg:"", guardianName:"", jukyushaNo:"",
+        // OCR失敗: 原因と対処法を表示
+        const errMsg = data.error || "OCR解析に失敗しました。";
+        console.warn("OCR_FAILED", data);
+        setOcrError(
+          errMsg + "\n" +
+          "📌 画像が暗い・斜め・文字切れの可能性があります。" +
+          "明るい場所で書類全体が収まるよう撮影し直してください。"
+        );
+        // フォームを空で表示して手動入力に切り替え
+        setForm({
+          specialistName:"", specialistOrg:"", guardianName:"", jukyushaNo:"",
           maxBurden:"", planCreatedDate:"", monitoringInterval:"",
           planPeriodStart:"", planPeriodEnd:"",
           userNeeds:"", parentNeeds:"", longTermGoal:"", shortTermGoal:"",
-          supportPolicy:"", specialistComment:"", nextMonitoringDate:"", priorityItems:[] });
+          supportPolicy:"", specialistComment:"", nextMonitoringDate:"",
+          priorityItems:[],
+        });
         setMode("result");
       }
     } catch(e) {
-      setOcrError("通信エラー: " + e.message); setMode("result");
-    } finally { setScanning(false); }
+      console.error("OCR_ERROR", e);
+      setOcrError(
+        "通信エラー: " + e.message + "\n" +
+        "📌 ネットワーク接続を確認してください。"
+      );
+      setMode("result");
+    } finally {
+      setScanning(false);
+    }
   };
 
   // 保存
@@ -11325,11 +11387,12 @@ function SoudanGenanTab({u, user, store}) {
             🖼️ アルバムから選択
           </label>
         </div>
-        {/* hidden inputs: e.target.value="" で同じファイルを連続選択できるようにする */}
-        <input id="sg_cam" type="file" accept="image/*" capture="environment" style={{display:"none"}}
-          onChange={e=>{ handleFile(e.target.files[0]); e.target.value=""; }}/>
-        <input id="sg_alb" type="file" accept="image/*" style={{display:"none"}}
-          onChange={e=>{ handleFile(e.target.files[0]); e.target.value=""; }}/>
+        {/* hidden inputs: handleDocumentUpload に統一（カメラ・ファイル共通処理）*/}
+        {/* capture="environment" → スマホ背面カメラを直接起動 */}
+        <input id="sg_cam" type="file" accept="image/*,application/pdf" capture="environment" style={{display:"none"}}
+          onChange={e=>{ handleDocumentUpload(e.target.files[0]); e.target.value=""; }}/>
+        <input id="sg_alb" type="file" accept="image/*,application/pdf" style={{display:"none"}}
+          onChange={e=>{ handleDocumentUpload(e.target.files[0]); e.target.value=""; }}/>
       </div>
 
       {/* 説明バナー */}
@@ -11956,41 +12019,52 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
   const upd = (k,v) => setForm(p=>({...p,[k]:v}));
 
   // ── 相談支援原案 → 個別支援計画原案フォームへの反映 ──
-  // 既存フォーム値は上書きせず、空のフィールドにのみ補完する（mergeモード）
+  // ・merge モード: 既存入力がある項目は上書きしない（setForm(prev => ({...prev, ...}))）
+  // ・支援内容・課題・配慮事項も含めた全フィールドをマッピング
   const applyFromSoudanGenan = (doc) => {
-    console.log("[OCR RESULT soudanGenan]", doc);
-    console.log("[OCR RESULT ocrData]", doc.ocrData);
+    console.log("OCR_RESULT", doc.ocrData || doc);
 
-    // フィールドマッピング: 相談支援原案 → 個別支援計画原案
+    // ── フィールドマッピング: 相談支援原案 → 個別支援計画原案 ──
+    const aiExtract = doc.ocrData || doc;
     const mapped = {
-      jukyushaCertNo:  doc.jukyushaNo       || "",
-      startDate:       doc.planPeriodStart  || "",
-      expiryDate:      doc.planPeriodEnd    || "",
-      childWish:       doc.userNeeds        || "",  // 本人のニーズ → 本人の意向
-      familyWish:      doc.parentNeeds      || "",  // 家族のニーズ → 家族の意向
-      longTermGoal:    doc.longTermGoal     || "",  // 長期目標
-      shortTermGoal:   doc.shortTermGoal    || "",  // 短期目標
-      overallPolicy:   doc.supportPolicy    || "",  // 支援方針
+      jukyushaCertNo:  doc.jukyushaNo           || aiExtract.jukyushaNo       || "",
+      startDate:       doc.planPeriodStart       || aiExtract.planPeriodStart  || "",
+      expiryDate:      doc.planPeriodEnd         || aiExtract.planPeriodEnd    || "",
+      childWish:       doc.userNeeds             || aiExtract.userNeeds        || "",  // 本人の意向
+      familyWish:      doc.parentNeeds           || aiExtract.parentNeeds      || "",  // 家族の意向
+      longTermGoal:    doc.longTermGoal          || aiExtract.longTermGoal     || "",  // 長期目標
+      shortTermGoal:   doc.shortTermGoal         || aiExtract.shortTermGoal    || "",  // 短期目標
+      overallPolicy:   doc.supportPolicy         || aiExtract.supportPolicy    || "",  // 総合的な支援方針
+      // 支援内容・課題・配慮事項 → overallPolicy にフォールバックして反映
+      supportContent:  doc.supportPolicy         || aiExtract.supportPolicy    || "",
     };
-    console.log("[APPLY to IspDraft] mapped fields:", mapped);
 
-    // 支援目標（priorityItems → goals 変換）
-    // priorityItemsが配列で、achievement が空のとき補完
+    console.log("AI_EXTRACT", mapped);
+
+    // ── priorityItems → 支援目標（goals）変換 ──
+    // 相談支援原案の優先課題テーブルを個別支援計画原案の支援目標行に変換
     let newGoals = null;
     if(Array.isArray(doc.priorityItems) && doc.priorityItems.length > 0) {
       newGoals = doc.priorityItems.map((item, i) => ({
         id:         genId(),
         priority:   "本人支援",
-        achievement: typeof item === "string" ? item : (item.content || item.title || item.goal || ""),
+        // 課題（issue）を達成目標に、支援目標（supportGoal）を支援内容にマッピング
+        achievement: typeof item === "string"
+          ? item
+          : (item.issue || item.content || item.title || item.goal || ""),
         domains:    [],
-        period:     "12ヶ月",
-        reflection: "",
+        period:     item.achievementPeriod || "12ヶ月",
+        // 支援内容（reflection）: supportGoal または serviceType を反映
+        reflection: typeof item === "string"
+          ? ""
+          : (item.supportGoal || item.serviceType || ""),
         no:         i + 1,
-      })).filter(g => g.achievement);
-      console.log("[APPLY to IspDraft] goals from priorityItems:", newGoals);
+      })).filter(g => g.achievement || g.reflection);
+      console.log("AI_EXTRACT [goals from priorityItems]", newGoals);
     }
 
-    // フォームとのマージ: 既存値がある場合は上書きしない
+    // ── merge モードでフォームに反映 ──
+    // 既存値がある（空でない）フィールドは上書きしない
     setForm(prev => {
       const merged = {
         ...prev,
@@ -12003,17 +12077,31 @@ function IspDraftTab({u, myIspDrafts, user, store}) {
         shortTermGoal:  prev.shortTermGoal  || mapped.shortTermGoal,
         overallPolicy:  prev.overallPolicy  || mapped.overallPolicy,
       };
-      // goals: priorityItemsがある場合、かつ現在のgoalsが空（achievement未入力）のとき置換
+      // goals: priorityItemsがある場合かつ全行が未入力のときのみ置換
       if(newGoals && newGoals.length > 0) {
-        const allEmpty = prev.goals.every(g => !g.achievement);
+        const allEmpty = (prev.goals||[]).every(g => !g.achievement && !g.reflection);
         if(allEmpty) merged.goals = newGoals;
       }
-      console.log("[APPLY to IspDraft] merged form:", merged);
+      console.log("FORM_MERGE", merged);
       return merged;
     });
     setSoudanApplied(true);
-    store.showToast("✅ 相談支援原案の内容を反映しました");
+    store.showToast("✅ 相談支援原案の内容をフォームに反映しました");
   };
+
+  // ── 新規作成モードに入ったとき、未反映の相談支援原案があれば自動反映 ──
+  // 「新規作成」ボタンを押した瞬間に最新の相談支援原案を自動で適用する
+  useEffect(() => {
+    if (mode !== "new" || soudanApplied || editId) return;
+    const mySoudans = (store.soudanGenans||[])
+      .filter(d => d.userId === u.id)
+      .sort((a,b) => b.receivedDate > a.receivedDate ? 1 : -1);
+    if (mySoudans.length > 0) {
+      // 少し遅延させてフォーム初期化と競合しないようにする
+      setTimeout(() => applyFromSoudanGenan(mySoudans[0]), 80);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]); // mode が "new" に変わった時だけ実行
   const updSched = (day,k,v) => setForm(p=>({...p,schedule:{...p.schedule,[day]:{...p.schedule[day],[k]:v}}}));
   const updExt = (type,day,v) => setForm(p=>({...p,[type]:{...p[type],[day]:v}}));
   const addGoalRow = () => setForm(p=>({...p,goals:[...p.goals,{id:genId(),priority:"本人支援",achievement:"",domains:[],period:"12ヶ月",reflection:"",no:p.goals.length+1}]}));
