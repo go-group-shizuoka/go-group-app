@@ -13992,56 +13992,119 @@ const ISP_DOC_LABELS = {
 };
 
 // ─── AI原案生成（テンプレートベース） ───
-function generateIspDraftContent(u, assessments, isps, recs) {
-  const latestA = [...assessments].filter(a=>a.userId===u.id)
-    .sort((a,b)=>b.date>a.date?1:-1)[0] || {};
-  const latestIsp = [...isps].filter(i=>i.userId===u.id)
+// ※ アセスメントは「上部アセスメントタブ(assessments)」と「支援計画内アセスメント
+//   (ispRecords docType=assessment)」の二系統に保存され得るため、両方を child_id で
+//   統合して最新を採用する。これにより「どちらに入力してもAIが参照できない」問題を解消。
+function generateIspDraftContent(u, assessments, isps, recs, ispRecords) {
+  // 【child_idガード】児童未選択時は生成しない（全児童同一・別児童データ混入を防止）
+  if(!u || !u.id){
+    console.warn("[AI原案生成] 中止: 児童IDが未設定です", u);
+    return null;
+  }
+
+  // ── アセスメント統合（assessments ＋ ispRecords[docType=assessment]）──
+  const cands = [];
+  (assessments||[]).filter(a=>a.userId===u.id).forEach(a=>{
+    cands.push({src:"assessments", id:a.id, userId:a.userId,
+      date:(a.date||a.assess_date||a.createdAt||""), c:(a.content||a.data||a)});
+  });
+  (ispRecords||[]).filter(r=>r.userId===u.id&&r.docType==="assessment").forEach(r=>{
+    cands.push({src:"ispRecords", id:r.id, userId:r.userId,
+      date:((r.content&&r.content.date)||r.createdAt||""), c:(r.content||{})});
+  });
+  cands.sort((x,y)=> y.date>x.date?1:(y.date<x.date?-1:0));
+  const top = cands[0]||null;
+  const A = top?.c || {};
+
+  const latestIsp = [...(isps||[])].filter(i=>i.userId===u.id)
     .sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0] || {};
-  const svcs = recs.filter(r=>r.userId===u.id && r.type==="service").slice(-30);
+  const svcs = (recs||[]).filter(r=>r.userId===u.id && r.type==="service").slice(-30);
 
   const grade  = u.grade  ? `${u.grade}` : "小学生";
-  const gender = u.gender==="男"?"彼":(u.gender==="女"?"彼女":"本人");
-  const dis    = u.disability || latestA.disabilityType || "発達障害";
+  // 障害区分は アセスメント＞利用者マスタ(disability/diagnosis) の順で採用
+  const disText = (A.disabilityType||u.disability||u.diagnosis||"発達障害").toString();
+  const isASD  = /ASD|自閉|広汎性|アスペ/i.test(disText);
+  const isADHD = /ADHD|注意欠如|多動|注意欠陥/i.test(disText);
+  const isLD   = /LD|学習障害|限局性学習/i.test(disText);
 
-  // 支援実績からキーワード抽出
-  const svcNotes = svcs.map(s=>s.note||s.serviceContent||"").filter(Boolean).join("、");
-  const svcHint  = svcNotes.length>0 ? `（支援実績: ${svcNotes.slice(0,50)}）` : "";
+  // ── 障害特性に応じた支援内容（ASD/ADHD/LDで内容を変える）──
+  let supportContent, specificMethods, defShort, defChars;
+  if(isASD){
+    defChars = `感覚過敏や見通しの持ちにくさがあり、急な予定変更が苦手。こだわりが行動に影響することがある。`;
+    supportContent = `① 視覚的スケジュール・絵カードで活動の見通しを支援する\n② 予定変更は事前予告し、安心して切り替えられるようにする\n③ 感覚刺激を調整できる落ち着きスペースを用意する\n④ 成功体験を積み重ね自己肯定感を高める`;
+    specificMethods = `・入室時にその日の流れをホワイトボードで提示\n・活動移行は3分前予告を徹底\n・刺激が強い場面ではイヤーマフ／別室を選べるようにする\n・できたことを具体的に言葉で承認する`;
+    defShort = `視覚支援を活用し、予告から5分以内に活動を切り替えられる場面を増やす`;
+  } else if(isADHD){
+    defChars = `注意の持続が難しく衝動的に行動しやすい。多動傾向があり、待つ・順番を守る場面で支援を要する。`;
+    supportContent = `① 課題を短く分割し集中を維持する\n② 動と静の活動をバランスよく配置する\n③ 順番・ルールを視覚的に明示し衝動性に配慮する\n④ できた行動を即時に具体的に称賛する`;
+    specificMethods = `・課題は5〜10分単位に区切り合間に体を動かす活動を挟む\n・順番表やタイマーで「待つ」を可視化\n・約束は短く肯定形で伝える\n・離席時は役割を与えて戻れるようにする`;
+    defShort = `タイマー・順番表を用いて、短い課題に最後まで取り組める回数を増やす`;
+  } else if(isLD){
+    defChars = `知的発達に大きな遅れはないが、読み書き・計算など特定分野に困難がある。`;
+    supportContent = `① 得意な感覚を活かした学習支援を行う\n② 課題量・提示方法を本人に合わせて調整する\n③ 成功体験を重ね学習意欲を支える\n④ 学校と連携し合理的配慮を共有する`;
+    specificMethods = `・読みにはルビ／音声、書きにはタブレット入力など代替手段を用意\n・課題は短く区切り達成感を得やすくする\n・できた部分を具体的に評価する\n・宿題量を担任と調整`;
+    defShort = `本人に合った方法（音声・タブレット等）で学習課題に取り組める場面を増やす`;
+  } else {
+    defChars = `集団活動への参加に支援を要する場面がある。`;
+    supportContent = `① 一人ひとりの特性に合わせた見通し支援を行う\n② 気持ちの言語化を促す\n③ 成功体験を積み重ね自己肯定感を高める\n④ 保護者と連携し家庭でも継続支援する`;
+    specificMethods = `・活動の流れを事前提示\n・感情を表すカードを活用\n・落ち着けるスペースを用意\n・連絡帳で家庭と具体的に共有`;
+    defShort = `支援員のサポートを受けながら活動の切り替えをスムーズにできる場面を増やす`;
+  }
 
-  const prevLong  = latestIsp.longGoal  || "";
-  const prevShort = latestIsp.shortGoal || "";
+  const prevLong  = latestIsp.longGoal  || latestIsp.content?.longGoal  || "";
+  const prevShort = latestIsp.shortGoal || latestIsp.content?.shortGoal || "";
+  const concerns  = A.concerns  || "";
+  const strengths = A.strengths || "";
 
-  return {
-    // 本人・保護者のニーズ
-    userNeeds: latestA.concerns || `${u.name}さんが友達と一緒に楽しく活動でき、自分の気持ちを言葉で伝えられるようになること`,
-    parentNeeds: latestA.parentWishes || "集団の中でのコミュニケーション力を育てほしい。学校生活に必要な生活習慣を身につけてほしい。",
-    // 長期目標（前回あれば引き継ぎ、なければ生成）
-    longGoal: prevLong || `自分の感情や気持ちを言葉や表情で相手に伝えられるようになる（${grade}）${svcHint}`,
+  const result = {
+    // 本人・保護者のニーズ（アセスメント由来＝児童ごとに異なる）
+    userNeeds: concerns || `${u.name}さんが安心して活動に参加し、自分の気持ちを伝えられるようになること`,
+    parentNeeds: A.parentWishes || "集団でのコミュニケーション力を育て、生活習慣を身につけてほしい。",
+    // 長期目標（前回あれば引継ぎ／強みを反映）
+    longGoal: prevLong || (strengths
+      ? `「${strengths}」という強みを活かし、自分の気持ちや考えを相手に伝えられるようになる（${grade}）`
+      : `自分の感情や気持ちを言葉や表情で相手に伝えられるようになる（${grade}）`),
     longGoalTerm: "1年間",
-    // 短期目標
-    shortGoal: prevShort || `支援員のサポートを受けながら、活動の切り替えを5分以内にできる場面を増やす`,
+    shortGoal: prevShort || defShort,
     shortGoalTerm: "6ヶ月",
-    // 支援内容
-    supportContent: `① 視覚的なスケジュールを活用し、活動の見通しを持てるよう支援する\n② 気持ちカードや感情チャートを使い、感情の言語化を促す\n③ 成功体験を積み重ね、自己肯定感を高める支援を行う\n④ 保護者と連携し、家庭でも継続した支援ができるよう情報共有する`,
-    specificMethods: `・入室時にその日の活動スケジュールをホワイトボードで提示する\n・活動移行時は3分前予告を実施し、切り替えやすい環境を整える\n・感情が高ぶった際は別室での落ち着きスペースを提供する\n・毎回の連絡帳に具体的なエピソードを記録し保護者と共有する`,
+    supportContent,
+    specificMethods,
     staffInCharge: "",
     frequency: "週3〜4回",
     achievementDate: "",
     evaluationMethod: "月1回の職員ミーティングでの実績確認、3ヶ月ごとのモニタリング実施",
     reviewDate: "",
-    // 障害特性・環境
-    disabilityType: dis,
-    characteristics: latestA.characteristics || `感覚過敏（聴覚・触覚）があり、急な予定変更が苦手。言語理解は年齢相応だが、表出言語に遅れがある。`,
-    environment: latestA.schoolSituation || "通常学級在籍。学校での集団活動は概ね参加できているが、昼休みは一人で過ごすことが多い。",
-    staffObservation: latestA.staffObservations || "活動への意欲は高い。好きな活動（工作・読書）では集中して取り組める。",
+    // 障害特性・環境（アセスメント由来）
+    disabilityType: disText,
+    characteristics: A.characteristics || defChars,
+    environment: A.schoolSituation || "通常学級在籍。集団活動には概ね参加できている。",
+    staffObservation: A.staffObservations || "活動への意欲がある。好きな活動では集中して取り組める。",
     // メタ情報
     generatedFrom: {
-      hasAssessment: !!latestA.id,
+      hasAssessment: !!top,
+      assessmentSource: top?.src || null,
+      assessmentId: top?.id || null,
       hasPrevIsp: !!latestIsp.id,
       svcCount: svcs.length,
-      assessmentDate: latestA.date || null,
-      prevIspPeriod: latestIsp.period || null,
+      assessmentDate: top?.date || null,
+      disabilityDetected: isASD?"ASD":isADHD?"ADHD":isLD?"LD":"その他",
     },
   };
+
+  // 【AI生成ログ】#5: 参照した児童・アセスメントを明示（別児童混入の検知用）
+  console.log("[AI原案生成]", {
+    selectedChildId: u.id,
+    childName:       u.name,
+    fetchedChildId:  u.id,
+    assessmentId:    top?.id || null,
+    assessmentSource:top?.src || "(なし)",
+    assessmentChildId: top?.userId || null,
+    assessmentCount: cands.length,
+    disabilityDetected: result.generatedFrom.disabilityDetected,
+    promptPreview:   `児童=${u.name}(${u.id}) / 障害=${disText} / 困りごと=${concerns.slice(0,30)} / 強み=${strengths.slice(0,20)}`,
+  });
+
+  return result;
 }
 
 // ─── ステータスバッジ ───
@@ -14194,9 +14257,19 @@ function IspPlanForm({record, u, user, store, onSave, onCancel}){
   },[record?.id]);
 
   const handleGenerate=()=>{
+    // 【child_idガード】児童が未選択ならAI生成を禁止（全児童同一・別児童混入の防止）
+    if(!u || !u.id){
+      store.showToast?.("児童が選択されていません。一覧から児童を選び直してください。","error");
+      return;
+    }
     setGenerating(true);
     setTimeout(()=>{
-      const draft = generateIspDraftContent(u, store.assessments||[], store.isps||[], store.recs||[]);
+      const draft = generateIspDraftContent(u, store.assessments||[], store.isps||[], store.recs||[], store.ispRecords||[]);
+      if(!draft){
+        setGenerating(false);
+        store.showToast?.("AI生成に失敗しました（児童IDが取得できません）","error");
+        return;
+      }
       setF(p=>({...p,...draft}));
       setGenerating(false);
       setGenerated(true);
