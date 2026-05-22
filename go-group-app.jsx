@@ -8674,9 +8674,59 @@ function UserManagement({user,store,onBack}){
       onBack={()=>setScreen("list")}
       onSave={async (u)=>{
         if(isEdit){
+          // ── 受給者証が変更されたか判定（変更時のみ履歴追加・タイムスタンプ更新）──
+          // freshUser = dynUsersから取得した保存前の最新データ
+          const jukyushaChanged =
+            u.jukyushaNo     !== (freshUser?.jukyushaNo     || "") ||
+            u.jukyushaExpiry !== (freshUser?.jukyushaExpiry || "") ||
+            u.jukyushaCity   !== (freshUser?.jukyushaCity   || "") ||
+            String(u.maxBurden||"") !== String(freshUser?.maxBurden||"") ||
+            (u.isLimitMgmtOffice ?? false) !== (freshUser?.isLimitMgmtOffice ?? false);
+
+          // 受給者証変更があれば jukyushaUpdatedAt を付与してまとめて保存
+          const saveData = jukyushaChanged && (u.jukyushaNo || u.jukyushaExpiry)
+            ? { ...u, jukyushaUpdatedAt: new Date().toISOString() }
+            : u;
+
           // 編集: ローカル state を即時更新 + Supabase に非同期保存
-          store.updUser2(u.id, u);
-          setSelUser(u);
+          store.updUser2(u.id, saveData);
+
+          // ── 受給者証が変更された場合: JukyushaTab の履歴一覧にも反映 ──
+          // addJukyushaDoc を呼ぶことで「利用者情報編集」と「受給者証タブ」が双方向に連動する
+          if(jukyushaChanged && (u.jukyushaNo || u.jukyushaExpiry)){
+            // 旧受給者証を「旧」に更新（有効なものだけ）
+            (store.jukyushaDocs||[])
+              .filter(d => d.userId===u.id && d.status==="有効")
+              .forEach(d => store.updJukyushaDoc(d.id, {status:"旧"}));
+
+            store.addJukyushaDoc({
+              id:           "jd_edit_" + Date.now(),
+              facilityId:   u.facilityId,
+              userId:       u.id,
+              scanDate:     new Date().toISOString().slice(0,10),
+              jukyushaNo:   u.jukyushaNo       || null,
+              city:         u.jukyushaCity      || null,
+              expiryDate:   u.jukyushaExpiry    || null,
+              serviceType:  u.serviceType       || null,
+              maxBurden:    u.maxBurden ? parseInt(u.maxBurden) : null,
+              isLimitMgmtOffice: u.isLimitMgmtOffice ?? false,
+              hasTransport:      u.hasTransport      ?? false,
+              status:       "有効",
+              // 編集フォームで写真撮影している場合は画像も含める
+              imagePreview: u.jukyushaCopyPreview
+                ? u.jukyushaCopyPreview.replace(/^data:image\/\w+;base64,/,"")
+                : null,
+              imagePreviews: u.jukyushaCopyPreview
+                ? [u.jukyushaCopyPreview.replace(/^data:image\/\w+;base64,/,"")]
+                : [],
+              ocrData:      u.jukyushaCopyOcrParsed || null,
+              createdBy:    user.displayName,
+              note:         "利用者情報編集より更新",
+            });
+            console.log("[isEdit] 受給者証変更検知 → jukyushaDoc追加・JukyushaTabと連動");
+          }
+
+          setSelUser(saveData);
           store.showToast("✅ 利用者情報を保存しました");
           setScreen("list");
         } else {
