@@ -18304,11 +18304,6 @@ function ChildDocumentBox({u, user, store}) {
     </div>
   );
 
-  // デバッグ: バージョン・is_latest 状態を確認
-  console.log("LATEST_DOCS [BOX "+u.name+"]",
-    myDocs.map(d=>({id:d.id.slice(0,10),type:d.documentType,isLatest:d.isLatest,ver:d.versionNo,expiry:d.expiryDate,childId:d.childId}))
-  );
-
   // 期限アラートバー（60日以内 / is_latest=true のみ対象）
   const latestDocs = myDocs.filter(d => d.isLatest);
   const expiringDocs = latestDocs.filter(d => {
