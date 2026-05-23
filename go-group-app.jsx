@@ -8791,6 +8791,8 @@ function UserManagement({user,store,onBack}){
               </div>}
             </div>
             <div style={{fontWeight:900,fontSize:14,marginBottom:2,color:u.active===false?"var(--tx3)":"var(--tx)"}}>{u.name}{u.active===false&&<span style={{fontSize:10,color:"var(--bda)",marginLeft:5}}>（無効）</span>}</div>
+            {/* ふりがな（name_kana統一・旧データはfurigana/kanaにフォールバック） */}
+            {(u.nameKana||u.name_kana||u.furigana||u.kana)&&<div style={{fontSize:10,color:"var(--tx3)",marginBottom:2}}>{u.nameKana||u.name_kana||u.furigana||u.kana}</div>}
             <div style={{fontSize:11,color:"var(--tx3)",marginBottom:4}}>{age}歳 ／ {u.diagnosis}</div>
             {/* サービス種別バッジ */}
             {(()=>{const st=getUserServiceType(u);return <span className={`svc-badge svc-${st.id}`} style={{marginBottom:5,display:"inline-flex"}}>{st.icon} {st.short}</span>;})()}
@@ -9081,9 +9083,11 @@ function UserManagement({user,store,onBack}){
         <div style={{background:"linear-gradient(135deg,var(--tl),var(--gr))",borderRadius:10,padding:"10px 14px",marginBottom:10,color:"#fff",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <span style={{fontSize:20,lineHeight:1,flexShrink:0}}>👤</span>
           <div style={{flex:1,minWidth:0}}>
-            {/* 1行目: 名前 ＋ キーサマリー */}
+            {/* 1行目: 名前(＋ふりがな) ＋ キーサマリー */}
             <div style={{fontSize:14,fontWeight:900,display:"flex",flexWrap:"wrap",alignItems:"baseline",gap:"0 6px",lineHeight:1.4}}>
               <span>{u.name}</span>
+              {/* ふりがな（name_kana統一・旧データはfurigana/kanaにフォールバック） */}
+              {(u.nameKana||u.name_kana||u.furigana||u.kana)&&<span style={{fontSize:10,fontWeight:400,opacity:.8}}>（{u.nameKana||u.name_kana||u.furigana||u.kana}）</span>}
               <span style={{fontSize:11,fontWeight:400,opacity:.85}}>
                 {age}歳 ｜ {FACILITIES.find(f=>f.id===u.facilityId)?.name} ｜ 送迎{u.hasTransport?"あり":"なし"}
               </span>
