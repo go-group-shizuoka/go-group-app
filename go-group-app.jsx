@@ -14038,6 +14038,16 @@ const ISP_DOC_LABELS = {
   meeting:"会議記録",        consent:"保護者同意書",
 };
 
+// 「承認待ち書類」カウント対象の書類種別（★アセスメントは除外）
+// アセスメントは上部タブ管理・下部は参照のみのため、下部の承認フローで進められず
+// 承認待ちに残り続けてしまう。よって承認待ちの集計対象から外す。
+// 表示・参照・AI反映は従来どおり維持（getAssessmentsByChild）。
+// 対象: 個別支援計画 / モニタリング / 会議記録 / 保護者同意書（＋週間支援計画）
+const APPROVAL_PENDING_DOCTYPES = ["isp_plan","weekly_plan","monitoring","meeting","consent"];
+const isApprovalPending = (r) =>
+  APPROVAL_PENDING_DOCTYPES.includes(r.docType) &&
+  r.status!=="finalized" && r.status!=="ai_draft";
+
 // ─── AI原案生成（テンプレートベース） ───
 // ※ アセスメントは「上部アセスメントタブ(assessments)」と「支援計画内アセスメント
 //   (ispRecords docType=assessment)」の二系統に保存され得るため、両方を child_id で
@@ -15222,7 +15232,7 @@ function IspUserDetail({u, user, store, onBack}){
   const ispExpired = latestIsp && latestIsp.content?.validTo && latestIsp.content.validTo < today;
   const ispExpireSoon = latestIsp && latestIsp.content?.validTo &&
     new Date(latestIsp.content.validTo)-new Date(today) < 30*86400000 && !ispExpired;
-  const pendingApproval = myRecs.filter(r=>r.status!=="finalized"&&r.status!=="ai_draft").length;
+  const pendingApproval = myRecs.filter(isApprovalPending).length; // ★アセスメント除外
   const noConsent = latestIsp && latestIsp.status==="parent_explained" &&
     !myRecs.find(r=>r.docType==="consent"&&r.status==="parent_consented");
   const draftUnreviewed = myRecs.filter(r=>r.status==="ai_draft").length;
@@ -15443,7 +15453,7 @@ function IspScreen({user, store, onBack}){
     const recs = (store.ispRecords||[]).filter(r=>r.userId===uid);
     const latestIsp = recs.filter(r=>r.docType==="isp_plan").sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
     const hasAssessment = recs.some(r=>r.docType==="assessment");
-    const pendingCount = recs.filter(r=>r.status!=="finalized"&&r.status!=="ai_draft").length;
+    const pendingCount = recs.filter(isApprovalPending).length; // ★アセスメント除外
     const draftCount = recs.filter(r=>r.status==="ai_draft").length;
     const lastMonitoring = recs.filter(r=>r.docType==="monitoring").sort((a,b)=>b.createdAt>a.createdAt?1:-1)[0];
 
