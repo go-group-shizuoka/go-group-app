@@ -3474,6 +3474,45 @@ function useStore() {
     setIspRecords(p=>p.filter(x=>x.id!==id));
     sbDelete("isp_records", id);
   };
+
+  // ─── アセスメント統合取得（★単一ソース）───
+  // 上部アセスメントタブ(assessments=スコア式)と支援計画内(isp_records docType=assessment=テキスト式)の
+  // 両系統を child_id で統合し、画面横断で同一件数になるようにする。
+  // 条件差異を作らない（最新のみ/active のみ/draft除外 等の絞り込みはしない）。論理削除のみ除外。
+  const getAssessmentsByChild = (childId) => {
+    if(!childId) return [];
+    const out = [];
+    // ① assessments テーブル（スコア式）— 元の形状を保持しつつメタ情報を付与
+    (assessments||[]).filter(a=>a.userId===childId && !a.is_deleted && !a.deleted_at).forEach(a=>{
+      out.push({
+        ...a,
+        source: "assessments",
+        docType: "assessment",
+        assessmentKind: "score",        // スコア式
+        date: a.date || a.assess_date || a.createdAt || "",
+      });
+    });
+    // ② isp_records (docType=assessment)（テキスト式）— content を展開してメタ情報を付与
+    (ispRecords||[]).filter(r=>r.userId===childId && r.docType==="assessment" && !r.is_deleted && !r.deleted_at).forEach(r=>{
+      const c = r.content || {};
+      out.push({
+        ...r, ...c,
+        source: "ispRecords",
+        docType: "assessment",
+        assessmentKind: "text",         // テキスト式
+        date: c.date || r.createdAt || "",
+      });
+    });
+    out.sort((x,y)=> y.date>x.date?1:(y.date<x.date?-1:0));
+    // 取得ログ（取得元別件数）
+    console.log("[getAssessmentsByChild]", {
+      childId,
+      fromAssessments: out.filter(o=>o.source==="assessments").length,
+      fromIspRecords:  out.filter(o=>o.source==="ispRecords").length,
+      total: out.length,
+    });
+    return out;
+  };
   // ─── 日々のモニタリング蓄積ノート（ISP連携サービス記録から自動生成） ───
   const [monitoringNotes, setMonitoringNotes] = useState([]);
   const addMonitoringNote = n => {
@@ -4293,7 +4332,7 @@ function useStore() {
     setToastMsg(msg); setToastType(type);
     setTimeout(()=>setToastMsg(""), 3000);
   };
-  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,softDeleteUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,saveJukyushaCertificate,loadJukyushaCertificate,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,ocrCorrectionLogs,addOcrCorrectionLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck,auditSaveError,setAuditSaveError,saveErrors,facilityEvents,saveFacilityEvent,delFacilityEvent};
+  return {recs,addRec,updRec,delRec,hist,shifts,setShift,getShift,att,setAtt,getAtt,msgs,addMsg,replyMsg,markRead,updMsg,trData,updTr,routes,addRoute,updRoute,delRoute,isps,addIsp,updIsp,kokuho,addKokuho,updKokuho,fullPipelineSync,facesheets,saveFS,assessments,addAssessment,updAssessment,monitorings,addMonitoring,updMonitoring,dailyReports,addDailyReport,dynUsers,addUser,updUser2,delUser,softDeleteUser,dynStaff,addStaff,updStaff2,delStaff,paidLeaveReqs,addPaidLeaveReq,updPaidLeaveReq,qualDocs,addQualDoc,updQualDoc,delQualDoc,scheduleData,setScheduleData,saveScheduleRow,ispDrafts,addIspDraft,updIspDraft,delIspDraft,ispRecords,addIspRecord,updIspRecord,delIspRecord,monitoringNotes,addMonitoringNote,facilityBillingSettings,saveFacilityBillingSetting,staffConfigs,saveStaffConfig,getStaffConfig,billingStatus,saveBillingStatus,showToast,toastMsg,toastType,visitDests,addVisitDest,updVisitDest,delVisitDest,visitRecords,addVisitRecord,updVisitRecord,delVisitRecord,devRecords,addDevRecord,updDevRecord,delDevRecord,parentSupportRecords,addParentSupportRecord,updParentSupportRecord,delParentSupportRecord,saveJukyushaCertificate,loadJukyushaCertificate,jukyushaDocs,addJukyushaDoc,updJukyushaDoc,delJukyushaDoc,soudanGenans,addSoudanGenan,updSoudanGenan,delSoudanGenan,getAssessmentsByChild,serviceRecs,saveServiceRec,claimHistory,addClaimHistory,updClaimHistory,monthlyLocks,lockMonth,unlockMonth,isMonthLocked,auditLogs,supportPlans,addSupportPlan,updSupportPlan,parentContacts,saveParentContact,staffAttendance,saveStaffAtt,ispAuditLogs,billingItems,saveBillingItem,additionItems,saveAddition,kintaiCorrections,saveKintaiCorrection,transportLogs,saveTransportLog,announcements,saveAnnouncement,announcementReads,saveAnnouncementRead,surveys,saveSurvey,surveyResponses,saveSurveyResponse,absenceReports,saveAbsenceReport,staffDocs,saveStaffDoc,delStaffDoc,staffDocAuditLogs,saveStaffDocAudit,staffDocNotifs,saveStaffDocNotif,markStaffDocNotifRead,staffDocRequests,saveStaffDocRequest,delStaffDocRequest,photoAlbums,savePhotoAlbum,delPhotoAlbum,ocrLogs,addOcrLog,updOcrLog,ocrCorrectionLogs,addOcrCorrectionLog,manualReviewQueue,addManualReview,updManualReview,childDocuments,addChildDoc,updChildDoc,auditChecks,saveAuditCheck,updAuditCheck,auditSaveError,setAuditSaveError,saveErrors,facilityEvents,saveFacilityEvent,delFacilityEvent};
 }
 
 
@@ -9006,7 +9045,7 @@ function UserManagement({user,store,onBack}){
     // 新システムにある場合は新システムを優先、ない場合は旧システムを使用
     const myIsps=myIspRecs.length>0?myIspRecs:myIspsLegacy;
     const myFS=store.facesheets.find(f=>f.userId===u.id)||null;
-    const myAssessments=store.assessments.filter(a=>a.userId===u.id);
+    const myAssessments=store.getAssessmentsByChild(u.id); // ★共通getter（上部・下部・AIで同一ソース）
     const myMonitorings=store.monitorings.filter(m=>m.userId===u.id);
     const myIspDrafts=(store.ispDrafts||[]).filter(d=>d.userId===u.id).sort((a,b)=>b.createdAt>a.createdAt?1:-1);
     const svcType = getUserServiceType(u);
@@ -9437,7 +9476,7 @@ function AssessmentTab({u,myAssessments,user,store}){
       {/* レーダー風サマリー */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:12}}>
         {ASSESSMENT_AREAS.map(a=>{
-          const s=selA.scores[a.key]||{};const vals=Object.values(s).filter(Boolean);
+          const s=(selA.scores||{})[a.key]||{};const vals=Object.values(s).filter(Boolean);
           const avg=vals.length?Math.round(vals.reduce((x,y)=>x+y,0)/vals.length*10)/10:null;
           return <div key={a.key} style={{background:avg?ScoreBg(avg):"var(--bg)",borderRadius:8,padding:"10px 12px"}}>
             <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>{a.label}</div>
@@ -9457,7 +9496,7 @@ function AssessmentTab({u,myAssessments,user,store}){
     </div>
     {ASSESSMENT_AREAS.map(a=><div key={a.key} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
       <div style={{fontWeight:700,fontSize:13,marginBottom:10}}>{a.label}</div>
-      {a.items.map((item,i)=>{const s=(selA.scores[a.key]||{})[i]||0;return <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid var(--bg2)"}}>
+      {a.items.map((item,i)=>{const s=((selA.scores||{})[a.key]||{})[i]||0;return <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid var(--bg2)"}}>
         <div style={{fontSize:12,color:"var(--tx2)",flex:1}}>{item}</div>
         <div style={{padding:"3px 10px",borderRadius:10,background:s?ScoreBg(s):"var(--bg)",color:s?ScoreColor(s):"var(--tx3)",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{s?LEVEL_LABELS[s-1]:"未評価"}</div>
       </div>;})}
@@ -9504,24 +9543,30 @@ function AssessmentTab({u,myAssessments,user,store}){
     </div>
     {myAssessments.length===0?<div style={{textAlign:"center",color:"var(--tx3)",padding:"36px 0",fontSize:13}}>アセスメントがありません</div>
     :myAssessments.sort((a,b)=>b.date>a.date?1:-1).map(a=>{
-      const areas=ASSESSMENT_AREAS.map(ar=>{const s=a.scores[ar.key]||{};const vals=Object.values(s).filter(Boolean);return vals.length?vals.reduce((x,y)=>x+y,0)/vals.length:null;}).filter(Boolean);
+      const isText=a.assessmentKind==="text"; // テキスト式（支援計画内由来）はスコアなし
+      const areas=ASSESSMENT_AREAS.map(ar=>{const s=(a.scores||{})[ar.key]||{};const vals=Object.values(s).filter(Boolean);return vals.length?vals.reduce((x,y)=>x+y,0)/vals.length:null;}).filter(Boolean);
       const avg=areas.length?Math.round(areas.reduce((x,y)=>x+y,0)/areas.length*10)/10:null;
       return <div key={a.id} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:9,cursor:"pointer",boxShadow:"var(--sh)",transition:"all .15s"}} onClick={()=>{setSelA(a);setMode("view");}}
         onMouseEnter={e=>e.currentTarget.style.borderColor="var(--tl)"}
         onMouseLeave={e=>e.currentTarget.style.borderColor="var(--bd)"}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-          <div style={{fontWeight:700,fontSize:14}}>{a.date}</div>
+          <div style={{fontWeight:700,fontSize:14}}>{a.date||"日付未設定"}
+            {isText&&<span style={{marginLeft:8,fontSize:10,padding:"2px 7px",borderRadius:7,background:"rgba(58,160,216,0.12)",color:"var(--tl)",fontWeight:700}}>📝 テキスト式</span>}
+          </div>
           {avg&&<div style={{padding:"4px 12px",borderRadius:12,background:ScoreBg(avg),color:ScoreColor(avg),fontWeight:900,fontSize:14,fontFamily:"'DM Mono',monospace"}}>総合 {avg}/5</div>}
         </div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-          <div style={{fontSize:11,color:"var(--tx3)"}}>評価者: {a.assessor}</div>
-          {(()=>{const nextDate=new Date(a.date);nextDate.setMonth(nextDate.getMonth()+6);const st=expiryStatus(nextDate.toISOString().slice(0,10));const es=expiryStyle(st);const d=daysUntil(nextDate.toISOString().slice(0,10));return st&&st!=="ok"&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:8,fontWeight:700,background:es.bg,color:es.color,border:"1px solid "+es.border}}>{es.icon} 更新{d<0?"期限切れ":d+"日後"}</span>;})()}
+          <div style={{fontSize:11,color:"var(--tx3)"}}>評価者: {a.assessor||a.createdBy||"—"}</div>
+          {a.date&&(()=>{const nextDate=new Date(a.date);nextDate.setMonth(nextDate.getMonth()+6);const st=expiryStatus(nextDate.toISOString().slice(0,10));const es=expiryStyle(st);const d=daysUntil(nextDate.toISOString().slice(0,10));return st&&st!=="ok"&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:8,fontWeight:700,background:es.bg,color:es.color,border:"1px solid "+es.border}}>{es.icon} 更新{d<0?"期限切れ":d+"日後"}</span>;})()}
         </div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {ASSESSMENT_AREAS.map(ar=>{const s=a.scores[ar.key]||{};const vals=Object.values(s).filter(Boolean);const avg2=vals.length?Math.round(vals.reduce((x,y)=>x+y,0)/vals.length*10)/10:null;
-            return <div key={ar.key} style={{fontSize:10,padding:"3px 8px",borderRadius:8,background:avg2?ScoreBg(avg2):"var(--bg)",color:avg2?ScoreColor(avg2):"var(--tx3)",fontWeight:700}}>{ar.label} {avg2||"−"}</div>;
-          })}
-        </div>
+        {isText
+          ? <div style={{fontSize:11,color:"var(--tx3)"}}>支援計画内で作成されたテキスト式アセスメント（参照）</div>
+          : <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {ASSESSMENT_AREAS.map(ar=>{const s=(a.scores||{})[ar.key]||{};const vals=Object.values(s).filter(Boolean);const avg2=vals.length?Math.round(vals.reduce((x,y)=>x+y,0)/vals.length*10)/10:null;
+                return <div key={ar.key} style={{fontSize:10,padding:"3px 8px",borderRadius:8,background:avg2?ScoreBg(avg2):"var(--bg)",color:avg2?ScoreColor(avg2):"var(--tx3)",fontWeight:700}}>{ar.label} {avg2||"−"}</div>;
+              })}
+            </div>
+        }
       </div>;
     })}
   </div>;
@@ -14004,17 +14049,16 @@ function generateIspDraftContent(u, assessments, isps, recs, ispRecords, monitor
     return null;
   }
 
-  // ── アセスメント統合（assessments ＋ ispRecords[docType=assessment]）──
-  const cands = [];
-  (assessments||[]).filter(a=>a.userId===u.id).forEach(a=>{
-    cands.push({src:"assessments", id:a.id, userId:a.userId,
-      date:(a.date||a.assess_date||a.createdAt||""), c:(a.content||a.data||a)});
-  });
-  (ispRecords||[]).filter(r=>r.userId===u.id&&r.docType==="assessment").forEach(r=>{
-    cands.push({src:"ispRecords", id:r.id, userId:r.userId,
-      date:((r.content&&r.content.date)||r.createdAt||""), c:(r.content||{})});
-  });
-  cands.sort((x,y)=> y.date>x.date?1:(y.date<x.date?-1:0));
+  // ── アセスメント（★共通getter getAssessmentsByChild の出力を受け取る）──
+  // assessments は store.getAssessmentsByChild(u.id) 済みの統合・child_id絞込・日付降順リスト。
+  // ここで再マージ・再filterはしない（画面と同一ソース・同一件数を保証）。
+  const cands = (assessments||[]).map(a=>({
+    src:  a.source || "assessments",
+    id:   a.id,
+    userId: a.userId,
+    date: a.date || a.createdAt || "",
+    c:    a,                       // text型は内容が展開済み / score型はスコア中心
+  }));
   const top = cands[0]||null;
   const A = top?.c || {};
 
@@ -14306,7 +14350,7 @@ function IspPlanForm({record, u, user, store, onSave, onCancel}){
     }
     setGenerating(true);
     setTimeout(()=>{
-      const draft = generateIspDraftContent(u, store.assessments||[], store.isps||[], store.recs||[], store.ispRecords||[], store.monitorings||[]);
+      const draft = generateIspDraftContent(u, store.getAssessmentsByChild(u.id), store.isps||[], store.recs||[], store.ispRecords||[], store.monitorings||[]);
       if(!draft){
         setGenerating(false);
         store.showToast?.("AI生成に失敗しました（児童IDが取得できません）","error");
@@ -15157,7 +15201,9 @@ function IspUserDetail({u, user, store, onBack}){
 
   const myRecs = (store.ispRecords||[]).filter(r=>r.userId===u.id)
     .sort((a,b)=>b.createdAt>a.createdAt?1:-1);
-  const tabRecs = myRecs.filter(r=>r.docType===tab);
+  // アセスメントは共通getter（上部タブ・AIと同一ソース）から参照。それ以外はisp_records。
+  const assessmentRefs = store.getAssessmentsByChild(u.id);
+  const tabRecs = tab==="assessment" ? assessmentRefs : myRecs.filter(r=>r.docType===tab);
   // 施設名（印刷用）
   const facName = FACILITIES.find(f=>f.id===u.facilityId)?.name || "GO GROUP";
 
@@ -15319,9 +15365,9 @@ function IspUserDetail({u, user, store, onBack}){
             color:tab===t.k?"#fff":"var(--tx3)",
             borderColor:tab===t.k?"var(--tl)":"var(--bd)"}}>
           {t.icon} {t.l}
-          {myRecs.filter(r=>r.docType===t.k).length>0&&
+          {(t.k==="assessment"?assessmentRefs.length:myRecs.filter(r=>r.docType===t.k).length)>0&&
             <span style={{marginLeft:5,background:tab===t.k?"rgba(255,255,255,0.3)":"var(--tl)",color:tab===t.k?"#fff":"#fff",borderRadius:8,padding:"1px 6px",fontSize:10}}>
-              {myRecs.filter(r=>r.docType===t.k).length}
+              {t.k==="assessment"?assessmentRefs.length:myRecs.filter(r=>r.docType===t.k).length}
             </span>}
         </button>
       ))}
@@ -15337,16 +15383,32 @@ function IspUserDetail({u, user, store, onBack}){
     </>}
 
     {/* 書類一覧 */}
-    {tabRecs.length===0
-      ?<div style={{background:"rgba(58,160,216,0.06)",border:"1px solid rgba(58,160,216,0.2)",borderRadius:11,padding:"20px 14px",textAlign:"center",color:"var(--tx3)",fontSize:13}}>
-        {ISP_DOC_LABELS[tab]||tab}がまだありません
-        {tab==="isp_plan"&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:6}}>💡 まずアセスメントを完成させてから、AI原案生成をお試しください</div>}
-      </div>
-      :tabRecs.map(rec=><IspDocCard key={rec.id} rec={rec}
-          onOpen={r=>{setViewRec(r);setTab(r.docType);}}
-          onEdit={r=>{setTab(r.docType);setEditRec(r);}}
-          onPrint={r=>printIspRecord(r, u, facName)}
-          onDelete={id=>{if(store.delIspRecord)store.delIspRecord(id);}}/>)
+    {tab==="assessment"
+      // アセスメントは共通ソース(assessmentRefs)を参照表示（編集は上部タブ）
+      ? (assessmentRefs.length===0
+          ?<div style={{background:"rgba(58,160,216,0.06)",border:"1px solid rgba(58,160,216,0.2)",borderRadius:11,padding:"20px 14px",textAlign:"center",color:"var(--tx3)",fontSize:13}}>
+            アセスメントがまだありません
+          </div>
+          :assessmentRefs.map(a=><div key={a.id} style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:"12px 14px",marginBottom:9,boxShadow:"var(--sh)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontWeight:700,fontSize:13}}>{a.date||"日付未設定"}
+                <span style={{marginLeft:8,fontSize:10,padding:"2px 7px",borderRadius:7,background:"rgba(58,160,216,0.12)",color:"var(--tl)",fontWeight:700}}>{a.assessmentKind==="text"?"📝 テキスト式":"📊 スコア式"}</span>
+              </div>
+              <div style={{fontSize:10,color:"var(--tx3)"}}>{a.source==="assessments"?"上部アセスメント":"支援計画内"}</div>
+            </div>
+            <div style={{fontSize:11,color:"var(--tx3)",marginTop:4}}>評価者: {a.assessor||a.createdBy||"—"}</div>
+          </div>)
+        )
+      : tabRecs.length===0
+        ?<div style={{background:"rgba(58,160,216,0.06)",border:"1px solid rgba(58,160,216,0.2)",borderRadius:11,padding:"20px 14px",textAlign:"center",color:"var(--tx3)",fontSize:13}}>
+          {ISP_DOC_LABELS[tab]||tab}がまだありません
+          {tab==="isp_plan"&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:6}}>💡 まずアセスメントを完成させてから、AI原案生成をお試しください</div>}
+        </div>
+        :tabRecs.map(rec=><IspDocCard key={rec.id} rec={rec}
+            onOpen={r=>{setViewRec(r);setTab(r.docType);}}
+            onEdit={r=>{setTab(r.docType);setEditRec(r);}}
+            onPrint={r=>printIspRecord(r, u, facName)}
+            onDelete={id=>{if(store.delIspRecord)store.delIspRecord(id);}}/>)
     }
 
     {/* 新規作成ボタン（アセスメントは上部タブに一本化したため非表示・誘導に変更） */}
