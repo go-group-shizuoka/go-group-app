@@ -8682,10 +8682,13 @@ function UserManagement({user,store,onBack}){
   const [bulkMode,setBulkMode]=useState(false); // 一括削除モード
   const [checked,setChecked]=useState([]);       // 選択中の利用者ID
   // is_deleted=true の論理削除済みは一覧に表示しない
+  // ふりがな（name_kana統一・旧データはfurigana/kanaにフォールバック、無ければ氏名）で
+  // あいうえお順（日本語ロケール）に並べ替え
+  const kanaKey = u => (u.nameKana||u.name_kana||u.furigana||u.kana||u.name||"").trim();
   const users=store.dynUsers.filter(u=>
     !u.is_deleted &&
     (user.role==="admin"||u.facilityId===user.selectedFacilityId)
-  );
+  ).sort((a,b)=>kanaKey(a).localeCompare(kanaKey(b),"ja"));
 
   const isMgr = user.role==="manager"||user.role==="admin";
 
