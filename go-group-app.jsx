@@ -340,6 +340,16 @@ const FACILITIES = [
   { id: "f3", name: "GO TOWN 1ST" },
   { id: "f4", name: "GO TOWN 2ND" },
 ];
+
+// ── 利用者並び替え 共通ユーティリティ ──
+// ふりがな（name_kana統一・旧データはfurigana/kanaにフォールバック、無ければ氏名）
+const _userKana = u => (u?.nameKana||u?.name_kana||u?.furigana||u?.kana||u?.name||"").trim();
+// 店舗の並び順（FACILITIES定義順）。未所属は末尾。
+const _userFacIdx = u => { const i=FACILITIES.findIndex(f=>f.id===(u?.facilityId||u?.facility_id)); return i<0?999:i; };
+// 店舗別 → ふりがな(あいうえお)順（複数店舗を見る画面向け）
+const sortUsersByFacilityKana = arr => [...(arr||[])].sort((a,b)=>(_userFacIdx(a)-_userFacIdx(b)) || _userKana(a).localeCompare(_userKana(b),"ja"));
+// ふりがな(あいうえお)順のみ（単一店舗の画面向け）
+const sortUsersByKana = arr => [...(arr||[])].sort((a,b)=>_userKana(a).localeCompare(_userKana(b),"ja"));
 const INITIAL_STAFF = [];
 const INITIAL_USERS = [];
 const ACCOUNTS = [
@@ -5274,7 +5284,7 @@ function UserArrive({user,onBack,store,filterIds}){
   const [teNote,setTeNote]=useState("");
   const [teSaving,setTeSaving]=useState(false);
 
-  const users=store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false);
+  const users=sortUsersByFacilityKana(store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false)); // 店舗別→ふりがな順
   const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
   // 選択日に来所済みのID
   const arrivedIds=[...new Set(store.recs.filter(r=>isDateRec(r,selDate)&&r.type==="user_in"&&(r.facilityId===user.selectedFacilityId||user.role==="admin")).map(r=>r.userId))];
@@ -5592,7 +5602,7 @@ function UserArrive({user,onBack,store,filterIds}){
 function UserDepart({user,onBack,store}){
   const [sel,setSel]=useState(null);const [cap,setCap]=useState(false);const [tr,setTr]=useState("あり");const [note,setNote]=useState("");const [time,setTime]=useState(nowHM());const [done,setDone]=useState(false);const [saved,setSaved]=useState("");const [dayType,setDayType]=useState("放課後");
   const [selDate,setSelDate]=useState(todayISO()); // 日付選択（過去日対応）
-  const users=store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false);const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId);
+  const users=sortUsersByFacilityKana(store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false));const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId); // 店舗別→ふりがな順
   const save=()=>{const t=buildDTForDate(selDate,time);store.addRec({id:genId(),type:"user_out",userId:sel.id,userName:sel.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:t,transport:tr,dayType,photo:cap,note,createdBy:user.displayName,history:[]});setSaved(t);setDone(true);};
   if(done)return <div className="succ"><div className="si">🏠</div><div className="st">退所登録完了</div><div className="sd">{sel?.name} さんの退所を記録しました<br/>送迎: {tr}　区分: {dayType}</div><div className="sm">{saved}</div><button className="bpri" style={{maxWidth:200,marginTop:8}} onClick={onBack}>ホームに戻る</button></div>;
   return <FlowWrap title="🏠 利用者 退所" onBack={onBack}>
@@ -8682,13 +8692,11 @@ function UserManagement({user,store,onBack}){
   const [bulkMode,setBulkMode]=useState(false); // 一括削除モード
   const [checked,setChecked]=useState([]);       // 選択中の利用者ID
   // is_deleted=true の論理削除済みは一覧に表示しない
-  // ふりがな（name_kana統一・旧データはfurigana/kanaにフォールバック、無ければ氏名）で
-  // あいうえお順（日本語ロケール）に並べ替え
-  const kanaKey = u => (u.nameKana||u.name_kana||u.furigana||u.kana||u.name||"").trim();
-  const users=store.dynUsers.filter(u=>
+  // 店舗別 → ふりがな（あいうえお）順で並べ替え（adminは全店舗を店舗ごとにまとめて表示）
+  const users=sortUsersByFacilityKana(store.dynUsers.filter(u=>
     !u.is_deleted &&
     (user.role==="admin"||u.facilityId===user.selectedFacilityId)
-  ).sort((a,b)=>kanaKey(a).localeCompare(kanaKey(b),"ja"));
+  ));
 
   const isMgr = user.role==="manager"||user.role==="admin";
 
@@ -15448,9 +15456,9 @@ function IspScreen({user, store, onBack}){
   const fac = user.selectedFacilityId;
   const today = todayISO();
 
-  // 対象施設の利用者一覧
+  // 対象施設の利用者一覧（店舗別→ふりがな順）
   const allUsers=[...(store.dynUsers||[])];
-  const myUsers = allUsers.filter(u=>!fac||u.facilityId===fac||user.role==="admin");
+  const myUsers = sortUsersByFacilityKana(allUsers.filter(u=>!fac||u.facilityId===fac||user.role==="admin"));
   const filteredUsers = myUsers.filter(u=>
     !searchQ || u.name.includes(searchQ) || (u.grade||"").includes(searchQ)
   );
@@ -29071,11 +29079,11 @@ function ScheduleScreen({ user, store, onBack }) {
     ? [{ id: "all", name: "全店舗" }, ...FACILITIES]
     : FACILITIES.filter(f => f.id === user.selectedFacilityId);
 
-  const users = store.dynUsers.filter(u => {
+  const users = sortUsersByFacilityKana(store.dynUsers.filter(u => {
     if (u.active === false) return false;
     if (selFac === "all") return true;
     return u.facilityId === selFac;
-  });
+  })); // 店舗別→ふりがな順
 
   const getKey = (uid, day) =>
     uid + "_" + vm.y + "_" + String(vm.m).padStart(2,"0") + "_" + String(day).padStart(2,"0");
