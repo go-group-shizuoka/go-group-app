@@ -2946,9 +2946,33 @@ function useStore() {
       photo:u.photo||false,note:u.note||null,data:u});
     return u;
   }));
-  // 記録を完全削除（Supabaseからも削除）
-  const delRec = (id) => {
-    setRecs(p=>p.filter(r=>r.id!==id));
+  // 記録を完全削除（Supabaseからも削除）＋監査ログ
+  // 第2,3引数は省略可（既存呼び出しと互換）。by/reason を渡すと histに削除前データを保存。
+  const delRec = (id, by, reason, action) => {
+    setRecs(p=>{
+      const recBefore = p.find(r=>r.id===id);
+      if(recBefore){
+        const at = nowStr();
+        const entry = {
+          id: genId(), recordId: id, at, by: by||"",
+          action: action || "delete",
+          before: {...recBefore}, after: null,
+          reason: reason || "",
+        };
+        setHist(h2=>[...h2, entry]);
+        // 監査用コンソールログ（user_id=操作者、child_id=対象児童、before_data、timestamp）
+        console.log("[REC DELETE AUDIT]", {
+          user_id:     by || "",
+          child_id:    recBefore.userId || null,
+          staff_id:    recBefore.staffId || null,
+          action:      action || "delete",
+          record_type: recBefore.type,
+          before_data: recBefore,
+          timestamp:   at,
+        });
+      }
+      return p.filter(r=>r.id!==id);
+    });
     sbDelete("records", id);
   };
   const setShift = (sid,date,type) => {setShifts(p=>({...p,[sid]:{...(p[sid]||{}),[date]:type}}));sbSave("shifts",{id:sid+"_"+date,staff_id:sid,date:date,shift_type:type});};
@@ -5265,6 +5289,7 @@ function UserArrive({user,onBack,store,filterIds}){
   // ワンタップ来所記録 — カードをタップ→ボトムシートで即保存
   const [sheet,setSheet]=useState(null);   // 選択中の利用者（来所登録/編集用）
   const [editRec,setEditRec]=useState(null); // 編集対象の既存来所レコード（null=新規登録）
+  const [delConfirm,setDelConfirm]=useState(false); // 来所記録削除の確認ダイアログ表示フラグ
   const [temp,setTemp]=useState("");
   const [tr,setTr]=useState("あり");
   const [note,setNote]=useState("");
@@ -5360,6 +5385,24 @@ function UserArrive({user,onBack,store,filterIds}){
     }
     store.addRec({id:genId(),type:"user_in",userId:sheet.id,userName:sheet.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:t,temp,transport:tr,dayType,photo:true,note,createdBy:user.displayName,history:[]});
     setDone(sheet.name);
+    setSheet(null);
+  };
+
+  // 来所記録の削除（編集モードのみ・確認ダイアログ経由・監査ログあり）
+  const handleDeleteArrival=()=>{
+    if(!editRec) return;
+    // 月次締め後は削除不可（編集と同じガード）
+    const ym=selDate.slice(0,7);
+    if(store.isMonthLocked&&store.isMonthLocked(user.selectedFacilityId,ym)){
+      store.showToast?.("この月は締め済みのため削除できません。","error");
+      setDelConfirm(false);
+      return;
+    }
+    // store.delRec は引数(id, by, reason, action)で監査ログ(hist + console)を残す
+    store.delRec(editRec.id, user.displayName, "来所記録の削除（利用者来所画面）", "arrival_delete");
+    store.showToast?.("✅ 来所記録を削除しました");
+    setDelConfirm(false);
+    setEditRec(null);
     setSheet(null);
   };
 
@@ -5534,6 +5577,36 @@ function UserArrive({user,onBack,store,filterIds}){
         <button className="bsave" style={{marginTop:4,background:temp&&parseFloat(temp)>=37.5?"rgba(224,56,56,0.7)":undefined}} onClick={save}>
           ✓ {sheet.name} の来所を{editRec?"更新する":"記録する"}
         </button>
+        {/* 編集モードのみ「削除（取消）」ボタンを表示。確認ダイアログ経由・誤操作防止 */}
+        {editRec&&<button onClick={()=>setDelConfirm(true)}
+          style={{marginTop:10,width:"100%",padding:"11px",borderRadius:10,border:"1.5px solid rgba(224,56,56,0.5)",background:"rgba(224,56,56,0.08)",color:"var(--ro)",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",minHeight:44}}>
+          🗑 この来所記録を削除する
+        </button>}
+      </div>
+    </div>}
+
+    {/* ── 削除確認ダイアログ（誤操作防止）── */}
+    {delConfirm&&editRec&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setDelConfirm(false)}>
+      <div style={{background:"var(--wh)",borderRadius:14,padding:"20px 18px",width:"100%",maxWidth:380,boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:16,fontWeight:900,color:"var(--ro)",marginBottom:10}}>⚠️ 来所記録の削除</div>
+        <div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.7,marginBottom:8}}>
+          <strong>{sheet?.name}</strong> さんの来所記録（{selDate}）を削除します。
+        </div>
+        <div style={{fontSize:11,color:"var(--tx3)",lineHeight:1.7,marginBottom:14,padding:"8px 10px",background:"var(--bg2)",borderRadius:7}}>
+          ・この操作は取り消せません<br/>
+          ・削除内容は監査ログに記録されます<br/>
+          ・国保連請求の集計から外れます
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={()=>setDelConfirm(false)}
+            style={{flex:1,padding:"12px",borderRadius:10,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx2)",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",minHeight:44}}>
+            キャンセル
+          </button>
+          <button onClick={handleDeleteArrival}
+            style={{flex:1,padding:"12px",borderRadius:10,border:"none",background:"var(--ro)",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",minHeight:44}}>
+            🗑 削除する
+          </button>
+        </div>
       </div>
     </div>}
 
@@ -5604,7 +5677,30 @@ function UserDepart({user,onBack,store}){
   const [selDate,setSelDate]=useState(todayISO()); // 日付選択（過去日対応）
   const users=sortUsersByFacilityKana(store.dynUsers.filter(u=>u.facilityId===user.selectedFacilityId&&u.active!==false));const fac=FACILITIES.find(f=>f.id===user.selectedFacilityId); // 店舗別→ふりがな順
   const save=()=>{const t=buildDTForDate(selDate,time);store.addRec({id:genId(),type:"user_out",userId:sel.id,userName:sel.name,facilityId:user.selectedFacilityId,facilityName:fac?.name,time:t,transport:tr,dayType,photo:cap,note,createdBy:user.displayName,history:[]});setSaved(t);setDone(true);};
-  if(done)return <div className="succ"><div className="si">🏠</div><div className="st">退所登録完了</div><div className="sd">{sel?.name} さんの退所を記録しました<br/>送迎: {tr}　区分: {dayType}</div><div className="sm">{saved}</div><button className="bpri" style={{maxWidth:200,marginTop:8}} onClick={onBack}>ホームに戻る</button></div>;
+  // 完了画面: ①次の利用者を登録（連続入力優先） ② 一覧へ戻る を選択可能に
+  const continueNext=()=>{
+    // フォームをリセットして同じ画面に留まる（連続入力）
+    setSel(null); setCap(false); setTr("あり"); setNote(""); setTime(nowHM());
+    setDone(false); setSaved(""); setDayType("放課後");
+  };
+  if(done)return <div className="succ">
+    <div className="si">🏠</div>
+    <div className="st">退所登録完了</div>
+    <div className="sd">{sel?.name} さんの退所を記録しました<br/>送迎: {tr}　区分: {dayType}</div>
+    <div className="sm">{saved}</div>
+    <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:14,width:"100%",maxWidth:320}}>
+      {/* ① 連続入力を最優先（一番上・目立つボタン） */}
+      <button onClick={continueNext}
+        style={{padding:"13px 18px",borderRadius:11,border:"none",background:"var(--ac)",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",minHeight:48,boxShadow:"var(--sh)"}}>
+        ➕ 次の利用者を登録
+      </button>
+      {/* ② 一覧へ戻る */}
+      <button onClick={onBack}
+        style={{padding:"12px 18px",borderRadius:11,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx2)",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",minHeight:44}}>
+        ← 一覧へ戻る
+      </button>
+    </div>
+  </div>;
   return <FlowWrap title="🏠 利用者 退所" onBack={onBack}>
     {/* 日付選択 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
@@ -19166,6 +19262,27 @@ function DailyReport({user,store,onBack}){
   const updPhoto=(i,k,v)=>setRep(p=>{const ph=[...(p.photos||Array(6).fill(null))];ph[i]={...(ph[i]||{}), [k]:v};return {...p,photos:ph};});
   const addActivity=()=>setRep(p=>({...p,activities:[...p.activities,{time:"",title:"",detail:"",staff:""}]}));
   const removeActivity=(i)=>setRep(p=>({...p,activities:p.activities.filter((_,idx)=>idx!==i)}));
+  // ── 利用者来所一覧 追加/削除（保存後も編集可・国保連請求には影響しない）──
+  // 業務日報の userList は日報内部の表示用配列。service_records(請求の集計元)は別管理のため
+  // ここの追加/削除は集計に影響しない。RLSは daily_reports.data JSONB なので変更なし。
+  const removeUserFromReport=(i)=>{
+    const u=(rep.userList||[])[i];
+    if(!u) return;
+    if(!window.confirm(`${u.name||"この利用者"}を業務日報の利用者一覧から削除します。よろしいですか？`)) return;
+    setRep(p=>({...p,userList:p.userList.filter((_,idx)=>idx!==i)}));
+    console.log("[DailyReport USER REMOVE]",{report_date:rep.date,facility_id:rep.facilityId,child_id:u.id,child_name:u.name,by:user.displayName,timestamp:new Date().toISOString()});
+  };
+  const addUserToReport=(child)=>{
+    if(!child) return;
+    if((rep.userList||[]).some(x=>x.id===child.id)){ store.showToast?.("既に追加されています","error"); return; }
+    const row={
+      id:child.id, name:child.name||"", arrivalTime:"", departTime:"",
+      temp:"", transport:child.hasTransport?"あり":"なし", status:"予定",
+    };
+    setRep(p=>({...p,userList:[...(p.userList||[]),row]}));
+    console.log("[DailyReport USER ADD]",{report_date:rep.date,facility_id:rep.facilityId,child_id:child.id,child_name:child.name,by:user.displayName,timestamp:new Date().toISOString()});
+  };
+  const [addUserModal,setAddUserModal]=useState(false);
 
   // ── 活動写真 取り込み機能（Hooks はトップレベルに必須）──
   const photoFileRef=useRef(null);                         // hidden file input
@@ -19505,11 +19622,14 @@ function DailyReport({user,store,onBack}){
         <div style={{fontSize:10,color:"var(--tx3)",textAlign:"center"}}>体温</div>
       </div>
     </div>
-    {/* 利用者一覧 */}
+    {/* 利用者一覧（保存後も追加・削除可） */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
-      <div style={{fontSize:10,fontWeight:700,color:"var(--gr)",letterSpacing:2,marginBottom:10}}>利用者来所一覧 <span style={{fontSize:10,color:"var(--tx3)",fontWeight:400}}>(自動取込済・手動修正可)</span></div>
-      {(rep.userList||[]).map((u,i)=><div key={i} style={{marginBottom:8}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr auto auto 60px 50px",gap:5,alignItems:"center"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:10,fontWeight:700,color:"var(--gr)",letterSpacing:2}}>利用者来所一覧 <span style={{fontSize:10,color:"var(--tx3)",fontWeight:400}}>(自動取込済・手動修正可)</span></div>
+        <button className="bexp" style={{padding:"5px 11px",minHeight:32}} onClick={()=>setAddUserModal(true)}>＋ 利用者追加</button>
+      </div>
+      {(rep.userList||[]).map((u,i)=><div key={u.id||i} style={{marginBottom:8}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto auto 60px 50px 32px",gap:5,alignItems:"center"}}>
           <div style={{fontWeight:700,fontSize:12,padding:"4px 2px"}}>{u.name}</div>
           <TimePicker value={u.arrivalTime||""} onChange={v=>updUser(i,"arrivalTime",v)} label="来所時刻"/>
           <TimePicker value={u.departTime||""} onChange={v=>updUser(i,"departTime",v)} label="退所時刻"/>
@@ -19517,14 +19637,43 @@ function DailyReport({user,store,onBack}){
           <select className="fi" value={u.status||"出席"} onChange={e=>updUser(i,"status",e.target.value)} style={{fontSize:11,padding:"5px 4px"}}>
             {["出席","欠席","予定","早退"].map(s=><option key={s}>{s}</option>)}
           </select>
+          <button onClick={()=>removeUserFromReport(i)} title="この利用者を一覧から削除"
+            style={{padding:"5px",borderRadius:6,background:"rgba(224,56,56,0.15)",border:"1px solid rgba(224,56,56,0.4)",color:"var(--ro)",cursor:"pointer",fontSize:13,lineHeight:1,minHeight:32}}>×</button>
         </div>
         {/* ISP短期目標バッジ（自動連携） */}
         {u.ispGoal&&<div style={{fontSize:10,color:"var(--tl)",background:"rgba(58,160,216,0.09)",border:"1px solid rgba(58,160,216,0.2)",borderRadius:6,padding:"3px 8px",marginTop:3,marginLeft:2}}>📋 ISP目標：{u.ispGoal}</div>}
       </div>)}
-      <div style={{display:"grid",gridTemplateColumns:"1fr auto auto 60px 50px",gap:5}}>
-        {["氏名","来所","退所","体温","状態"].map(h=><div key={h} style={{fontSize:10,color:"var(--tx3)",textAlign:"center"}}>{h}</div>)}
+      <div style={{display:"grid",gridTemplateColumns:"1fr auto auto 60px 50px 32px",gap:5}}>
+        {["氏名","来所","退所","体温","状態",""].map((h,idx)=><div key={idx} style={{fontSize:10,color:"var(--tx3)",textAlign:"center"}}>{h}</div>)}
       </div>
     </div>
+
+    {/* ── 利用者追加モーダル（業務日報の利用者一覧に追加）── */}
+    {addUserModal&&(()=>{
+      const facId=rep.facilityId||user.selectedFacilityId;
+      const already=new Set((rep.userList||[]).map(x=>x.id));
+      const candidates=(store.dynUsers||[])
+        .filter(u=>!u.is_deleted&&u.active!==false&&u.facilityId===facId&&!already.has(u.id))
+        .sort((a,b)=>((a.nameKana||a.name_kana||a.name||"").localeCompare((b.nameKana||b.name_kana||b.name||""),"ja")));
+      return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setAddUserModal(false)}>
+        <div style={{background:"var(--wh)",borderRadius:"16px 16px 0 0",padding:"18px 16px",width:"100%",maxWidth:480,maxHeight:"75vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{fontSize:14,fontWeight:900}}>➕ 利用者を追加</div>
+            <button onClick={()=>setAddUserModal(false)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"var(--tx3)"}}>×</button>
+          </div>
+          <div style={{fontSize:11,color:"var(--tx3)",marginBottom:12}}>業務日報の利用者来所一覧に追加する児童を選択してください（既に追加済みは表示されません）</div>
+          {candidates.length===0
+            ? <div style={{textAlign:"center",padding:"30px 0",color:"var(--tx3)",fontSize:13}}>追加できる利用者がいません</div>
+            : candidates.map(c=><button key={c.id}
+                onClick={()=>{addUserToReport(c);setAddUserModal(false);}}
+                style={{display:"block",width:"100%",textAlign:"left",padding:"11px 12px",borderRadius:9,marginBottom:6,background:"var(--bg)",border:"1.5px solid var(--bd)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",minHeight:44}}>
+                <div style={{fontWeight:700,fontSize:13,color:"var(--tx)"}}>{c.name}</div>
+                {(c.nameKana||c.name_kana)&&<div style={{fontSize:10,color:"var(--tx3)"}}>{c.nameKana||c.name_kana}</div>}
+              </button>)
+          }
+        </div>
+      </div>;
+    })()}
     {/* 活動内容 */}
     <div style={{background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:11,padding:14,marginBottom:10,boxShadow:"var(--sh)"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
