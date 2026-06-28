@@ -149,3 +149,47 @@ organizations（法人＝テナント・新規テーブル）
 - `main` … 本番運用（不可侵・Vercelデプロイ元）
 - `v1.0-stable` … 最初の正式リリースタグ（ロールバック基点）
 - `saas-phase1` … SaaS化開発ブランチ（v2.0系の作業はここ）
+
+---
+
+## 6. Phase1 認証方式決定：**Supabase Auth 採用**（2026-06-28 確定）
+
+### 決定と理由
+独自認証（現状 `api/auth.js` のPBKDF2＋`staff_accounts`照合＋jsxのデモアカウントa1〜a11）から
+**Supabase Auth へ移行**する。理由：**SaaS化・RLS・法人ごとのデータ分離・将来の招待機能との相性**を優先。
+RLSが唯一の防御壁である本アプリでは、`org_id`をJWTに載せてRLSが`auth.jwt()->>'org_id'`で
+ネイティブに読める構成が最も安全かつ低リスク。
+
+### 認証方式 比較表
+| 項目 | Supabase Auth | 独自認証（現状の延長） |
+|------|---------------|------------------------|
+| 実装コスト | △ 中：既存アカウント移行・ログインUI差替 | ◯ 低：既存あり。但しorg_id対応JWT署名を自前実装 |
+| セキュリティ | ◎ ハッシュ・セッション・失効をSupabaseが管理 | △ AUTH_SALT/PBKDF2運用責任が自社。販売時の事故責任が重い |
+| RLSとの相性 | ◎ `auth.jwt()->>'org_id'`をネイティブに読む | △ Supabase署名鍵でカスタムJWT自作が必要。誤れば分離崩壊 |
+| 保守性 | ◎ 認証を委譲し30,000行本体から分離 | △ 認証コードを自社保持し続ける |
+| 将来性 | ◎ MFA/SSO/リセット標準 | △ 全部自作 |
+| SaaS向け | ◎ 招待・組織メンバー管理と好相性 | ✕ テナント増で作り込み膨張 |
+
+### 既存アカウント移行手順（Supabase Auth へ）
+1. **棚卸し**：本番 `staff_accounts` から実際に使われているアカウントを確定（jsxのa1〜a11はデモ/初期データの可能性が高い → 移行対象から除外を検討）。
+2. **auth.users 作成**：各職員をSupabase Authに作成（Admin API `createUser`）。
+   email無しアカウントは `username@gogroup.local` 等のダミーemailで発行。
+3. **app_metadata 付与**：各ユーザーに `org_id` / `facility_id` / `role` / `staff_id` を **`app_metadata`** へ設定。
+   ⚠️ `user_metadata`はユーザーが改ざん可能 → **信頼境界には必ず `app_metadata` を使う**（RLSの土台）。
+4. **パスワード移行**：PBKDF2ハッシュはSupabase Auth(bcrypt系)へそのまま移せない。
+   → **一時パスワードを発行して配布し、初回ログインで変更必須**（案b）。デモ等既知パスワードは`createUser`で再設定。
+5. **アプリ差替**：ログインを `supabase.auth.signInWithPassword` に変更。`currentUser`/`currentOrg` をセッション
+   （`app_metadata.org_id`）から取得。jsxのa1〜a11ハードコードを除去。
+6. **staff_accounts 降格**：認証ソースから外し、職員プロフィール用途へ（auth.usersと1:1参照）。
+
+### 影響範囲
+- `go-group-app.jsx`：ログイン処理／`currentUser`組み立て／a1〜a11除去／`sbSave`・`sbLoad`のorg_id取得元をセッションへ。
+- `api/auth.js`：独自検証は不要化（互換期間は併存可）。
+- RLS：`auth.uid()` / `auth.jwt()->>'org_id'` ベースへ（§5 Step Cで最後に締める）。
+- anonキーは引き続きフロントで使用（Authトークンと併用）。`api/upload.js`等のservice_role使用は不変。
+
+### ロールバック手順
+- **全作業は `saas-phase1`。本番 `main` は無変更**。問題時はデプロイを `v1.0-stable` のままにするだけで現場は従来通り。
+- 移行は**additive**：`auth.users`へ追加するだけで `staff_accounts` は消さない → アプリをv1.0-stable（独自認証）へ戻せば従来通り動作（前方互換）。
+- DB分離は §5 案B推奨：**販売用SaaSを新規Supabaseプロジェクト**にすれば、Auth移行は自社本番DBに一切触れず、ロールバック＝「SaaS版を出さない」だけで済む。
+- 移行前に `pg_dump` でバックアップ取得。RLSを締める（Step C）前であればいつでも完全復旧可能。
