@@ -44,15 +44,20 @@ const SENSITIVE = ["users_data", "jukyusha_docs", "facesheets", "kokuho_data", "
     console.log(`   ${ok ? "✅" : "🔴"} ${t}: HTTP ${status} / 件数 ${total}`);
   }
 
-  console.log("\n② homestaff(f1)ログイン → users_data は f1 のみ見えるべき（全件より少ない）");
-  const staffTok = await signIn("homestaff", "pass");
-  const s = await count("users_data", staffTok);
-  console.log(`   users_data(homestaff): HTTP ${s.status} / 見える件数 ${s.total}`);
-
-  console.log("\n③ admin ログイン → 全施設が見えるべき（②より多いはず）");
-  const adminTok = await signIn("admin", "bells");
-  const a = await count("users_data", adminTok);
-  console.log(`   users_data(admin): HTTP ${a.status} / 見える件数 ${a.total}`);
-
-  console.log("\n判定: ①が全て✅ かつ ②<③ なら施設分離が有効。\n");
+  // パスワードは秘密情報のためコードに埋め込まず環境変数から受け取る:
+  //   GG_STAFF_USER / GG_STAFF_PW … 施設スタッフ（例: homestaff）
+  //   GG_ADMIN_USER / GG_ADMIN_PW … 本部管理者（例: admin）
+  const staffUser = process.env.GG_STAFF_USER, staffPw = process.env.GG_STAFF_PW;
+  const adminUser = process.env.GG_ADMIN_USER, adminPw = process.env.GG_ADMIN_PW;
+  if (staffPw && adminPw) {
+    console.log(`\n② ${staffUser}ログイン → 自施設のみ見えるべき`);
+    const s = await count("users_data", await signIn(staffUser, staffPw));
+    console.log(`   users_data(${staffUser}): HTTP ${s.status} / 見える件数 ${s.total}`);
+    console.log(`\n③ ${adminUser}ログイン → 全施設が見えるべき（②より多いはず）`);
+    const a = await count("users_data", await signIn(adminUser, adminPw));
+    console.log(`   users_data(${adminUser}): HTTP ${a.status} / 見える件数 ${a.total}`);
+    console.log("\n判定: ①が全て✅ かつ ②<③ なら施設分離が有効。\n");
+  } else {
+    console.log("\n（②③はスキップ: GG_STAFF_USER/PW, GG_ADMIN_USER/PW を環境変数で渡すと施設分離も検証します）\n");
+  }
 })().catch(e => { console.error(e); process.exit(1); });
