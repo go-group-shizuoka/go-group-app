@@ -29,19 +29,19 @@ GO GROUP本番（`jjouwtsjykxnmvuaqhbc`）とは別環境。**本番には触れ
    ```
 3. デプロイ → SaaS版フロントが新DBに接続される（GO GROUP本番とは別URL）
 
-## STEP 2. 新しい法人（顧客）の登録
-新DBの SQL Editor もしくは node-pg で:
-```sql
-INSERT INTO organizations (id, name, plan) VALUES ('org_顧客', '顧客法人名', 'standard');
-INSERT INTO facilities (id, org_id, name) VALUES ('fac_xxx', 'org_顧客', '施設名');
--- 施設は必要数だけ
+## STEP 2. 新しい法人（顧客）の初期セットアップ ★推奨: オンボードスクリプト
+**`saas_onboard_org.mjs`** で「法人→施設→初期管理者(Auth連携)」を一括作成できる（UI不要）。
+```bash
+cp onboard.example.json onboard.json   # 編集: 法人ID・施設・管理者ID/パスワード
+node saas_onboard_org.mjs onboard.json           # 確認(dry-run)
+node saas_onboard_org.mjs onboard.json --apply   # 実行
 ```
+→ organizations / facilities / 初期管理者の Supabase Auth(app_metadataにorg_id/role/facility_id) / staff_data を作成。
+初期管理者は onboard.json の loginId / password でログイン可能。以降の職員追加はアプリの「スタッフ管理」から（`api/create-staff` が Auth を自動作成）。
 
-## STEP 3. その法人の職員アカウント作成（Supabase Auth）
-新プロジェクトの service_role で Auth ユーザーを作成し、**app_metadata に org_id/role/facility_id を付与**（これがRLSの分離キー）。`migration_phase1_auth.mjs` を新プロジェクト向けに流用可（EMAIL_DOMAIN / 接続先を新DBへ変更）。
-```
-app_metadata = { org_id:'org_顧客', role:'admin|manager|staff', facility_id:'fac_xxx', display_name:'…' }
-```
+## STEP 3. 追加職員のアカウント作成
+アプリの スタッフ管理 で職員を登録/編集すると `api/create-staff` が Supabase Auth を自動作成（app_metadataにrole/facility_id/org_id）。パスワードはAuthのみ保存（DB平文なし）。
+手動で作る場合は org_1 の Auth に `app_metadata = { org_id, role, facility_id, display_name }` を付与。
 
 ## STEP 4. Storage（ファイル）を org 分離で使う
 - 保存パス規約: **`{org_id}/{facility_id}/ファイル名`**
