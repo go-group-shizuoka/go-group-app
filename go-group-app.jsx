@@ -3529,7 +3529,7 @@ function useStore() {
       active:          s.active !== false,
       hire_date:       s.hireDate || null,
       updated_at:      new Date().toISOString(),
-      data:            s
+      data:            {...s, loginPassword: undefined}  // 平文パスワードはDBに保存しない（Authで管理）
     });
   };
   const updStaff2 = (id,ch) => {
@@ -3546,7 +3546,7 @@ function useStore() {
         active:          updated.active !== false,
         hire_date:       updated.hireDate || null,
         updated_at:      new Date().toISOString(),
-        data:            updated
+        data:            {...updated, loginPassword: undefined}  // 平文パスワードはDBに保存しない
       });
       return updated;
     }));
@@ -20930,12 +20930,24 @@ function StaffManagement({user, store, onBack}){
     };
     return <RegisterStaff init={init} isEdit={isEdit} user={user} store={store}
       onBack={()=>setScreen("list")}
-      onSave={s=>{
+      onSave={async s=>{
+        let staffId = s.id;
         if(isEdit){ store.updStaff2(s.id,s); }
         else {
           // 意味のあるID: S-GH-0001 形式で採番
-          const newId = genStaffId(s.facilityId||user.selectedFacilityId, store.dynStaff);
-          store.addStaff({...s, id: newId});
+          staffId = genStaffId(s.facilityId||user.selectedFacilityId, store.dynStaff);
+          store.addStaff({...s, id: staffId});
+        }
+        // ログインID/パスワードが入力されていれば Supabase Auth アカウントを作成/更新（ログイン可能にする）
+        // パスワードは本APIでAuthにのみ渡り、DBには平文保存しない
+        if(s.loginId && s.loginPassword){
+          try{
+            const r=await fetch("/api/create-staff",{method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({loginId:String(s.loginId).trim(),password:s.loginPassword,name:s.name,role:s.role,facilityId:s.facilityId,staffId})});
+            const j=await r.json().catch(()=>({}));
+            if(r.ok&&j.success) store.showToast("ログインアカウントを"+(j.action==="created"?"作成":"更新")+"しました ✅","success");
+            else store.showToast("ログインアカウント作成に失敗: "+(j.error||"不明なエラー"),"error");
+          }catch(e){ store.showToast("ログインアカウント作成に失敗しました（通信エラー）","error"); }
         }
         setScreen("list");
       }}
