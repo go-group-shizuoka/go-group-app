@@ -2696,6 +2696,22 @@ function useStore() {
         sbLoad("photo_albums"),
         sbLoad("facility_events"),
       ]);
+      // ── 施設マスタを facilities テーブルから動的取得（SaaSマルチテナント）──
+      //   RLSにより「ログインユーザーの法人(org_id)の施設のみ」が返る＝他社施設は絶対に出ない。
+      //   取得できたら FACILITIES の中身を差し替える（既存79箇所の参照はそのまま動的化）。
+      //   facilities テーブルが無い/空（GO GROUP本番=単一テナント等）は既定の f1-f4 を維持。
+      try {
+        const facRows = await sbLoad("facilities");
+        if (Array.isArray(facRows)) {
+          const mapped = facRows
+            .filter(f => f && f.id && f.active !== false)
+            .map(f => ({ id: f.id, name: f.name || f.id }));
+          if (mapped.length > 0) {
+            FACILITIES.splice(0, FACILITIES.length, ...mapped);
+            setFacRev(v => v + 1); // 再描画して施設セレクタ等へ反映
+          }
+        }
+      } catch(e) { /* 失敗時は既定 FACILITIES を維持（GO GROUP本番を壊さない） */ }
       if(pContacts&&pContacts.length>0) setParentContacts(pContacts.map(r=>({...r,...(r.data||{})})));
       if(stAtt&&stAtt.length>0) setStaffAttendance(stAtt.map(r=>({...r,...(r.data||{})})));
       if(ispLogs&&ispLogs.length>0) setIspAuditLogs(ispLogs.map(l=>({...l,before_data:typeof l.before_data==="string"?JSON.parse(l.before_data||"{}"):l.before_data||{},after_data:typeof l.after_data==="string"?JSON.parse(l.after_data||"{}"):l.after_data||{}})));
@@ -2859,6 +2875,8 @@ function useStore() {
     } catch(e) { console.error("Load error:", e); }
   };
 
+  // 施設マスタを facilities テーブルから動的読込した後の再描画トリガー（SaaSマルチテナント）
+  const [,setFacRev] = useState(0);
   const [recs, setRecs] = useState(() => {
     const b=new Date();
     const ts=(h,m)=>{const d=new Date(b);d.setHours(h,m,0);return d.toLocaleString("ja-JP");};
