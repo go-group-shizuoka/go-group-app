@@ -2,10 +2,18 @@ import React, { useState, useRef, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 
 // ==================== SUPABASE CLIENT ====================
-const SUPABASE_URL = "https://jjouwtsjykxnmvuaqhbc.supabase.co";
+// 環境切替（Phase2 SaaS）:
+//   VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY が設定されていればそちら（＝新SaaS環境）を使用。
+//   未設定なら従来の GO GROUP 本番にフォールバック（＝現本番は挙動不変・影響ゼロ）。
+// import.meta.env は Vite がビルド時に埋め込む。
+const SUPABASE_URL =
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_SUPABASE_URL) ||
+  "https://jjouwtsjykxnmvuaqhbc.supabase.co";
 // anon キー: apikey ヘッダー（プロジェクト識別）に常に使用。データ行の閲覧可否は
 // ログインユーザーのJWT(_authToken)＋RLSで制御する（Phase1: テナント分離）。
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impqb3V3dHNqeWt4bm12dWFxaGJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyMTg1OTgsImV4cCI6MjA5MDc5NDU5OH0.pLWwbpsVTtS5-6iyJXjcUhrX_vXutd7dhRKjqHR4Knc";
+const SUPABASE_KEY =
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impqb3V3dHNqeWt4bm12dWFxaGJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyMTg1OTgsImV4cCI6MjA5MDc5NDU5OH0.pLWwbpsVTtS5-6iyJXjcUhrX_vXutd7dhRKjqHR4Knc";
 
 // ==================== SUPABASE AUTH（Phase1）====================
 // フロントは supabase-js 非依存のため Auth REST を直接叩く。
