@@ -5,3 +5,8 @@ dist/
 
 .env*.local
 go-group-app.jsx.pre-phase1.bak
+
+phase2_schema_map.json
+extract_schema.sql
+migration_phase2_orgid.sql
+.saas-env
