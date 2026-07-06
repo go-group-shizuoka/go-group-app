@@ -10,12 +10,19 @@
  *   SUPABASE_SERVICE_KEY - service_roleキー（Storage書き込みに必要）
  */
 
+import { requireUser } from "./_auth.js";
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  // Phase1: 認証必須（認証済みユーザーのみ実行可）
+  const _auth = await requireUser(req);
+  if (!_auth.ok) return res.status(_auth.status).json({ error: _auth.error });
+
 
   const SUPABASE_URL  = process.env.SUPABASE_URL  || "https://jjouwtsjykxnmvuaqhbc.supabase.co";
   const SERVICE_KEY   = process.env.SUPABASE_SERVICE_KEY;

@@ -3,43 +3,180 @@ import { createRoot } from "react-dom/client";
 
 // ==================== SUPABASE CLIENT ====================
 const SUPABASE_URL = "https://jjouwtsjykxnmvuaqhbc.supabase.co";
+// anon キー: apikey ヘッダー（プロジェクト識別）に常に使用。データ行の閲覧可否は
+// ログインユーザーのJWT(_authToken)＋RLSで制御する（Phase1: テナント分離）。
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impqb3V3dHNqeWt4bm12dWFxaGJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyMTg1OTgsImV4cCI6MjA5MDc5NDU5OH0.pLWwbpsVTtS5-6iyJXjcUhrX_vXutd7dhRKjqHR4Knc";
+
+// ==================== SUPABASE AUTH（Phase1）====================
+// フロントは supabase-js 非依存のため Auth REST を直接叩く。
+// ログイン成功後、以降の REST リクエストは anon キーではなく
+// ユーザーの access_token(JWT) を Authorization に載せる → RLS が app_metadata を参照。
+const GG_AUTH_EMAIL_DOMAIN = "go-group-sys.app";
+const GG_SESSION_KEY = "gogroup_sb_session";
+
+// ログイン中ユーザーのアクセストークン（未ログイン時は anon キー）
+let _authToken = SUPABASE_KEY;
+
+function _saveSession(s) {
+  try { localStorage.setItem(GG_SESSION_KEY, JSON.stringify(s)); } catch (e) {}
+}
+function _loadSession() {
+  try { const s = localStorage.getItem(GG_SESSION_KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; }
+}
+function _clearSession() {
+  try { localStorage.removeItem(GG_SESSION_KEY); } catch (e) {}
+}
+
+// 起動時: 保存済みセッションがあればトークンを復元（期限切れでも復元し、後述のrefreshで更新）
+(function restoreAuthToken() {
+  const s = _loadSession();
+  if (s && s.access_token) _authToken = s.access_token;
+})();
+
+// username → email 変換（ログインフォームはID入力のままでUI不変）
+function _ggEmail(username) {
+  return String(username || "").includes("@") ? username : `${username}@${GG_AUTH_EMAIL_DOMAIN}`;
+}
+
+// app_metadata からアプリ内 user オブジェクト（既存のshape）を組み立てる
+function ggUserFromAuth(authUser, fallbackFacility) {
+  const m = (authUser && authUser.app_metadata) || {};
+  const facilityId = m.facility_id || null;
+  return {
+    id: authUser?.id,
+    username: m.username || (authUser?.email || "").split("@")[0],
+    role: m.role || "staff",
+    staffId: m.staff_id || null,
+    childId: m.child_id || null,
+    facilityId,
+    displayName: m.display_name || m.username || "ユーザー",
+    selectedFacilityId: facilityId || fallbackFacility || "f1",
+  };
+}
+
+// サインイン（成功: {ok:true,user} / 失敗: {ok:false,status,error}）
+async function ggAuthSignIn(username, password) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ email: _ggEmail(username), password }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.access_token) {
+      return { ok: false, status: r.status, error: j.error_description || j.msg || "認証に失敗しました" };
+    }
+    _authToken = j.access_token;
+    _saveSession({ access_token: j.access_token, refresh_token: j.refresh_token, expires_at: j.expires_at });
+    return { ok: true, user: j.user };
+  } catch (e) {
+    return { ok: false, status: 0, error: "通信に失敗しました" };
+  }
+}
+
+// リフレッシュ（access_token を更新）。成功で true。
+async function ggAuthRefresh() {
+  const s = _loadSession();
+  if (!s || !s.refresh_token) return false;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: s.refresh_token }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.access_token) return false;
+    _authToken = j.access_token;
+    _saveSession({ access_token: j.access_token, refresh_token: j.refresh_token, expires_at: j.expires_at });
+    return true;
+  } catch (e) { return false; }
+}
+
+// サインアウト（トークン破棄・anonへ戻す）
+async function ggAuthSignOut() {
+  const tok = _authToken;
+  _authToken = SUPABASE_KEY;
+  _clearSession();
+  try {
+    await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + tok },
+    });
+  } catch (e) {}
+}
+
+// 現在のトークンでヘッダーを組み立てる（毎リクエスト時に最新の _authToken を反映）
+function _authHeaders(extra) {
+  return {
+    apikey: SUPABASE_KEY,
+    Authorization: "Bearer " + _authToken,
+    "Content-Type": "application/json",
+    "Prefer": "return=minimal",
+    ...(extra || {}),
+  };
+}
+
+// /api/* （自ドメインのサーバーレス関数）呼び出しに、ログインユーザーの
+// JWT を自動付与する。全AI/OCR/LINE等のAPIを「認証済みのみ実行可」にするための
+// フロント側の一括対応（19箇所の個別改修を避け、将来の呼び出しも自動保護）。
+// Supabase REST / Auth は絶対URL(https://…)のため対象外＝影響なし。
+if (typeof window !== "undefined" && window.fetch && !window.__ggApiFetchPatched) {
+  const _origFetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    try {
+      const url = typeof input === "string" ? input : (input && input.url) || "";
+      if (typeof url === "string" && url.startsWith("/api/") && _authToken && _authToken !== SUPABASE_KEY) {
+        const h = new Headers((init && init.headers) || (typeof input !== "string" && input.headers) || {});
+        if (!h.has("Authorization")) h.set("Authorization", "Bearer " + _authToken);
+        init = { ...(init || {}), headers: h };
+      }
+    } catch (e) { /* 付与失敗時は素通し */ }
+    return _origFetch(input, init);
+  };
+  window.__ggApiFetchPatched = true;
+}
+
+// 401（トークン失効）なら一度だけリフレッシュして再試行する共通fetch
+async function _sbFetch(url, opts) {
+  let r = await fetch(url, opts);
+  if (r.status === 401 && _authToken !== SUPABASE_KEY) {
+    const ok = await ggAuthRefresh();
+    if (ok) {
+      const h = { ...(opts.headers || {}), Authorization: "Bearer " + _authToken };
+      r = await fetch(url, { ...opts, headers: h });
+    }
+  }
+  return r;
+}
 
 const sb = {
   from: function(table) {
     const base = SUPABASE_URL + "/rest/v1/" + table;
-    const headers = {
-      "apikey": SUPABASE_KEY,
-      "Authorization": "Bearer " + SUPABASE_KEY,
-      "Content-Type": "application/json",
-      "Prefer": "return=minimal"
-    };
     return {
       select: async function(cols) {
         cols = cols || "*";
-        const r = await fetch(base + "?select=" + cols, {headers});
+        const r = await _sbFetch(base + "?select=" + cols, {headers: _authHeaders()});
         return r.json();
       },
       insert: async function(data) {
-        const r = await fetch(base, {method:"POST", headers, body: JSON.stringify(data)});
+        const r = await _sbFetch(base, {method:"POST", headers: _authHeaders(), body: JSON.stringify(data)});
         if(!r.ok) { const e = await r.text(); console.error("SB insert error:", e); }
         return r;
       },
       upsert: async function(data) {
-        const h = {...headers, "Prefer": "resolution=merge-duplicates,return=minimal"};
-        const r = await fetch(base, {method:"POST", headers:h, body: JSON.stringify(data)});
+        const r = await _sbFetch(base, {method:"POST", headers: _authHeaders({"Prefer": "resolution=merge-duplicates,return=minimal"}), body: JSON.stringify(data)});
         // ⚠️ ここでは r.text() を読まない（sbSave側で読むため body を消費しない）
         return r;
       },
       delete: async function(id) {
-        const r = await fetch(base + "?id=eq." + id, {method:"DELETE", headers});
+        const r = await _sbFetch(base + "?id=eq." + id, {method:"DELETE", headers: _authHeaders()});
         return r;
       },
       eq: function(col, val) {
         return {
           select: async function(cols) {
             cols = cols || "*";
-            const r = await fetch(base + "?select=" + cols + "&" + col + "=eq." + encodeURIComponent(val), {headers});
+            const r = await _sbFetch(base + "?select=" + cols + "&" + col + "=eq." + encodeURIComponent(val), {headers: _authHeaders()});
             return r.json();
           }
         };
@@ -352,20 +489,23 @@ const sortUsersByFacilityKana = arr => [...(arr||[])].sort((a,b)=>(_userFacIdx(a
 const sortUsersByKana = arr => [...(arr||[])].sort((a,b)=>_userKana(a).localeCompare(_userKana(b),"ja"));
 const INITIAL_STAFF = [];
 const INITIAL_USERS = [];
+// Phase1: 認証は Supabase Auth（migration_phase1_auth.mjs で移行）へ一本化。
+// パスワードはここに保持しない（平文露出の廃止）。この配列は
+// ログインID重複チェック（username参照）と表示メタのためだけに残す。
 const ACCOUNTS = [
-  { id: "a1", username: "homestaff", password: "pass", role: "staff", staffId: "s1", facilityId: "f1", displayName: "田中 美穂（GO HOME）" },
-  { id: "a2", username: "roomstaff", password: "pass", role: "staff", staffId: "s4", facilityId: "f2", displayName: "山田 太郎（GO ROOM）" },
-  { id: "a3", username: "town1staff", password: "pass", role: "staff", staffId: "s7", facilityId: "f3", displayName: "伊藤 誠（GO TOWN 1ST）" },
-  { id: "a4", username: "town2staff", password: "pass", role: "staff", staffId: "s10", facilityId: "f4", displayName: "渡辺 拓也（GO TOWN 2ND）" },
-  { id: "a5", username: "homemgr", password: "home", role: "manager", staffId: "s3", facilityId: "f1", displayName: "鈴木 花子（GO HOME）" },
-  { id: "a6", username: "roommgr", password: "room", role: "manager", staffId: "s6", facilityId: "f2", displayName: "林 直樹（GO ROOM）" },
-  { id: "a7", username: "town1mgr", password: "town1", role: "manager", staffId: "s9", facilityId: "f3", displayName: "小林 恵（GO TOWN 1ST）" },
-  { id: "a8", username: "town2mgr", password: "town2", role: "manager", staffId: "s12", facilityId: "f4", displayName: "松本 浩二（GO TOWN 2ND）" },
-  { id: "a9", username: "admin", password: "bells", role: "admin", staffId: null, facilityId: null, displayName: "本部管理者" },
+  { id: "a1", username: "homestaff", role: "staff", staffId: "s1", facilityId: "f1", displayName: "田中 美穂（GO HOME）" },
+  { id: "a2", username: "roomstaff", role: "staff", staffId: "s4", facilityId: "f2", displayName: "山田 太郎（GO ROOM）" },
+  { id: "a3", username: "town1staff", role: "staff", staffId: "s7", facilityId: "f3", displayName: "伊藤 誠（GO TOWN 1ST）" },
+  { id: "a4", username: "town2staff", role: "staff", staffId: "s10", facilityId: "f4", displayName: "渡辺 拓也（GO TOWN 2ND）" },
+  { id: "a5", username: "homemgr", role: "manager", staffId: "s3", facilityId: "f1", displayName: "鈴木 花子（GO HOME）" },
+  { id: "a6", username: "roommgr", role: "manager", staffId: "s6", facilityId: "f2", displayName: "林 直樹（GO ROOM）" },
+  { id: "a7", username: "town1mgr", role: "manager", staffId: "s9", facilityId: "f3", displayName: "小林 恵（GO TOWN 1ST）" },
+  { id: "a8", username: "town2mgr", role: "manager", staffId: "s12", facilityId: "f4", displayName: "松本 浩二（GO TOWN 2ND）" },
+  { id: "a9", username: "admin", role: "admin", staffId: null, facilityId: null, displayName: "本部管理者" },
   // 保護者テスト用アカウント（利用者Aの保護者）
-  { id: "a10", username: "parent1", password: "parent", role: "parent", childId: "u1", childName: "利用者 A", facilityId: "f1", selectedFacilityId: "f1", displayName: "利用者A 保護者" },
+  { id: "a10", username: "parent1", role: "parent", childId: "u1", childName: "利用者 A", facilityId: "f1", selectedFacilityId: "f1", displayName: "利用者A 保護者" },
   // 閲覧専用アカウント（viewer: データ参照のみ、編集・削除・請求不可）
-  { id: "a11", username: "viewer", password: "view", role: "viewer", staffId: null, facilityId: null, displayName: "閲覧専用ユーザー" },
+  { id: "a11", username: "viewer", role: "viewer", staffId: null, facilityId: null, displayName: "閲覧専用ユーザー" },
 ];
 
 // ==================== 権限管理ヘルパー ====================
@@ -4949,30 +5089,17 @@ function LoginScreen({onLogin, store}){
   const go=async()=>{
     if(loading) return;
     setErr(""); setLoading(true);
-    try{
-      // ① サーバーサイド認証（api/auth → staff_accounts DB・PBKDF2ハッシュ照合）
-      const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:un,password:pw})});
-      if(r.ok){
-        const d=await r.json();
-        if(d.success&&d.user){
-          const u=d.user;
-          onLogin({...u,selectedFacilityId:u.selected_facility_id||u.facility_id||fac});
-          setLoading(false); return;
-        }
-      }
-      // 401以外のサーバーエラーや接続失敗はフォールバックへ
-      if(r.status===401){ setErr("IDまたはパスワードが正しくありません"); setLoading(false); return; }
-    }catch(e){ /* ネットワーク断等 → フォールバックへ継続 */ }
-
-    // ② フォールバック: ACCOUNTS定数（段階移行中・ネット断時の緊急用）
-    let a=ACCOUNTS.find(x=>x.username===un&&x.password===pw);
-    // ③ dynStaff（スタッフ管理で登録した職員）で検索
-    if(!a && store){
-      const ds=(store.dynStaff||[]).find(s=>s.loginId&&s.loginId===un&&s.loginPassword===pw&&s.active!==false);
-      if(ds) a={id:ds.id,username:ds.loginId,role:ds.role||"staff",staffId:ds.id,facilityId:ds.facilityId,displayName:ds.name};
+    // Phase1: Supabase Auth のみ（平文フォールバック廃止）。
+    // 成功すると _authToken にユーザーJWTがセットされ、以降のDBアクセスにRLSが効く。
+    const res=await ggAuthSignIn(un.trim(), pw);
+    if(!res.ok){
+      setErr(res.status===400||res.status===401 ? "IDまたはパスワードが正しくありません" : (res.error||"ログインに失敗しました"));
+      setLoading(false); return;
     }
-    if(!a){setErr("IDまたはパスワードが正しくありません"); setLoading(false); return;}
-    onLogin({...a,selectedFacilityId:a.facilityId||fac});
+    const u=ggUserFromAuth(res.user, fac);
+    // admin は施設選択UIの選択値を初期施設にする
+    if(u.role==="admin") u.selectedFacilityId=fac;
+    onLogin(u);
     setLoading(false);
   };
   return <div className="lw"><div className="lc"><div className="brand">GO <span>GROUP</span></div><div className="bsub">勤怠・検温・利用記録システム</div>
@@ -29810,8 +29937,18 @@ export default function App(){
   const logout=()=>{
     localStorage.removeItem('gogroup_user');
     localStorage.removeItem(SESSION_KEY);
+    ggAuthSignOut();               // Supabase Auth トークンも破棄（anonへ戻す）
     setUser(null);setScreen("home");setSessionWarn(false);
   };
+
+  // ─── JWT先行リフレッシュ（Phase1）───
+  // access_token は約1時間で失効するため、稼働中セッションが RLS で弾かれないよう
+  // 45分ごとに先行更新する。アイドル60分で自動ログアウトするため過剰更新にはならない。
+  useEffect(()=>{
+    if(!user) return;
+    const t=setInterval(()=>{ ggAuthRefresh(); }, 45*60*1000);
+    return ()=>clearInterval(t);
+  },[user]);
 
   // ─── セッションタイムアウト監視 ───
   useEffect(()=>{
