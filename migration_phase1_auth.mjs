@@ -106,6 +106,10 @@ async function createUser(u) {
   return r;
 }
 
+// 既存ユーザーは app_metadata のみ更新する。
+// （パスワードはプロジェクトの最小長ポリシーによりPUTで拒否されるため触れない。
+//   新規作成時のみパスワードが設定される。ドリフトした場合は当該ユーザーを
+//   一度削除してから再実行すること）
 async function updateAppMetadata(id, u) {
   const r = await fetch(`${URL}/auth/v1/admin/users/${id}`, {
     method: "PUT",
