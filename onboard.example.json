@@ -1,0 +1,5 @@
+{
+  "org":        { "id": "org_例", "name": "○○グループ", "plan": "standard" },
+  "facilities": [ { "id": "fac_1", "name": "○○本院" }, { "id": "fac_2", "name": "○○分院" } ],
+  "admin":      { "loginId": "example_admin", "password": "ここに強いパスワード", "name": "管理者氏名", "facilityId": "fac_1" }
+}

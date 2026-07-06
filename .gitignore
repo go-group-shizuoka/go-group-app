@@ -10,3 +10,4 @@ phase2_schema_map.json
 extract_schema.sql
 migration_phase2_orgid.sql
 .saas-env
+onboard-test.json
