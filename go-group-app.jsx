@@ -2,10 +2,18 @@ import React, { useState, useRef, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 
 // ==================== SUPABASE CLIENT ====================
-const SUPABASE_URL = "https://jjouwtsjykxnmvuaqhbc.supabase.co";
+// 環境切替（Phase2 SaaS）:
+//   VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY が設定されていればそちら（＝新SaaS環境）を使用。
+//   未設定なら従来の GO GROUP 本番にフォールバック（＝現本番は挙動不変・影響ゼロ）。
+// import.meta.env は Vite がビルド時に埋め込む。
+const SUPABASE_URL =
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_SUPABASE_URL) ||
+  "https://jjouwtsjykxnmvuaqhbc.supabase.co";
 // anon キー: apikey ヘッダー（プロジェクト識別）に常に使用。データ行の閲覧可否は
 // ログインユーザーのJWT(_authToken)＋RLSで制御する（Phase1: テナント分離）。
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impqb3V3dHNqeWt4bm12dWFxaGJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyMTg1OTgsImV4cCI6MjA5MDc5NDU5OH0.pLWwbpsVTtS5-6iyJXjcUhrX_vXutd7dhRKjqHR4Knc";
+const SUPABASE_KEY =
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impqb3V3dHNqeWt4bm12dWFxaGJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyMTg1OTgsImV4cCI6MjA5MDc5NDU5OH0.pLWwbpsVTtS5-6iyJXjcUhrX_vXutd7dhRKjqHR4Knc";
 
 // ==================== SUPABASE AUTH（Phase1）====================
 // フロントは supabase-js 非依存のため Auth REST を直接叩く。
@@ -2688,6 +2696,22 @@ function useStore() {
         sbLoad("photo_albums"),
         sbLoad("facility_events"),
       ]);
+      // ── 施設マスタを facilities テーブルから動的取得（SaaSマルチテナント）──
+      //   RLSにより「ログインユーザーの法人(org_id)の施設のみ」が返る＝他社施設は絶対に出ない。
+      //   取得できたら FACILITIES の中身を差し替える（既存79箇所の参照はそのまま動的化）。
+      //   facilities テーブルが無い/空（GO GROUP本番=単一テナント等）は既定の f1-f4 を維持。
+      try {
+        const facRows = await sbLoad("facilities");
+        if (Array.isArray(facRows)) {
+          const mapped = facRows
+            .filter(f => f && f.id && f.active !== false)
+            .map(f => ({ id: f.id, name: f.name || f.id }));
+          if (mapped.length > 0) {
+            FACILITIES.splice(0, FACILITIES.length, ...mapped);
+            setFacRev(v => v + 1); // 再描画して施設セレクタ等へ反映
+          }
+        }
+      } catch(e) { /* 失敗時は既定 FACILITIES を維持（GO GROUP本番を壊さない） */ }
       if(pContacts&&pContacts.length>0) setParentContacts(pContacts.map(r=>({...r,...(r.data||{})})));
       if(stAtt&&stAtt.length>0) setStaffAttendance(stAtt.map(r=>({...r,...(r.data||{})})));
       if(ispLogs&&ispLogs.length>0) setIspAuditLogs(ispLogs.map(l=>({...l,before_data:typeof l.before_data==="string"?JSON.parse(l.before_data||"{}"):l.before_data||{},after_data:typeof l.after_data==="string"?JSON.parse(l.after_data||"{}"):l.after_data||{}})));
@@ -2851,6 +2875,8 @@ function useStore() {
     } catch(e) { console.error("Load error:", e); }
   };
 
+  // 施設マスタを facilities テーブルから動的読込した後の再描画トリガー（SaaSマルチテナント）
+  const [,setFacRev] = useState(0);
   const [recs, setRecs] = useState(() => {
     const b=new Date();
     const ts=(h,m)=>{const d=new Date(b);d.setHours(h,m,0);return d.toLocaleString("ja-JP");};
@@ -3521,7 +3547,7 @@ function useStore() {
       active:          s.active !== false,
       hire_date:       s.hireDate || null,
       updated_at:      new Date().toISOString(),
-      data:            s
+      data:            {...s, loginPassword: undefined}  // 平文パスワードはDBに保存しない（Authで管理）
     });
   };
   const updStaff2 = (id,ch) => {
@@ -3538,7 +3564,7 @@ function useStore() {
         active:          updated.active !== false,
         hire_date:       updated.hireDate || null,
         updated_at:      new Date().toISOString(),
-        data:            updated
+        data:            {...updated, loginPassword: undefined}  // 平文パスワードはDBに保存しない
       });
       return updated;
     }));
@@ -20922,12 +20948,24 @@ function StaffManagement({user, store, onBack}){
     };
     return <RegisterStaff init={init} isEdit={isEdit} user={user} store={store}
       onBack={()=>setScreen("list")}
-      onSave={s=>{
+      onSave={async s=>{
+        let staffId = s.id;
         if(isEdit){ store.updStaff2(s.id,s); }
         else {
           // 意味のあるID: S-GH-0001 形式で採番
-          const newId = genStaffId(s.facilityId||user.selectedFacilityId, store.dynStaff);
-          store.addStaff({...s, id: newId});
+          staffId = genStaffId(s.facilityId||user.selectedFacilityId, store.dynStaff);
+          store.addStaff({...s, id: staffId});
+        }
+        // ログインID/パスワードが入力されていれば Supabase Auth アカウントを作成/更新（ログイン可能にする）
+        // パスワードは本APIでAuthにのみ渡り、DBには平文保存しない
+        if(s.loginId && s.loginPassword){
+          try{
+            const r=await fetch("/api/create-staff",{method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({loginId:String(s.loginId).trim(),password:s.loginPassword,name:s.name,role:s.role,facilityId:s.facilityId,staffId})});
+            const j=await r.json().catch(()=>({}));
+            if(r.ok&&j.success) store.showToast("ログインアカウントを"+(j.action==="created"?"作成":"更新")+"しました ✅","success");
+            else store.showToast("ログインアカウント作成に失敗: "+(j.error||"不明なエラー"),"error");
+          }catch(e){ store.showToast("ログインアカウント作成に失敗しました（通信エラー）","error"); }
         }
         setScreen("list");
       }}
