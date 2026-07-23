@@ -144,6 +144,21 @@ if (typeof window !== "undefined" && window.fetch && !window.__ggApiFetchPatched
   window.__ggApiFetchPatched = true;
 }
 
+// ==================== OCR共通ユーティリティ ====================
+// 実装と単体テストは lib/ocr-utils.js（本番障害「The string did not match the
+// expected pattern.」の根本原因と対策の解説も同モジュール冒頭に記載）。
+// 既存の呼び出し名(_ocr*)を維持するためエイリアスでインポートする。
+import {
+  OCR_DEV          as _OCR_DEV,
+  ocrCompressImage as _ocrCompressImage,
+  ocrError         as _ocrErr,
+  ocrReadJson      as _ocrReadJson,
+  ocrTime          as _ocrTime,
+  ocrDate          as _ocrDate,
+  ocrText          as _ocrText,
+  ocrFlag          as _ocrFlag,
+} from "./lib/ocr-utils.js";
+
 // 401（トークン失効）なら一度だけリフレッシュして再試行する共通fetch
 async function _sbFetch(url, opts) {
   let r = await fetch(url, opts);
@@ -28698,6 +28713,7 @@ function ScheduleOCRScreen({user, store, onBack}){
   const [progress,setProgress]=useState(0);      // OCR進捗(0-100)
   const [existing,setExisting]=useState([]);      // 既存planned_visits(当該児童・年月)
   const [result,setResult]=useState({ok:0,warn:0,err:0,skip:0}); // 登録結果集計
+  const [saveErrors,setSaveErrors]=useState([]);                 // 登録できなかった日と理由
   const [facVisits,setFacVisits]=useState([]);    // 同月・施設内の全予定（施設横断チェック用）
   const [aiChecks,setAiChecks]=useState(null);    // AI運営サポート結果
   const [aiRunning,setAiRunning]=useState(false); // AI解析中フラグ
@@ -28771,40 +28787,69 @@ function ScheduleOCRScreen({user, store, onBack}){
   },[step, visits, selUserId, facVisits, openMin, closeMin]);
 
   // 画像選択（カメラ撮影 or ファイル選択）
-  const handleFile=e=>{
-    const file=e.target.files?.[0];
+  // ★ Vercelの4.5MBボディ上限を超えないよう、送信前に必ず縮小＋JPEG再エンコードする。
+  //   HEIC/PNG/巨大写真も一律JPEG化されるため mediaType 不一致も同時に解消される。
+  const handleFile=async e=>{
+    const input=e.target;                  // React18はプールしないが明示的に保持
+    const file=input.files?.[0];
     if(!file)return;
-    const reader=new FileReader();
-    reader.onload=ev=>{
-      const url=ev.target.result;
-      setImgUrl(url);
-      setImgB64(url.split(",")[1]);
+    setError("");
+    try{
+      const dataUrl=await _ocrCompressImage(file);
+      const b64=dataUrl.split(",")[1]||"";
+      if(!b64) throw new Error("画像データが空です");
+      setImgUrl(dataUrl);
+      setImgB64(b64);
       setStep("preview");
-    };
-    reader.readAsDataURL(file);
+      if(_OCR_DEV) console.log(`[OCR] 画像圧縮 完了 type=${file.type||"(unknown)"} b64=${(b64.length/1024/1024).toFixed(2)}MB`);
+    }catch(err){
+      console.error("[OCR] 画像の読み込み・変換に失敗:", err?.message||err);
+      setError("画像を読み込めませんでした。もう一度撮影するか、別の写真をお試しください。");
+      setStep("select");
+    }
+    try{ input.value=""; }catch(_){}       // 同じ写真を選び直せるようにする
   };
 
   // OCR実行
   const runOCR=async()=>{
     setStep("loading");setError("");setProgress(6);
     const timer=setInterval(()=>setProgress(p=>Math.min(92,p+Math.random()*11)),550);
+    let stage="画像送信";
     try{
+      if(!imgB64) throw _ocrErr(stage,"画像が読み込まれていません。撮影し直してください。");
+      if(_OCR_DEV) console.log(`[OCR] stage=${stage} path=/api/ocr mode=yotei b64KB=${Math.round(imgB64.length/1024)}`);
       const resp=await fetch("/api/ocr",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({imageBase64:imgB64,mediaType:"image/jpeg",mode:"yotei",year,month})
       });
-      const d=await resp.json();
+      // ★ resp.json() を直接呼ばない：413(text/plain)等でSafariが不可解な例外を投げるため
+      const d=await _ocrReadJson(resp);
+      stage="OCR結果の解析";
+      if(_OCR_DEV) console.log(`[OCR] stage=${stage} responseType=${Array.isArray(d?.data?.visits)?"array":typeof d?.data} visits=${d?.data?.visits?.length??0}`);
       clearInterval(timer);setProgress(100);
-      if(d.success&&d.data){
+      if(!(d&&d.success&&d.data)) throw _ocrErr(stage, d?.error||"読み取りに失敗しました。もう一度撮影してください。");
+      {
         const r=d.data;
+        stage="日付・時刻の変換";
         const yy=r.year||year, mm=r.month||month;
         setOcrInfo({childName:r.childName,nameConfidence:r.nameConfidence,facilityName:r.facilityName,year:yy,month:mm});
         if(r.year) setYear(r.year);
         if(r.month) setMonth(r.month);
-        // status正規化・既存あり時の既定動作(update)を付与
-        setVisits((r.visits||[]).map((v,i)=>({...v,_id:i,_checked:true,
-          status:v.status==="欠席"?"欠席":"来所", _action:"update"})));
+        // ★ OCR値を正規化（空欄・「〜」・丸印・改行・全角数字・不正時刻を安全に処理）。
+        //   変換できない値は null にして「未登録／要確認」に倒し、登録処理は止めない。
+        const normalized=(Array.isArray(r.visits)?r.visits:[]).map((v,i)=>{
+          const st=v.status==="欠席"?"欠席":"来所";
+          return {...v,_id:i,_checked:true,_action:"update", status:st,
+            date:parseInt(v.date,10),
+            startTime: st==="欠席"?null:_ocrTime(v.startTime),
+            endTime:   st==="欠席"?null:_ocrTime(v.endTime),
+            pickup:    st==="欠席"?false:_ocrFlag(v.pickup),
+            dropoff:   st==="欠席"?false:_ocrFlag(v.dropoff),
+            memo:_ocrText(v.memo), event:_ocrText(v.event)};
+        }).filter(v=>Number.isFinite(v.date)&&v.date>=1&&v.date<=31);
+        if(_OCR_DEV) console.log(`[OCR] stage=${stage} 正規化後 ${normalized.length}件（除外 ${(r.visits?.length||0)-normalized.length}件）`);
+        setVisits(normalized);
         // 名前からユーザー自動マッチング（一致すれば既存予定も読込）
         let matchedId="";
         if(r.childName){
@@ -28820,11 +28865,15 @@ function ScheduleOCRScreen({user, store, onBack}){
           setExisting(arr.filter(x=>x.child_id===matchedId));
         }catch(_){ setExisting([]); setFacVisits([]); }
         setStep("confirm");
-      }else{
-        setError(d.error||"読み取りに失敗しました。もう一度撮影してください。");
-        setStep("preview");
       }
-    }catch(e){ clearInterval(timer); setError("通信エラー: "+e.message);setStep("preview");}
+    }catch(e){
+      clearInterval(timer);
+      const st=e?.stage||stage;
+      // consoleには段階と詳細（本文は先頭200字まで）。base64・氏名等は出さない。
+      console.error(`[OCR] 失敗 stage=${st} msg=${e?.message||e}`, e?.detail||"");
+      setError(`${st}に失敗しました: ${e?.message||"不明なエラー"}`);
+      setStep("preview");
+    }
   };
 
   // 行の編集
@@ -28838,46 +28887,65 @@ function ScheduleOCRScreen({user, store, onBack}){
     setSaving(true);
     const u=users.find(x=>x.id===selUserId);
     let ok=0,warn=0,err=0,skip=0;
+    const failed=[];            // 登録できなかった日と理由（画面＋consoleに出す）
+    const seen=new Set();       // 同一日の二重登録を防止
     for(const v of visits){
       if(!v._checked) continue;
-      const iss=rowIssues(v);
-      if(iss.errs.length){ err++; continue; }               // エラー行(開始≥終了等)は登録しない
-      const MM=String(month).padStart(2,"0");
-      const DD=String(v.date).padStart(2,"0");
-      const dateStr=`${year}-${MM}-${DD}`;
-      const hasExisting=existing.some(x=>x.visit_date===dateStr);
-      if(hasExisting && v._action==="skip"){ skip++; continue; } // 既存ありでスキップ選択
+      // ★ 1日分の失敗が全31日分を止めないよう、行ごとにtry/catchで隔離する
+      try{
+        const iss=rowIssues(v);
+        if(iss.errs.length){ err++; failed.push(`${v.date}日: ${iss.errs[0]}`); continue; }
+        // ★ Invalid Date / NaN を Supabase へ送らない
+        const dateStr=_ocrDate(year,month,v.date);
+        if(!dateStr){ err++; failed.push(`${v.date}日: 日付を認識できませんでした`); continue; }
+        if(seen.has(dateStr)){ skip++; continue; }             // 同日重複はスキップ
+        seen.add(dateStr);
+        const hasExisting=existing.some(x=>x.visit_date===dateStr);
+        if(hasExisting && v._action==="skip"){ skip++; continue; } // 既存ありでスキップ選択
 
-      if(v.status==="欠席"){
-        // ── 欠席 → 出欠管理(att_data) ──
-        store.setAtt(selUserId,dateStr,"欠席");
-      }else{
-        // ── 来所予定 → planned_visits（+ schedules / scheduleData / 出欠「予定」）──
-        const key=selUserId+"_"+year+"_"+MM+"_"+DD;
-        const schedRow={
-          id:key, user_id:selUserId, user_name:u?.name||"", facility_id:facilityId,
-          date:dateStr, status:"来所予定",
-          transport_to:v.pickup||false, transport_from:v.dropoff||false,
-          updated_at:new Date().toISOString(),
-        };
-        if(store.setScheduleData) store.setScheduleData(p=>({...p,[key]:schedRow}));
-        if(store.saveScheduleRow) store.saveScheduleRow(schedRow);
-        store.setAtt(selUserId,dateStr,"予定");
-        // 予約詳細の本命テーブル。既存更新時はcreated_atを保持
-        const prev=existing.find(x=>x.visit_date===dateStr);
-        sbSave("planned_visits",{
-          id:selUserId+"_"+dateStr,
-          child_id:selUserId, facility_id:facilityId, visit_date:dateStr,
-          start_time:v.startTime||null, end_time:v.endTime||null,
-          pickup_required:v.pickup||false, dropoff_required:v.dropoff||false,
-          memo:v.memo||null, event_name:v.event||null,
-          created_at:(prev&&prev.created_at)||new Date().toISOString(),
-          updated_at:new Date().toISOString(),
-        });
+        const MM=dateStr.slice(5,7), DD=dateStr.slice(8,10);
+        const st=_ocrTime(v.startTime), et=_ocrTime(v.endTime);
+
+        if(v.status==="欠席"){
+          // ── 欠席 → 出欠管理(att_data) ──
+          store.setAtt(selUserId,dateStr,"欠席");
+        }else{
+          // ── 来所予定 → planned_visits（+ schedules / scheduleData / 出欠「予定」）──
+          const key=selUserId+"_"+year+"_"+MM+"_"+DD;
+          const schedRow={
+            id:key, user_id:selUserId, user_name:u?.name||"", facility_id:facilityId,
+            date:dateStr, status:"来所予定",
+            transport_to:!!v.pickup, transport_from:!!v.dropoff,
+            updated_at:new Date().toISOString(),
+          };
+          if(store.setScheduleData) store.setScheduleData(p=>({...p,[key]:schedRow}));
+          if(store.saveScheduleRow) store.saveScheduleRow(schedRow);
+          store.setAtt(selUserId,dateStr,"予定");
+          // 予約詳細の本命テーブル。既存更新時はcreated_atを保持
+          const prev=existing.find(x=>x.visit_date===dateStr);
+          // ★ awaitで結果を確認（sbSaveは失敗時にstatus/bodyをconsole.errorへ出力する）
+          const saved=await sbSave("planned_visits",{
+            id:selUserId+"_"+dateStr,
+            child_id:selUserId, facility_id:facilityId, visit_date:dateStr,
+            start_time:st, end_time:et,
+            pickup_required:!!v.pickup, dropoff_required:!!v.dropoff,
+            memo:v.memo||null, event_name:v.event||null,
+            created_at:(prev&&prev.created_at)||new Date().toISOString(),
+            updated_at:new Date().toISOString(),
+          });
+          if(saved===false){ err++; failed.push(`${dateStr}: 予定表の保存に失敗しました`); continue; }
+        }
+        ok++;
+        if(iss.warns.length) warn++;
+      }catch(rowErr){
+        err++;
+        failed.push(`${v.date}日: ${rowErr?.message||"不明なエラー"}`);
+        console.error(`[OCR保存] 1日分の登録に失敗 date=${v.date}`, rowErr?.message||rowErr);
       }
-      ok++;
-      if(iss.warns.length) warn++;
     }
+    if(_OCR_DEV) console.log(`[OCR保存] 正規化後の登録件数 ok=${ok} warn=${warn} err=${err} skip=${skip}`);
+    if(failed.length) console.warn(`[OCR保存] 登録できなかった日 ${failed.length}件`, failed);
+    setSaveErrors(failed);
     setResult({ok,warn,err,skip});
     // AI施設運営レポートを非同期生成（登録処理をブロックしない）
     setTimeout(()=>{ try{ setReport(buildScheduleReport({visits, selUserId, facVisits, openMin, closeMin, store, todayStr:todayISO()})); }catch(_){ setReport(null); } },0);
@@ -28897,11 +28965,21 @@ function ScheduleOCRScreen({user, store, onBack}){
       <span style={{fontSize:12,fontWeight:800,color:"var(--tx3)",background:"rgba(120,120,120,0.12)",padding:"5px 12px",borderRadius:20}}>⏭ スキップ {result.skip}</span>
     </div>
 
+    {/* 登録できなかった日の内訳（原因を隠さず提示。個人情報は含めない）*/}
+    {saveErrors.length>0&&<div style={{marginTop:14,textAlign:"left",background:"rgba(224,56,56,0.08)",
+                                       border:"1px solid rgba(224,56,56,0.3)",borderRadius:10,padding:"10px 12px"}}>
+      <div style={{fontSize:12,fontWeight:800,color:"var(--ro)",marginBottom:6}}>⚠ 登録できなかった日（{saveErrors.length}件）</div>
+      <div style={{fontSize:11,color:"var(--tx2)",lineHeight:1.8,maxHeight:150,overflowY:"auto"}}>
+        {saveErrors.map((m,i)=><div key={i}>・{m}</div>)}
+      </div>
+      <div style={{fontSize:11,color:"var(--tx3)",marginTop:6}}>該当日は「生徒予定表」から手動で登録してください。</div>
+    </div>}
+
     {/* ── AI施設運営レポート（登録完了後・共通コンポーネント）── */}
     <AiReportCard report={report}/>
 
     <div style={{display:"flex",gap:10,marginTop:16}}>
-      <button className="bpri" style={{maxWidth:180}} onClick={()=>{setStep("select");setImgB64("");setImgUrl("");setVisits([]);setOcrInfo(null);setExisting([]);setResult({ok:0,warn:0,err:0,skip:0});setProgress(0);setReport(null);}}>続けて登録</button>
+      <button className="bpri" style={{maxWidth:180}} onClick={()=>{setStep("select");setImgB64("");setImgUrl("");setVisits([]);setOcrInfo(null);setExisting([]);setResult({ok:0,warn:0,err:0,skip:0});setSaveErrors([]);setProgress(0);setReport(null);setError("");}}>続けて登録</button>
       <button className="bpri" style={{maxWidth:150,background:"rgba(255,255,255,0.1)"}} onClick={onBack}>ホームへ</button>
     </div>
   </div>;
