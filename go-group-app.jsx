@@ -29265,30 +29265,36 @@ function ActivityCalendarScreen({ user, store, onBack }) {
           {/* 月ナビ */}
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
             <button onClick={()=>setViewMonth(p=>{ const d=new Date(p.y,p.m-2,1); return{y:d.getFullYear(),m:d.getMonth()+1}; })}
-              style={{ padding:"4px 12px", borderRadius:8, border:"1px solid var(--bd)", background:"white", cursor:"pointer" }}>◀</button>
+              style={{ padding:"4px 14px", borderRadius:8, border:"1px solid var(--bda)", background:"var(--bg3)",
+                       color:"var(--tx)", fontSize:15, cursor:"pointer" }}>◀</button>
             <span style={{ fontWeight:"bold", fontSize:16 }}>{viewMonth.y}年{viewMonth.m}月</span>
             <button onClick={()=>setViewMonth(p=>{ const d=new Date(p.y,p.m,1); return{y:d.getFullYear(),m:d.getMonth()+1}; })}
-              style={{ padding:"4px 12px", borderRadius:8, border:"1px solid var(--bd)", background:"white", cursor:"pointer" }}>▶</button>
+              style={{ padding:"4px 14px", borderRadius:8, border:"1px solid var(--bda)", background:"var(--bg3)",
+                       color:"var(--tx)", fontSize:15, cursor:"pointer" }}>▶</button>
           </div>
 
           {/* カレンダーグリッド */}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:12 }}>
-            {["日","月","火","水","木","金","土"].map(d=>(
-              <div key={d} style={{ textAlign:"center", fontSize:11, color:"var(--tx3)", padding:"2px 0",
-                                    fontWeight:"bold" }}>{d}</div>
+            {["日","月","火","水","木","金","土"].map((d,di)=>(
+              <div key={d} style={{ textAlign:"center", fontSize:12, padding:"3px 0", fontWeight:"bold",
+                                    color: di===0?"#ff9a9a":di===6?"#8ec9f0":"var(--tx2)" }}>{d}</div>
             ))}
             {calDays.map((ds,i)=>{
               if(!ds) return <div key={"e"+i}/>;
               const evs=monthEvents.filter(ev=>ev.eventDate===ds);
               const isToday=ds===today;
               const isSel=ds===selDate;
+              const dow=i%7;   // 0=日曜, 6=土曜
               return (
                 <div key={ds} onClick={()=>setSelDate(ds)}
-                  style={{ minHeight:48, padding:2, borderRadius:6, cursor:"pointer",
-                           background: isSel?"var(--tl)":isToday?"#e8f4fc":"white",
-                           color: isSel?"white":"inherit",
+                  style={{ minHeight:52, padding:3, borderRadius:6, cursor:"pointer",
+                           background: isSel?"var(--tl)":isToday?"rgba(58,160,216,0.20)":"var(--bg3)",
+                           color: isSel?"#fff":"var(--tx)",
                            border: isToday&&!isSel?"2px solid var(--tl)":"1px solid var(--bd)" }}>
-                  <div style={{ fontSize:11, textAlign:"right", fontWeight:isToday?"bold":"normal" }}>
+                  <div style={{ fontSize:14, textAlign:"right", lineHeight:1.15, paddingRight:2,
+                                fontWeight:(isToday||isSel)?800:600,
+                                color: isSel?"#fff":isToday?"var(--tl2)"
+                                       :dow===0?"#ff9a9a":dow===6?"#8ec9f0":"var(--tx)" }}>
                     {parseInt(ds.split("-")[2])}
                   </div>
                   {evs.slice(0,2).map(ev=>(
@@ -29320,7 +29326,8 @@ function ActivityCalendarScreen({ user, store, onBack }) {
             {dateEvents.length === 0
               ? <div style={{ color:"var(--tx3)", fontSize:13, textAlign:"center", padding:"16px 0" }}>この日の予定はありません</div>
               : dateEvents.map(ev => (
-                  <div key={ev.id} style={{ background:"white", borderRadius:8, padding:10, marginBottom:8,
+                  <div key={ev.id} style={{ background:"var(--bg3)", color:"var(--tx)", borderRadius:8, padding:10, marginBottom:8,
+                                            border:"1px solid var(--bd)",
                                             borderLeft:`4px solid ${EVENT_TYPE_COLOR[ev.eventType]||"#3aa0d8"}` }}>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                       <div>
