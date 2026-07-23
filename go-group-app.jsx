@@ -152,6 +152,7 @@ import {
   OCR_DEV          as _OCR_DEV,
   ocrCompressImage as _ocrCompressImage,
   ocrError         as _ocrErr,
+  ocrPrepareUpload as _ocrPrepare,
   ocrReadJson      as _ocrReadJson,
   ocrTime          as _ocrTime,
   ocrDate          as _ocrDate,
@@ -5093,14 +5094,23 @@ function Cam({cap,onCap,onCapture}){
 
   // ファイル選択後: 圧縮base64変換 → onCap → onCapture
   const handleFile=async e=>{
-    const f=e.target.files?.[0]; if(!f) return;
-    if(!checkFileSize(f)) return;
-    // OCR等のために高解像度base64も取れるが、Cam出力は圧縮版で統一
-    const b64Raw=await fileToBase64(f);
-    const b64=await compressBase64(b64Raw); // 最大800×600/JPEG70% に圧縮
-    onCap?.();        // cap を true にする
-    onCapture?.(b64); // 圧縮画像データを親へ渡す
-    e.target.value=""; // 同じファイルを再選択できるようにリセット
+    const input=e.target;
+    const f=input.files?.[0]; if(!f) return;
+    // 送信前に縮小するので上限は50MB（旧5MBは正常なiPhone写真まで弾いていた）
+    if(!checkFileSize(f,COMPRESSED_FILE_SIZE_MB)) return;
+    try{
+      // ★ 旧実装は fileToBase64 → compressBase64 だったが、compressBase64 は
+      //   デコード失敗時に元の base64 をそのまま返すため、記録行に原寸base64が
+      //   保存されてしまう経路が残っていた。_ocrPrepare は必ずJPEG再エンコードする。
+      //   maxPx=1280: 記録写真の閲覧用途に十分（従来の800×600より少し高精細）。
+      const {dataUrl}=await _ocrPrepare(f,{maxPx:1280,quality:0.8});
+      onCap?.();                                  // cap を true にする
+      onCapture?.(dataUrl.split(",")[1]||"");     // 生base64で親へ渡す（従来の契約を維持）
+    }catch(err){
+      console.warn("[写真] 取り込み失敗:",err?.stage||"",err?.message||err);
+      alert(`${err?.stage||"画像の準備"}: ${err?.message||"写真を読み込めませんでした"}`);
+    }
+    input.value=""; // 同じファイルを再選択できるようにリセット
   };
   // ラベル共通スタイル（<label>でfile inputを開く → iOS Safariでも確実に動作）
   const lblBase={display:"inline-flex",alignItems:"center",gap:5,padding:"8px 14px",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",border:"1.5px solid var(--bd)",background:"var(--wh)",color:"var(--tx2)",userSelect:"none"};
@@ -7985,6 +7995,24 @@ function ParentMessages({user,store,onBack}){
     allMsgs.filter(m=>m.userId===selUserId&&!m.read).forEach(m=>store.markRead(m.id));
   },[selUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ─ 添付写真の取り込み（スレッド／新規／一斉送信で共通）─
+  // ★ 生の readAsDataURL では iPhone写真がそのまま base64 化され、
+  //   messages行への保存とLINE転送(/api/line-push)の両方でボディ上限を超える。
+  //   保護者は最大200px程度のサムネイル＋タップで原寸表示なので maxPx=1600 で十分。
+  const pickPhoto=async(e,setter)=>{
+    const input=e.target;
+    const f=input.files?.[0];
+    if(!f) return;
+    try{
+      const {dataUrl}=await _ocrPrepare(f,{maxPx:1600,quality:0.82});
+      setter(dataUrl);
+    }catch(err){
+      console.warn("[写真添付] 取り込み失敗:",err?.stage||"",err?.message||err);
+      store.showToast(`⚠️ ${err?.message||"写真を読み込めませんでした"}`,"warn");
+    }
+    try{ input.value=""; }catch(_){}   // 同じ写真を選び直せるようにする
+  };
+
   // ─ スレッド内送信 ─
   const sendInThread=()=>{
     if(!inputText.trim()&&!photoData) return;
@@ -8167,7 +8195,7 @@ function ParentMessages({user,store,onBack}){
 
       {/* 写真添付 */}
       <input type="file" accept="image/*" ref={bcPhotoRef} style={{display:"none"}}
-        onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setBcPhoto(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
+        onChange={e=>pickPhoto(e,setBcPhoto)}/>
       <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14}}>
         <button onClick={()=>bcPhotoRef.current?.click()}
           style={{padding:"8px 12px",background:"var(--bg)",border:"1.5px solid var(--bd)",borderRadius:9,cursor:"pointer",fontSize:13,fontFamily:"'Noto Sans JP',sans-serif"}}>
@@ -8256,7 +8284,7 @@ function ParentMessages({user,store,onBack}){
     <div className="slbl">メッセージ内容</div>
     <textarea className="fta" style={{minHeight:120,borderColor:newUrgent?"var(--ro)":"var(--bd)"}} placeholder="保護者へのメッセージを入力..." value={newBody} onChange={e=>setNewBody(e.target.value)}/>
     <input type="file" accept="image/*" ref={newPhotoInputRef} style={{display:"none"}}
-      onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setNewPhotoData(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
+      onChange={e=>pickPhoto(e,setNewPhotoData)}/>
     {newPhotoData&&<div style={{margin:"10px 0",position:"relative",display:"inline-block"}}>
       <img src={newPhotoData} alt="" style={{maxWidth:200,maxHeight:160,borderRadius:8,border:"1.5px solid var(--bd)"}}/>
       <button onClick={()=>setNewPhotoData(null)} style={{position:"absolute",top:-8,right:-8,background:"var(--ro)",color:"#fff",border:"none",borderRadius:"50%",width:20,height:20,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>×</button>
@@ -8381,7 +8409,7 @@ function ParentMessages({user,store,onBack}){
 
       {/* 入力エリア */}
       <input type="file" accept="image/*" ref={photoInputRef} style={{display:"none"}}
-        onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setPhotoData(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
+        onChange={e=>pickPhoto(e,setPhotoData)}/>
       {/* 緊急フラグ表示バー */}
       {isUrgent&&<div style={{flexShrink:0,padding:"5px 14px",background:"rgba(224,56,56,0.1)",borderTop:"1px solid rgba(224,56,56,0.3)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <span style={{fontSize:11,fontWeight:700,color:"var(--ro)"}}>🚨 緊急メッセージとして送信</span>
@@ -8552,27 +8580,35 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
   const copyInputRef = useRef(null);
   const [jukyushaOcrLoading, setJukyushaOcrLoading] = useState(false);
   const [jukyushaOcrResult, setJukyushaOcrResult] = useState(null); // OCR解析結果
+  const [jukyushaOcrErr, setJukyushaOcrErr] = useState("");         // OCR失敗時の段階別メッセージ
 
   // 受給者証コピー: 撮影/ファイル選択 → 圧縮 → OCR → フォーム自動反映
+  // ★ 旧実装は fileToBase64 → compressBase64 だったが、compressBase64 は
+  //   デコードに失敗すると「元のbase64をそのまま返す」ため、HEIC等では 4〜7MB の
+  //   base64 がそのまま送られ 413(text/plain) → res.json() で例外になっていた。
+  //   _ocrPrepare は必ず JPEG 再エンコードするのでこの穴がない。
   const handleJukyushaCopyCapture = async e => {
     const file = e.target.files?.[0];
     if(!file) return;
-    if(file.size > 5 * 1024 * 1024){ alert("ファイルサイズが5MBを超えています。別の写真を選択してください。"); return; }
+    // 圧縮前提なので上限は 50MB（カメラ写真は 8〜12MB あるため 5MB では弾きすぎ）
+    if(!checkFileSize(file, COMPRESSED_FILE_SIZE_MB)) { e.target.value = ""; return; }
     try {
-      const raw = await fileToBase64(file);
-      const compressed = await compressBase64(raw, 1200, 900, 0.8);
-      const previewUrl = "data:image/jpeg;base64," + compressed;
+      // maxPx=1600: 受給者証の小さな文字（番号・有効期限）が潰れない解像度
+      const prepared = await _ocrPrepare(file, {maxPx:1600, quality:0.85});
+      const previewUrl = prepared.dataUrl;
       // ① まず画像だけ保存（OCR完了前にプレビュー表示）
       setForm(p=>({...p, jukyushaCopy:true, jukyushaCopyPreview:previewUrl}));
       setJukyushaOcrResult(null);
+      setJukyushaOcrErr("");
       // ② OCR解析（非同期）
       setJukyushaOcrLoading(true);
       try {
         const res = await fetch("/api/ocr",{
           method:"POST", headers:{"Content-Type":"application/json"},
-          body: JSON.stringify({imageBase64:compressed, mediaType:"image/jpeg", mode:"jukyusha"})
+          body: JSON.stringify({imageBase64:prepared.base64, mediaType:prepared.mediaType, mode:"jukyusha"})
         });
-        const d = await res.json();
+        // ★ res.json() を直接呼ばない：413等の非JSON応答でSafariが不可解な例外を投げる
+        const d = await _ocrReadJson(res);
         if(d.success && d.data){
           const ocr = d.data;
           setJukyushaOcrResult(ocr);
@@ -8585,14 +8621,18 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
             maxBurden:      ocr.maxBurden!=null ? String(ocr.maxBurden) : p.maxBurden,
             jukyushaCopyOcrParsed: ocr,  // OCR解析済みデータを保存（後でstore保存時に含まれる）
           }));
+        } else {
+          setJukyushaOcrErr(`OCR結果の解析: ${d.error||"読み取れませんでした。各項目を手入力してください。"}`);
         }
       } catch(ocrErr) {
-        console.warn("[受給者証OCR] 解析失敗（画像は保存済み）:", ocrErr.message);
-        // OCRが失敗しても画像登録は継続（手動入力で補完）
+        // OCRが失敗しても画像登録は継続（手動入力で補完）。
+        // ただしエラーは隠さず、どの段階で失敗したかを画面に出す。
+        console.warn("[受給者証OCR] 解析失敗（画像は保存済み）:", ocrErr?.stage||"", ocrErr?.message||ocrErr);
+        setJukyushaOcrErr(`${ocrErr?.stage||"OCR"}: ${ocrErr?.message||"読み取りに失敗しました"}（画像は登録済みです。各項目は手入力してください）`);
       }
     } catch(err) {
-      console.error("[受給者証コピー] 画像処理エラー:", err);
-      alert("画像の読み込みに失敗しました。もう一度お試しください。");
+      console.error("[受給者証コピー] 画像処理エラー:", err?.stage||"", err?.message||err);
+      alert(`${err?.stage||"画像の準備"}: ${err?.message||"画像の読み込みに失敗しました。もう一度お試しください。"}`);
     } finally {
       setJukyushaOcrLoading(false);
     }
@@ -8787,6 +8827,10 @@ function RegisterUser({init, isEdit, user, store, onBack, onSave}){
               {jukyushaOcrResult.maxBurden!=null&&<span>💴 負担上限: {jukyushaOcrResult.maxBurden}円</span>}
             </div>
             <div style={{fontSize:10,color:"var(--tx3)",marginTop:6}}>※ 上の各フィールドを確認・修正してから保存してください</div>
+          </div>}
+          {/* OCR失敗バナー（段階別メッセージ。画像自体は登録済み） */}
+          {jukyushaOcrErr&&!jukyushaOcrLoading&&<div style={{background:"rgba(255,160,0,0.1)",border:"1.5px solid var(--ac)",borderRadius:9,padding:"10px 14px",marginBottom:10,fontSize:11,color:"var(--ac)",fontWeight:700,whiteSpace:"pre-wrap"}}>
+            ⚠️ {jukyushaOcrErr}
           </div>}
           <div style={{border:"2px dashed var(--bd)",borderRadius:10,padding:16,background:"var(--bg)",textAlign:"center"}}>
             {form.jukyushaCopy
@@ -10144,29 +10188,26 @@ function MonitoringTab({u,myMonitorings,myIsps,user,store}){
 
 // ==================== OCR共通ユーティリティ ====================
 
-// 画像ファイルサイズ上限（5MB）
+// 画像ファイルサイズ上限（5MB / そのまま保持する経路のデフォルト）
 const MAX_FILE_SIZE_MB = 5;
-const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+// 送信前に _ocrPrepare で縮小する経路の上限（カメラ写真は 8〜12MB が普通なので
+// 5MB で弾くと正常な撮影まで拒否してしまう。縮小後のサイズは _ocrPrepare が保証する）
+const COMPRESSED_FILE_SIZE_MB = 50;
 
 // ファイルサイズチェック（超過時は alert して false を返す）
-function checkFileSize(file) {
+// maxMB: 圧縮してから送る経路は COMPRESSED_FILE_SIZE_MB を渡す
+function checkFileSize(file, maxMB = MAX_FILE_SIZE_MB) {
   if (!file) return false;
-  if (file.size > MAX_FILE_SIZE_BYTES) {
-    alert(`ファイルサイズが大きすぎます（${(file.size / 1024 / 1024).toFixed(1)}MB）。\n${MAX_FILE_SIZE_MB}MB以下の画像を選択してください。`);
+  if (file.size > maxMB * 1024 * 1024) {
+    alert(`ファイルサイズが大きすぎます（${(file.size / 1024 / 1024).toFixed(1)}MB）。\n${maxMB}MB以下の画像を選択してください。`);
     return false;
   }
   return true;
 }
 
-// 画像ファイル → Base64変換（プレフィックスなし raw base64）
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(",")[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
+// ※ 旧 fileToBase64（原寸のまま base64 化）は削除した。
+//   原寸base64はVercelの4.5MBボディ上限を超えて 413(text/plain) を招くため、
+//   ファイルの取り込みは必ず lib/ocr-utils.js の _ocrPrepare を通す。
 
 // Base64画像を圧縮（最大800×600、JPEG品質70%）
 // → 1枚あたり50〜150KBに抑えてSupabaseのJSONB保存量を削減する
@@ -10195,24 +10236,29 @@ function compressBase64(base64, maxW=800, maxH=600, quality=0.7) {
 // bucket: "daily-photos" | "album-photos" | "staff-documents" | "child-documents"
 // folder: サブフォルダ名（施設IDやスタッフIDなど）
 // 失敗時は null を返す（呼び出し元でbase64フォールバック処理）
+// ★ /api/ocr と同じくVercelの4.5MBボディ上限を受けるため、送信前に必ず縮小する。
+//   maxPx=2000 は保護者共有・書類確認に耐える解像度（縮小はしても文字は読める）。
+//   圧縮しないと iPhone写真で 413(text/plain) → res.json() が例外 → nullフォールバックとなり、
+//   気づかないまま巨大なdata URLがDB行に保存されていた。
 async function uploadToStorage(file, bucket, folder) {
   try {
-    const base64 = await fileToBase64(file);
+    const prepared = await _ocrPrepare(file, {maxPx: 2000, quality: 0.85});
     const res = await fetch("/api/upload", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
-        imageBase64: base64,
-        mediaType: file.type,
+        imageBase64: prepared.base64,
+        mediaType: prepared.mediaType,
         bucket,
         folder,
       }),
     });
-    const data = await res.json();
+    const data = await _ocrReadJson(res);
     if (data.success && data.url) return { url: data.url, path: data.path, size: data.size };
     return null;
   } catch(e) {
-    return null; // ネットワーク断等 → 呼び出し元でフォールバック
+    if (_OCR_DEV) console.warn("[upload] Storage保存に失敗（呼び出し元でフォールバック）:", e?.message || e);
+    return null; // ネットワーク断・413等 → 呼び出し元でフォールバック
   }
 }
 
@@ -10231,7 +10277,7 @@ function jukyushaStatus(expiryDate) {
 function JukyushaTab({u, user, store}) {
   const [mode, setMode] = useState("list"); // list | scan | result
   const [scanning, setScanning] = useState(false);
-  // 写真は最大3枚。各要素: { previewUrl, base64(圧縮済み), base64Raw(OCR用高解像度), mediaType }
+  // 写真は最大3枚。各要素: { previewUrl, base64(保存用・更に圧縮), base64Ocr(OCR送信用), mediaType }
   const [photos, setPhotos] = useState([]);
   const [ocrResult, setOcrResult] = useState(null);
   const [ocrError, setOcrError] = useState("");
@@ -10259,15 +10305,29 @@ function JukyushaTab({u, user, store}) {
   // PDF対応: image/* と application/pdf の両方を受け付ける
   const handleFile = async (file, slot=0) => {
     if (!file) return;
-    if (!checkFileSize(file)) return; // 5MB上限チェック
-    const isPdf = file.type === "application/pdf";
+    // 送信前に縮小するので上限は50MB（旧5MBは正常なiPhone写真まで弾いていた）
+    if (!checkFileSize(file, COMPRESSED_FILE_SIZE_MB)) return;
     // PDFはプレビューURL（PDF自体）、画像はObjectURL
     const previewUrl = URL.createObjectURL(file);
-    // OCR用: オリジナルのbase64（高解像度で精度を確保）
-    const base64Raw = await fileToBase64(file);
-    // 保存用: PDFはそのまま / 画像は圧縮済みbase64（Supabase保存量削減）
-    const base64 = isPdf ? base64Raw : await compressBase64(base64Raw);
-    const photo = { previewUrl, base64, base64Raw, mediaType: file.type, isPdf, fileName: file.name };
+    let photo;
+    try {
+      // ★ OCR用: 旧実装は原寸base64をそのまま送っていたため、iPhone写真(4〜7MB)で
+      //   Vercelの4.5MB上限を超え 413(text/plain) になっていた。
+      //   maxPx=2000 は受給者証の細かい文字を残しつつ 2.8MB 以内に収める妥協点。
+      //   PDFは圧縮できないので _ocrPrepare が上限超過を送信前に弾く。
+      const prepared = await _ocrPrepare(file, {maxPx: 2000, quality: 0.85});
+      // 保存用: PDFはそのまま / 画像は更に圧縮（Supabase保存量削減）
+      const base64 = prepared.isPdf ? prepared.base64 : await compressBase64(prepared.base64);
+      photo = { previewUrl, base64, base64Ocr: prepared.base64,
+                mediaType: prepared.mediaType, isPdf: prepared.isPdf, fileName: file.name };
+    } catch (e) {
+      URL.revokeObjectURL(previewUrl);
+      console.warn("[受給者証OCR] 画像の準備に失敗:", e?.stage||"", e?.message||e);
+      const msg = `${e?.stage||"画像の準備"}: ${e?.message||"画像を読み込めませんでした"}`;
+      setOcrError(msg);
+      store.showToast(`⚠️ ${msg}`, "warn");
+      return;
+    }
 
     if (slot === 0) {
       // 写真1枚目: フォームを初期化して写真グリッド（resultモード）へ
@@ -10290,6 +10350,25 @@ function JukyushaTab({u, user, store}) {
     }
   };
 
+  // ── 1枚分のOCR送信（runAllOcr / retryFailedOcr で共通）──
+  // ★ r.json() を直接呼ばない：413等の非JSON応答で iOS Safari が
+  //   「The string did not match the expected pattern.」を投げるため、
+  //   _ocrReadJson で段階別の日本語メッセージつき例外に変換する。
+  //   ここで throw した Error は Promise.allSettled の reason.message として
+  //   そのまま画面のエラー一覧・OCRログに載る。
+  const postJukyushaOcr = async photo => {
+    const resp = await fetch("/api/ocr", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        imageBase64: photo.base64Ocr,
+        mediaType: photo.mediaType || "image/jpeg",
+        mode: "jukyusha"
+      })
+    });
+    return _ocrReadJson(resp);
+  };
+
   // ── 登録済み全写真を一括OCR（Promise.allSettled で1枚失敗しても続行）──
   const runAllOcr = async () => {
     const targets = photos.filter(Boolean);
@@ -10308,15 +10387,7 @@ function JukyushaTab({u, user, store}) {
       // 全写真を並列でOCR実行（1枚失敗しても他を続行）
       results = await Promise.allSettled(
         targets.map(photo =>
-          fetch("/api/ocr", {
-            method: "POST",
-            headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({
-              imageBase64: photo.base64Raw,
-              mediaType: photo.mediaType || "image/jpeg",
-              mode: "jukyusha"
-            })
-          }).then(r => r.json())
+          postJukyushaOcr(photo)
         )
       );
 
@@ -10443,12 +10514,12 @@ function JukyushaTab({u, user, store}) {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({
-          imageBase64: photo.base64Raw,
+          imageBase64: photo.base64Ocr,
           mediaType:   photo.mediaType || "image/jpeg",
         })
       });
-      if (!res.ok) throw new Error("判定APIエラー");
-      const data = await res.json();
+      // /api/classify も同じ4.5MB上限を受けるため、応答は _ocrReadJson で解釈する
+      const data = await _ocrReadJson(res);
       if (data.success && data.classification) {
         setClassResult(data.classification);
       } else {
@@ -10456,8 +10527,11 @@ function JukyushaTab({u, user, store}) {
         setClassResult({ documentType:"unknown", confidence:0, reason:"判定失敗", suggestedOcrMode:"manual" });
       }
     } catch(e) {
-      // ネットワーク断等はサイレントに失敗（OCR自体は続行可能）
-      setClassResult({ documentType:"unknown", confidence:0, reason:"ネットワークエラー", suggestedOcrMode:"manual" });
+      // 書類種別の自動判定は補助機能なので、失敗してもOCR本体は続行できる。
+      // ただし理由（段階別メッセージ）は「不明書類」の理由欄に残して隠さない。
+      setClassResult({ documentType:"unknown", confidence:0,
+                       reason: `${e?.stage||"判定"}: ${e?.message||"ネットワークエラー"}`,
+                       suggestedOcrMode:"manual" });
     } finally {
       setClassifying(false);
     }
@@ -10484,15 +10558,7 @@ function JukyushaTab({u, user, store}) {
       // 失敗写真のみ並列OCR実行
       const retrySettled = await Promise.allSettled(
         failedPhotos.map(photo =>
-          fetch("/api/ocr", {
-            method: "POST",
-            headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({
-              imageBase64: photo.base64Raw,
-              mediaType: photo.mediaType || "image/jpeg",
-              mode: "jukyusha"
-            })
-          }).then(r => r.json())
+          postJukyushaOcr(photo)
         )
       );
 
@@ -11696,22 +11762,20 @@ function SoudanGenanTab({u, user, store}) {
     setMode("scan");
 
     try {
-      // ① 生 base64 取得（高解像度で OCR 精度を確保）
-      const base64Raw = await fileToBase64(file);
+      // ①② 送信用データの準備
+      // ★ 旧実装は fileToBase64 の原寸base64を compressBase64 に渡していたが、
+      //   compressBase64 はデコード失敗時に元の base64 をそのまま返すため、
+      //   HEIC等では 4〜7MB がそのまま送られ Vercel の 4.5MB 上限で 413 になっていた。
+      //   _ocrPrepare は必ず JPEG 再エンコードし、PDF は上限超過を送信前に弾く。
+      //   maxPx=2000: 計画書の細かい文字を残しつつ 2.8MB 以内に収める。
+      const prepared = await _ocrPrepare(file, {maxPx: 2000, quality: 0.85});
+      const base64 = prepared.base64;
 
-      // ② 書類OCR用に圧縮（最大 1500×1200、品質 0.85）
-      // 文字が判別できるレベルを維持しつつ、カメラ写真を 200KB 程度に削減
-      // PDF はそのまま（圧縮できない）
-      const isPdf = file.type === "application/pdf";
-      const base64 = isPdf
-        ? base64Raw
-        : await compressBase64(base64Raw, 1500, 1200, 0.85);
-
-      // ③ プレビュー表示（永続的な data URL で保存）
-      const previewDataUrl = "data:image/jpeg;base64," + base64;
+      // ③ プレビュー表示（永続的な data URL で保存 / PDFは application/pdf のまま）
+      const previewDataUrl = prepared.dataUrl;
       setPreview(previewDataUrl);
 
-      console.log("OCR_INPUT", {
+      if (_OCR_DEV) console.log("OCR_INPUT", {
         fileType: file.type,
         origSize: (file.size / 1024).toFixed(0) + "KB",
         compressedLen: base64.length,
@@ -11723,13 +11787,12 @@ function SoudanGenanTab({u, user, store}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imageBase64: base64,
-          mediaType: isPdf ? file.type : "image/jpeg",
+          mediaType: prepared.mediaType,
           mode: "soudan",
         }),
       });
-      const data = await res.json();
-
-      console.log("OCR_RESULT", data);
+      // ★ res.json() を直接呼ばない：413(text/plain)等でSafariが不可解な例外を投げる
+      const data = await _ocrReadJson(res);
 
       if (data.success && data.data) {
         const aiExtract = data.data;
@@ -11753,8 +11816,9 @@ function SoudanGenanTab({u, user, store}) {
           priorityItems:      aiExtract.priorityItems       || [],
         };
 
-        console.log("AI_EXTRACT", aiExtract);
-        console.log("FORM_MERGE_PENDING", newForm); // ← 確認後にフォームへ反映するため、ここでは setForm しない
+        // ★ 抽出結果には氏名・受給者証番号などの個人情報が含まれるため、開発時のみ出力する。
+        //   （newForm は確認後にフォームへ反映するので、ここでは setForm しない）
+        if (_OCR_DEV) { console.log("AI_EXTRACT", aiExtract); console.log("FORM_MERGE_PENDING", newForm); }
 
         setOcrResult(aiExtract);
         setAiMeta(null);
@@ -11778,7 +11842,7 @@ function SoudanGenanTab({u, user, store}) {
       } else {
         // OCR失敗: 原因と対処法を表示
         const errMsg = data.error || "OCR解析に失敗しました。";
-        console.warn("OCR_FAILED", data);
+        console.warn("OCR_FAILED", data?.error || "(理由不明)"); // ★本文はPIIを含むため出さない
         setOcrError(
           errMsg + "\n" +
           "📌 画像が暗い・斜め・文字切れの可能性があります。" +
@@ -11798,10 +11862,13 @@ function SoudanGenanTab({u, user, store}) {
         setMode("result");
       }
     } catch(e) {
-      console.error("OCR_ERROR", e);
+      // ★ 段階別に表示する（「通信エラー」で一括りにすると 413 と回線断が区別できない）
+      console.error("OCR_ERROR", e?.stage||"", e?.message||e);
       setOcrError(
-        "通信エラー: " + e.message + "\n" +
-        "📌 ネットワーク接続を確認してください。"
+        `${e?.stage||"通信"}: ${e?.message||"エラーが発生しました"}\n` +
+        (e?.stage === "画像送信" || !e?.stage
+          ? "📌 ネットワーク接続を確認してください。"
+          : "📌 明るい場所で書類全体が収まるよう撮影し直してください。")
       );
       // BUG-C2修正: 例外時もpageGroupをリセット
       setPageGroup([]);
@@ -11826,16 +11893,16 @@ function SoudanGenanTab({u, user, store}) {
     }
     setAddingPage(true);
     try {
-      const base64Raw = await fileToBase64(file);
-      const isPdf    = file.type === "application/pdf";
-      const base64   = isPdf ? base64Raw : await compressBase64(base64Raw, 1500, 1200, 0.85);
-      const previewDataUrl = "data:image/jpeg;base64," + base64;
+      // 1ページ目（handleDocumentUpload）と同じ前処理を使う（413対策・PDF対応）
+      const prepared = await _ocrPrepare(file, {maxPx: 2000, quality: 0.85});
+      const base64   = prepared.base64;
+      const previewDataUrl = prepared.dataUrl;
 
       const res = await fetch("/api/ocr", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64, mediaType: isPdf ? file.type : "image/jpeg", mode: "soudan" }),
+        body: JSON.stringify({ imageBase64: base64, mediaType: prepared.mediaType, mode: "soudan" }),
       });
-      const data = await res.json();
+      const data = await _ocrReadJson(res);   // ★ res.json() は413(text/plain)で例外になる
 
       if (data.success && data.data) {
         const ext = data.data;
@@ -11894,8 +11961,9 @@ function SoudanGenanTab({u, user, store}) {
         store.showToast("⚠️ ページの読み取りに失敗しました。手動で確認してください。", "warn");
       }
     } catch(e) {
-      console.error("ADD_PAGE_ERROR", e);
-      store.showToast("⚠️ 追加ページ処理でエラーが発生しました。", "warn");
+      // ★ 段階別に表示（413＝画像が大きすぎる／回線断／解析失敗を区別できるようにする）
+      console.error("ADD_PAGE_ERROR", e?.stage||"", e?.message||e);
+      store.showToast(`⚠️ ${e?.stage||"追加ページ"}: ${e?.message||"エラーが発生しました"}`, "warn");
     } finally {
       setAddingPage(false);
     }
@@ -13714,15 +13782,22 @@ function UserVisitTab({u, user, store}) {
   const handlePhoto = async e => {
     const file = e.target.files?.[0];
     if(!file) return;
-    if(!checkFileSize(file)) return; // 5MB上限チェック
+    // uploadToStorage 側で縮小するので上限は50MB（旧5MBはiPhone写真を弾いていた）
+    if(!checkFileSize(file, COMPRESSED_FILE_SIZE_MB)) return;
     const uploaded = await uploadToStorage(file, "daily-photos", "visits");
     if(uploaded?.url){
       setPhotoData(uploaded.url); // Storage URL
     } else {
       // フォールバック: data URL
-      const reader = new FileReader();
-      reader.onload = ev => setPhotoData(ev.target.result);
-      reader.readAsDataURL(file);
+      // ★ 生の readAsDataURL だと原寸base64が visit_records 行に入り、
+      //   保存リクエスト自体がボディ上限を超える。maxPx=1600 は訪問写真の閲覧に十分。
+      try {
+        const {dataUrl} = await _ocrPrepare(file, {maxPx:1600, quality:0.82});
+        setPhotoData(dataUrl);
+      } catch(err) {
+        console.warn("[訪問写真] 取り込み失敗:", err?.stage||"", err?.message||err);
+        store.showToast(`⚠️ ${err?.message||"写真を読み込めませんでした"}`, "warn");
+      }
     }
   };
 
@@ -19468,35 +19543,32 @@ function DailyReport({user,store,onBack}){
 
   // ファイル選択ハンドラ（カメラ撮影・アルバム選択 共用）
   // ★ iOS対応: refとstateの両方を確認。refはスロットメニュー経由、stateはトップボタン経由。
-  const handlePhotoFile=(e)=>{
+  const handlePhotoFile=async(e)=>{
     const file=e.target.files?.[0];
     // refが設定されていればrefを優先（iOS対応）、なければstateを使用
     const targetIdx=photoTargetIdxRef.current!==null?photoTargetIdxRef.current:photoTargetIdx;
     if(!file||targetIdx===null||photoUploading) return;
     setPhotoUploading(true);
     setPhotoSaveErr("");
-    const reader=new FileReader();
-    reader.onload=(ev)=>{
-      const imgData=ev.target.result;
+    try{
+      // ★ 生の readAsDataURL では iPhone写真の原寸base64が daily_reports.data(JSONB) に
+      //   6枚分入り、日報の保存リクエストがボディ上限を超える。
+      //   maxPx=1600: 日報の活動写真は一覧・印刷用途なのでこの解像度で十分。
+      const {dataUrl:imgData}=await _ocrPrepare(file,{maxPx:1600,quality:0.82});
       setRep(p=>{
         const ph=[...(p.photos||Array(6).fill(null))];
         ph[targetIdx]={...(ph[targetIdx]||{}),imgData,uploaded_by:user.displayName,created_at:new Date().toISOString()};
         return {...p,photos:ph};
       });
+    }catch(err){
+      console.warn("[活動写真] 取り込み失敗:",err?.stage||"",err?.message||err);
+      setPhotoSaveErr(`写真の取り込みに失敗しました: ${err?.message||"不明なエラー"}`);
+    }finally{
       setPhotoUploading(false);
       setPhotoTargetIdx(null);
       photoTargetIdxRef.current=null; // refもリセット
       if(photoFileRef.current) photoFileRef.current.value="";
-    };
-    reader.onerror=()=>{
-      setPhotoSaveErr("ファイルの読み込みに失敗しました");
-      setPhotoUploading(false);
-      setPhotoTargetIdx(null);
-      photoTargetIdxRef.current=null;
-      if(photoFileRef.current) photoFileRef.current.value="";
-    };
-    try{reader.readAsDataURL(file);}
-    catch(err){setPhotoSaveErr(`写真の取り込みに失敗しました: ${err.message||"不明なエラー"}`);setPhotoUploading(false);}
+    }
   };
 
   // 写真スロットを開く（idx: 対象スロット番号、capture: "environment"|""）
@@ -24147,20 +24219,28 @@ function StaffDocUploadModal({user, store, filteredStaff, onClose}){
   const staffInfo = filteredStaff.find(s=>s.id===selStaff);
   const docType = STAFF_DOC_TYPES.find(t=>t.id===selType)||STAFF_DOC_TYPES[0];
 
-  const handleFile = e => {
-    const file = e.target.files?.[0];
+  const handleFile = async e => {
+    const input = e.target;
+    const file = input.files?.[0];
     if(!file) return;
-    setFileName(file.name);
-    setImgFileRef(file);           // Storage用にFileオブジェクト保持
-    setImgFileType(file.type||"image/jpeg");
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const url = ev.target.result;
-      setImgUrl(url);
-      setImgB64(url.split(",")[1]);
+    setError("");
+    try {
+      // ★ 生の readAsDataURL では iPhone写真の原寸base64が /api/staff-doc-ai に送られ、
+      //   Vercelの4.5MBボディ上限で 413(text/plain) になる。
+      //   maxPx=2000: 資格証・契約書の細かい文字（登録番号・日付）を残せる解像度。
+      //   PDFは圧縮できないので _ocrPrepare が上限超過を送信前に弾く。
+      const prepared = await _ocrPrepare(file, {maxPx: 2000, quality: 0.85});
+      setFileName(file.name);
+      setImgFileRef(file);           // Storage用にFileオブジェクト保持（アップロード時に再圧縮）
+      setImgFileType(prepared.mediaType);
+      setImgUrl(prepared.dataUrl);
+      setImgB64(prepared.base64);
       setStep("preview");
-    };
-    reader.readAsDataURL(file);
+    } catch(err) {
+      console.warn("[職員書類] 画像の準備に失敗:", err?.stage||"", err?.message||err);
+      setError(`${err?.stage||"画像の準備"}: ${err?.message||"画像を読み込めませんでした"}`);
+    }
+    try{ input.value=""; }catch(_){}   // 同じファイルを選び直せるようにする
   };
 
   const runOCR = async () => {
@@ -24171,13 +24251,13 @@ function StaffDocUploadModal({user, store, filteredStaff, onClose}){
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           imageBase64:imgB64,
-          mediaType:imgUrl.startsWith("data:image/png")?"image/png":"image/jpeg",
+          mediaType:imgFileType,     // handleFile で圧縮済み（image/jpeg か application/pdf）
           documentType:selType,
           staffName:staffInfo?.name||"",
         }),
       });
-      if(!resp.ok){const e=await resp.text();throw new Error(e);}
-      const d = await resp.json();
+      // ★ resp.text()→throw だと 413 の生HTMLがそのまま画面に出るため段階別に変換する
+      const d = await _ocrReadJson(resp);
       if(d.success){
         setOcrResult(d);
         setStep("confirm");
@@ -24185,7 +24265,11 @@ function StaffDocUploadModal({user, store, filteredStaff, onClose}){
         setOcrResult({aiStatus:"error",aiWarnings:[d.error||"解析失敗"],aiSummary:"",extracted:{}});
         setStep("confirm");
       }
-    }catch(e){setError("OCR処理エラー: "+e.message);setStep("preview");}
+    }catch(e){
+      console.warn("[職員書類OCR] 失敗:", e?.stage||"", e?.message||e);
+      setError(`${e?.stage||"OCR処理"}: ${e?.message||"エラーが発生しました"}`);
+      setStep("preview");
+    }
   };
 
   const save = async () => {
@@ -24972,7 +25056,8 @@ function PhotoAlbumScreen({user, store, onBack}){
   const addPhotos=async e=>{
     const files=Array.from(e.target.files||[]);
     // サイズ確認後、アップロード中カウントをインクリメント
-    const validFiles=files.filter(f=>checkFileSize(f));
+    // uploadToStorage / フォールバックの双方で縮小するため上限は50MB
+    const validFiles=files.filter(f=>checkFileSize(f,COMPRESSED_FILE_SIZE_MB));
     if(validFiles.length===0) return;
     setUploadingCount(c=>c+validFiles.length);
     for(const file of validFiles){
@@ -24983,13 +25068,15 @@ function PhotoAlbumScreen({user, store, onBack}){
           setForm(p=>({...p,photos:[...p.photos,{id:genId(),url:uploaded.url,name:file.name,size:file.size}]}));
         } else {
           // フォールバック: data URL（オフライン時や一時エラー）
-          const url=await new Promise(res=>{const rd=new FileReader();rd.onload=ev=>res(ev.target.result);rd.readAsDataURL(file);});
+          // ★ 原寸のままだとアルバム1件に数MB×枚数が入り、保存リクエストが上限を超える。
+          //   maxPx=2000: 保護者に共有する写真なので閲覧に耐える解像度を残す。
+          const {dataUrl:url}=await _ocrPrepare(file,{maxPx:2000,quality:0.85});
           setForm(p=>({...p,photos:[...p.photos,{id:genId(),url,name:file.name,size:file.size}]}));
         }
       } catch(e){
-        // フォールバック
-        const url=await new Promise(res=>{const rd=new FileReader();rd.onload=ev=>res(ev.target.result);rd.readAsDataURL(file);});
-        setForm(p=>({...p,photos:[...p.photos,{id:genId(),url,name:file.name,size:file.size}]}));
+        // フォールバックも失敗（未対応形式など）→ その1枚だけ諦めて理由を出す
+        console.warn("[アルバム] 写真の取り込み失敗:",e?.stage||"",e?.message||e);
+        store.showToast(`⚠️ ${file.name}: ${e?.message||"写真を読み込めませんでした"}`,"warn");
       } finally{
         setUploadingCount(c=>c-1);
       }
@@ -27016,24 +27103,28 @@ function SupportPlanScreen({user, store, onBack}){
   };
 
   // ── OCR（紙資料読み取り）──
-  const handleOcrFile = e => {
+  const handleOcrFile = async e => {
     const file = e.target.files?.[0];
     if(!file) return;
-    if(!checkFileSize(file)) return; // 5MB上限チェック
+    // 送信前に縮小するので上限は50MB（旧5MBはiPhone写真を弾いていた）
+    if(!checkFileSize(file, COMPRESSED_FILE_SIZE_MB)) { e.target.value=""; return; }
     setOcrLoading(true);
-    const reader = new FileReader();
-    reader.onload = async ev => {
-      const b64 = ev.target.result.split(",")[1];
-      try {
-        const resp = await fetch("/api/ocr",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({imageBase64:b64,mediaType:"image/jpeg",mode:ocrMode})});
-        const d = await resp.json();
-        if(d.success&&d.data) setOcrResult(d.data);
-        else alert("読み取り失敗: "+(d.error||"不明"));
-      } catch(e){alert("エラー: "+e.message);}
+    try {
+      // ★ 生の readAsDataURL では原寸base64がそのまま /api/ocr に送られ 413 になる。
+      //   maxPx=2000: 計画書・モニタリング記録の細かい文字を残せる解像度。
+      const prepared = await _ocrPrepare(file, {maxPx:2000, quality:0.85});
+      const resp = await fetch("/api/ocr",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({imageBase64:prepared.base64,mediaType:prepared.mediaType,mode:ocrMode})});
+      // ★ resp.json() を直接呼ばない：413(text/plain)等でSafariが不可解な例外を投げる
+      const d = await _ocrReadJson(resp);
+      if(d.success&&d.data) setOcrResult(d.data);
+      else alert("OCR結果の解析: "+(d.error||"読み取れませんでした。もう一度撮影してください。"));
+    } catch(e){
+      console.warn("[計画書OCR] 失敗:", e?.stage||"", e?.message||e);
+      alert(`${e?.stage||"OCR"}: ${e?.message||"エラーが発生しました"}`);
+    } finally {
       setOcrLoading(false);
-      fileRef.current.value="";
-    };
-    reader.readAsDataURL(file);
+      if(fileRef.current) fileRef.current.value="";
+    }
   };
 
   // OCR結果をフォームに反映（候補表示後に確認してから）
