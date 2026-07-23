@@ -28828,7 +28828,21 @@ function ScheduleOCRScreen({user, store, onBack}){
       stage="OCR結果の解析";
       if(_OCR_DEV) console.log(`[OCR] stage=${stage} responseType=${Array.isArray(d?.data?.visits)?"array":typeof d?.data} visits=${d?.data?.visits?.length??0}`);
       clearInterval(timer);setProgress(100);
-      if(!(d&&d.success&&d.data)) throw _ocrErr(stage, d?.error||"読み取りに失敗しました。もう一度撮影してください。");
+      if(!(d&&d.success&&d.data)){
+        // 失敗時はサーバが返した生テキスト(=JSON.parse前の文字列)をconsoleに出す。
+        // 原因(コードブロック/説明文/途中切れ)をこの1行で判別できるようにする。
+        if(d?.rawText){
+          console.error(`[OCR] サーバ解析失敗 stopReason=${d.stopReason||"-"} rawTextLen=${d.rawText.length}`);
+          console.error(`[OCR] JSON.parse前の文字列(先頭500字):\n${String(d.rawText).slice(0,500)}`);
+          console.error(`[OCR] JSON.parse前の文字列(末尾300字):\n${String(d.rawText).slice(-300)}`);
+        }
+        throw _ocrErr(stage, d?.error||"読み取りに失敗しました。もう一度撮影してください。");
+      }
+      // 応答が途中で切れて修復された場合は、日付が欠けている可能性を警告する
+      if(d.truncated){
+        console.warn("[OCR] ⚠ 応答が途中で切れたため自動修復しました。日付の抜けがないか確認画面で確認してください。");
+        setError("⚠ 読み取り結果が長く、一部が欠けている可能性があります。日付の抜けをご確認ください。");
+      }
       {
         const r=d.data;
         stage="日付・時刻の変換";
@@ -28889,6 +28903,8 @@ function ScheduleOCRScreen({user, store, onBack}){
     let ok=0,warn=0,err=0,skip=0;
     const failed=[];            // 登録できなかった日と理由（画面＋consoleに出す）
     const seen=new Set();       // 同一日の二重登録を防止
+    // ── ログ6: Supabase保存開始 ──
+    console.log(`[OCR] 6.Supabase保存開始 対象=${visits.filter(v=>v._checked).length}件 ${year}年${month}月`);
     for(const v of visits){
       if(!v._checked) continue;
       // ★ 1日分の失敗が全31日分を止めないよう、行ごとにtry/catchで隔離する
@@ -28943,8 +28959,9 @@ function ScheduleOCRScreen({user, store, onBack}){
         console.error(`[OCR保存] 1日分の登録に失敗 date=${v.date}`, rowErr?.message||rowErr);
       }
     }
-    if(_OCR_DEV) console.log(`[OCR保存] 正規化後の登録件数 ok=${ok} warn=${warn} err=${err} skip=${skip}`);
-    if(failed.length) console.warn(`[OCR保存] 登録できなかった日 ${failed.length}件`, failed);
+    // ── ログ7: Supabase保存成功 ──
+    console.log(`[OCR] 7.Supabase保存完了 成功=${ok} 警告=${warn} 失敗=${err} スキップ=${skip}`);
+    if(failed.length) console.warn(`[OCR] 登録できなかった日 ${failed.length}件`, failed);
     setSaveErrors(failed);
     setResult({ok,warn,err,skip});
     // AI施設運営レポートを非同期生成（登録処理をブロックしない）
