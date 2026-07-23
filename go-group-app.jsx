@@ -28540,6 +28540,148 @@ function JissekiScreen({user, store, onBack}){
   </div>;
 }
 
+// ==================== AI運営サポート（予定表チェックエンジン）====================
+// OCRで読んだ予定を解析し「人が確認すべき点だけ」を提案する。
+// 確定的ルールで即時判定（外部送信なし＝高速・低コスト・児童PII非送信）。
+const _hm2m=t=>{ if(!t||!/^\d{1,2}:\d{2}/.test(String(t)))return null; const[h,m]=String(t).split(":").map(Number); return h*60+m; };
+const _m2hm=m=>`${String(Math.floor(m/60)).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`;
+function analyzeSchedule({visits, selUserId, openMin, closeMin, facVisits}){
+  const A=[]; const push=(level,icon,title,detail)=>A.push({level,icon,title,detail});
+  const act=(visits||[]).filter(v=>v._checked!==false && v.date);
+  const raisho=act.filter(v=>v.status!=="欠席");
+  const kesseki=act.filter(v=>v.status==="欠席");
+  const list=ds=>ds.slice(0,8).join(",")+(ds.length>8?"…":"");
+  // 送迎漏れ
+  const noTr=raisho.filter(v=>!v.pickup&&!v.dropoff).map(v=>v.date);
+  if(noTr.length) push("warn","⚠","送迎が未設定です",`${noTr.length}日（${list(noTr)}日）に迎え・送りの指定がありません`);
+  // 片道送迎
+  const one=raisho.filter(v=>(!!v.pickup)!==(!!v.dropoff)).map(v=>v.date);
+  if(one.length) push("info","ℹ️","片道送迎の日があります",`${one.length}日（${list(one)}日）は迎え/送りの一方のみ。意図通りか確認`);
+  // 時間重複
+  const dts=raisho.map(v=>String(v.date));
+  const dup=[...new Set(dts.filter((d,i)=>dts.indexOf(d)!==dts.lastIndexOf(d)))];
+  if(dup.length) push("warn","⚠","同じ日に予定が重複しています",`${dup.join(",")}日 が複数回登録されています`);
+  // 営業時間外
+  const out=raisho.filter(v=>{const s=_hm2m(v.startTime),e=_hm2m(v.endTime);return (s!=null&&s<openMin)||(e!=null&&e>closeMin);}).map(v=>v.date);
+  if(out.length) push("warn","⚠","営業時間外の予定があります",`${list(out)}日 が営業時間（${_m2hm(openMin)}〜${_m2hm(closeMin)}）外です`);
+  // 利用時間 不足/超過
+  const durs=raisho.map(v=>{const s=_hm2m(v.startTime),e=_hm2m(v.endTime);return {d:v.date,m:(s!=null&&e!=null&&e>s)?e-s:null};});
+  const sh=durs.filter(x=>x.m!=null&&x.m<60).map(x=>x.d);
+  const lo=durs.filter(x=>x.m!=null&&x.m>480).map(x=>x.d);
+  if(sh.length) push("warn","⚠","利用時間が通常より短いです",`${list(sh)}日 が1時間未満です`);
+  if(lo.length) push("warn","⚠","利用時間が長すぎる可能性",`${list(lo)}日 が8時間超。延長支援加算の対象か確認`);
+  // 欠席が多い
+  if(kesseki.length>=3) push("warn","⚠","欠席が多い利用者です",`今月${kesseki.length}回の欠席予定。連絡状況と欠席時対応加算を確認`);
+  // 加算取得漏れの可能性
+  const tr=raisho.filter(v=>v.pickup||v.dropoff).length;
+  if(tr>0) push("info","💰","送迎加算の対象があります",`${tr}日で送迎あり。送迎加算の算定漏れに注意`);
+  if(kesseki.length>0) push("info","💰","欠席時対応加算の可能性",`欠席${kesseki.length}日。事前連絡があれば月4回まで算定可`);
+  // 施設横断（同月の他児童データがある時のみ発火＝誤検知防止）
+  if(Array.isArray(facVisits)&&facVisits.length){
+    const byDate={};
+    facVisits.filter(x=>x.child_id!==selUserId).forEach(x=>{ const dd=+(String(x.visit_date||"").slice(8,10)); if(!dd)return; const k=String(dd);
+      (byDate[k]=byDate[k]||{kids:new Set(),tr:0}); byDate[k].kids.add(x.child_id); if(x.pickup_required||x.dropoff_required)byDate[k].tr++; });
+    raisho.forEach(v=>{ const k=String(v.date); (byDate[k]=byDate[k]||{kids:new Set(),tr:0}); byDate[k].kids.add(selUserId||"_cur"); if(v.pickup||v.dropoff)byDate[k].tr++; });
+    const busy=Object.entries(byDate).filter(([,o])=>o.tr>=6).map(([d])=>d);
+    if(busy.length) push("warn","⚠","送迎が集中する日があります",`${list(busy)}日 は送迎希望が6件以上。送迎車の配車を確認`);
+    const crowd=Object.entries(byDate).filter(([,o])=>o.kids.size>=10).map(([d,o])=>`${d}日(${o.kids.size}名)`);
+    if(crowd.length) push("warn","⚠","同時間帯に利用者が集中しています",`${crowd.slice(0,6).join(" / ")}。職員配置基準を確認`);
+  }
+  return A;
+}
+
+// ==================== AI施設運営レポート（共通コンポーネント）====================
+// ドメイン非依存の表示カード。report={title,stats[],evaluation,comment,priorities[]} を受け取り描画。
+// 予定表以外（送迎表/学校予定表/イベント表/職員シフト）も build◯◯Report() が同形を返せば再利用可能。
+function AiReportCard({report}){
+  if(!report) return null;
+  const {title="AI施設運営レポート", stats=[], evaluation={level:"good",label:"良好"}, comment, priorities=[]}=report;
+  const dot=l=>l==="alert"?"🔴":l==="warn"?"🟡":l==="info"?"💰":"🟢";
+  const col=l=>l==="alert"?"var(--ro)":l==="warn"?"#c9971f":l==="info"?"var(--ac)":"var(--gr)";
+  const evBg={good:"rgba(44,170,96,0.12)",warn:"rgba(201,151,31,0.12)",alert:"rgba(224,56,56,0.1)"}[evaluation.level]||"rgba(44,170,96,0.12)";
+  return <div style={{textAlign:"left",width:"100%",maxWidth:520,margin:"16px auto 0",border:"1px solid var(--bd)",borderRadius:14,overflow:"hidden"}}>
+    <div style={{background:"var(--bg2)",padding:"9px 12px",fontSize:12.5,fontWeight:900,color:"var(--tl)",letterSpacing:1,textAlign:"center"}}>━━ 🤖 {title} ━━</div>
+    <div style={{padding:"12px"}}>
+      <div style={{background:evBg,borderRadius:10,padding:"10px 12px",marginBottom:12,textAlign:"center"}}>
+        <span style={{fontSize:11,color:"var(--tx3)",fontWeight:700}}>AI総合評価</span>
+        <div style={{fontSize:18,fontWeight:900,color:col(evaluation.level),marginTop:2}}>{dot(evaluation.level)} {evaluation.label}</div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+        {stats.map((s,i)=><div key={i} style={{background:"var(--bg2)",borderRadius:9,padding:"8px 6px",textAlign:"center"}}>
+          <div style={{fontSize:15,fontWeight:900,color:s.level?col(s.level):"var(--tx)"}}>{s.value}</div>
+          <div style={{fontSize:9.5,color:"var(--tx3)",marginTop:2,lineHeight:1.3}}>{s.label}</div>
+        </div>)}
+      </div>
+      {comment&&<div style={{background:"rgba(58,160,216,0.07)",border:"1px solid rgba(58,160,216,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:priorities.length?12:0}}>
+        <div style={{fontSize:11,fontWeight:800,color:"var(--ac)",marginBottom:4}}>💬 AIコメント</div>
+        <div style={{fontSize:12,color:"var(--tx2)",lineHeight:1.7}}>{comment}</div>
+      </div>}
+      {priorities.length>0&&<div>
+        <div style={{fontSize:11,fontWeight:800,color:"var(--tx3)",marginBottom:6}}>優先順位（重要度順）</div>
+        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          {priorities.map((p,i)=><div key={i} style={{fontSize:12,fontWeight:700,color:col(p.level),display:"flex",gap:6,alignItems:"center"}}>{dot(p.level)} {p.text}</div>)}
+        </div>
+      </div>}
+    </div>
+  </div>;
+}
+
+// 予定表ドメイン → AI施設運営レポートのデータ生成（analyzeScheduleを再利用）
+function buildScheduleReport({visits, selUserId, facVisits, openMin, closeMin, store, todayStr}){
+  const checks=analyzeSchedule({visits, selUserId, openMin, closeMin, facVisits});
+  const act=(visits||[]).filter(v=>v._checked!==false && v.date);
+  const raisho=act.filter(v=>v.status!=="欠席");
+  const kesseki=act.filter(v=>v.status==="欠席");
+  const todayDD=+String(todayStr).slice(8,10);
+  const fv=Array.isArray(facVisits)?facVisits:[];
+  const todayKids=new Set(fv.filter(x=>x.visit_date===todayStr).map(x=>x.child_id));
+  const todayTrans=new Set(fv.filter(x=>x.visit_date===todayStr&&(x.pickup_required||x.dropoff_required)).map(x=>x.child_id));
+  raisho.forEach(v=>{ if(+v.date===todayDD){ todayKids.add(selUserId||"_cur"); if(v.pickup||v.dropoff) todayTrans.add(selUserId||"_cur"); } });
+  let absToday=0;
+  try{ if(store&&store.getAtt&&Array.isArray(store.dynUsers)) absToday=store.dynUsers.filter(u=>store.getAtt(u.id,todayStr)==="欠席").length; }catch(_){}
+  kesseki.forEach(v=>{ if(+v.date===todayDD) absToday++; });
+  const noTr=raisho.filter(v=>!v.pickup&&!v.dropoff).length;
+  const dts=raisho.map(v=>String(v.date)); const dupN=new Set(dts.filter((d,i)=>dts.indexOf(d)!==dts.lastIndexOf(d))).size;
+  const shortN=raisho.filter(v=>{const s=_hm2m(v.startTime),e=_hm2m(v.endTime);return s!=null&&e!=null&&e>s&&(e-s)<60;}).length;
+  const longN=raisho.filter(v=>{const s=_hm2m(v.startTime),e=_hm2m(v.endTime);return s!=null&&e!=null&&(e-s)>480;}).length;
+  const outN=raisho.filter(v=>{const s=_hm2m(v.startTime),e=_hm2m(v.endTime);return (s!=null&&s<openMin)||(e!=null&&e>closeMin);}).length;
+  const transDays=raisho.filter(v=>v.pickup||v.dropoff).length;
+  const staffAlert=checks.some(c=>c.title.includes("配置")||c.title.includes("集中"));
+  // ⑩ 総合評価
+  let level="good",label="良好";
+  if(noTr>0||dupN>0||staffAlert){ level="alert"; label="要確認"; }
+  else if(outN>0||shortN>0||longN>0||absToday>=3||kesseki.length>=3){ level="warn"; label="注意"; }
+  // 優先順位（重要度順）
+  const crit=["送迎が未設定","重複","送迎が集中","利用者が集中"];
+  const priorities=checks.map(c=>{ const isCrit=crit.some(k=>c.title.includes(k)); const lv=isCrit?"alert":(c.level==="info"?"good":"warn"); return {level:lv,text:c.title}; })
+    .sort((a,b)=>({alert:0,warn:1,good:2}[a.level]-{alert:0,warn:1,good:2}[b.level]));
+  // AIコメント（文章要約）
+  const p=[]; p.push(`本日の利用予定は${todayKids.size}名、欠席${absToday}名、送迎${todayTrans.size}名です。`);
+  if(noTr>0) p.push(`送迎漏れが${noTr}件あります。`);
+  if(dupN>0) p.push(`予定の重複が${dupN}件あります。`);
+  if(outN>0||shortN>0||longN>0) p.push(`利用時間に確認が必要な予定があります。`);
+  p.push(staffAlert?`利用者が集中する日があり、職員配置の確認をおすすめします。`:`職員配置に問題はありません。`);
+  if(kesseki.length>0) p.push(`欠席予定者は${kesseki.length}名です。`);
+  if(transDays>0) p.push(`送迎加算の対象が${transDays}日あります。`);
+  p.push(level==="good"?`全体的に良好です。`:level==="warn"?`いくつか確認事項があります。`:`要確認の項目があります。対応をご検討ください。`);
+  return {
+    title:"AI施設運営レポート",
+    evaluation:{level,label},
+    stats:[
+      {label:"本日の利用予定", value:`${todayKids.size}名`},
+      {label:"本日の欠席予定", value:`${absToday}名`, level:absToday>=3?"warn":null},
+      {label:"本日の送迎必要", value:`${todayTrans.size}名`},
+      {label:"送迎漏れ", value:`${noTr}件`, level:noTr>0?"alert":"good"},
+      {label:"時間重複", value:`${dupN}件`, level:dupN>0?"alert":"good"},
+      {label:"利用時間不足", value:`${shortN}件`, level:shortN>0?"warn":"good"},
+      {label:"利用時間超過", value:`${longN}件`, level:longN>0?"warn":"good"},
+      {label:"加算取得候補", value:`${transDays}日`, level:transDays>0?"info":null},
+      {label:"職員配置注意", value:staffAlert?"要確認":"問題なし", level:staffAlert?"warn":"good"},
+    ],
+    comment:p.join(""), priorities,
+  };
+}
+
 // ==================== 予定表OCR自動登録 ====================
 // カメラで紙の利用予定表を撮影→Claude Vision APIで解析→予定を自動登録
 function ScheduleOCRScreen({user, store, onBack}){
@@ -28553,9 +28695,80 @@ function ScheduleOCRScreen({user, store, onBack}){
   const [month,setMonth]=useState(new Date().getMonth()+1);
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState("");
+  const [progress,setProgress]=useState(0);      // OCR進捗(0-100)
+  const [existing,setExisting]=useState([]);      // 既存planned_visits(当該児童・年月)
+  const [result,setResult]=useState({ok:0,warn:0,err:0,skip:0}); // 登録結果集計
+  const [facVisits,setFacVisits]=useState([]);    // 同月・施設内の全予定（施設横断チェック用）
+  const [aiChecks,setAiChecks]=useState(null);    // AI運営サポート結果
+  const [aiRunning,setAiRunning]=useState(false); // AI解析中フラグ
+  const [report,setReport]=useState(null);        // AI施設運営レポート
   const fileRef=useRef();
   const facilityId=user.selectedFacilityId;
   const users=store.dynUsers.filter(u=>u.facilityId===facilityId&&u.active!==false);
+
+  // ── 営業時間（施設設定→未設定なら既定08:00〜19:00）──
+  const _facSet=(store.facilityBillingSettings&&store.facilityBillingSettings[facilityId])||{};
+  const hmToMin=t=>{ if(!t||!/^\d{1,2}:\d{2}/.test(String(t)))return null; const[h,m]=String(t).split(":").map(Number); return h*60+m; };
+  const openMin=hmToMin(_facSet.openTime)??480, closeMin=hmToMin(_facSet.closeTime)??1140;
+  const _norm=s=>(s||"").replace(/[\s　]/g,"");
+  const dateOf=v=>`${year}-${String(month).padStart(2,"0")}-${String(v.date).padStart(2,"0")}`;
+
+  // ── 名前候補（OCR名→利用者マスタを類似度順）──
+  const nameCandidates=(()=>{
+    const q=_norm(ocrInfo?.childName); if(!q) return [];
+    return users.map(u=>{
+      const n=_norm(u.name), k=_norm(_userKana(u));
+      let score=0;
+      if(n===q) score=100;
+      else if(n.includes(q)||q.includes(n)) score=88;
+      else if(k&&(k.includes(q)||q.includes(k))) score=74;
+      else { const sur=q.slice(0,2); if(sur&&(n.startsWith(sur)||n.includes(sur))) score=62; }
+      return {u,score};
+    }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,5);
+  })();
+
+  // ── 行ごとの検証（エラー/警告）──
+  const rowIssues=v=>{
+    const errs=[],warns=[];
+    if(v.status!=="欠席"){
+      const s=hmToMin(v.startTime), e=hmToMin(v.endTime);
+      if(s!=null&&e!=null&&s>=e) errs.push("開始≥終了");
+      if((s!=null&&s<openMin)||(e!=null&&e>closeMin)) warns.push("営業時間外");
+    }
+    if(v.date){
+      const dd=Math.round((new Date(dateOf(v))-new Date(todayISO()))/86400000);
+      if(!isNaN(dd)){ if(dd>180) warns.push("未来日異常"); if(dd<-90) warns.push("過去日異常"); }
+    }
+    if(visits.filter(x=>String(x.date)===String(v.date)).length>1) warns.push("重複");
+    if(existing.some(x=>x.visit_date===dateOf(v))) warns.push("既存あり");
+    return {errs,warns};
+  };
+  // ── 信頼度バッジ ──
+  const confColor=c=> c==null?"var(--tx3)": c>=80?"var(--gr)": c>=60?"#c9971f":"var(--ro)";
+  const confText =c=> c==null?"—": c>=80?`${c}%`: c>=60?`${c}% ⚠`:`${c}% ⚠確認推奨`;
+
+  // ── 既存planned_visits読込（当該児童・年月）──
+  const loadExisting=async(childId)=>{
+    if(!childId){ setExisting([]); return; }
+    try{ const all=await sbLoad("planned_visits");
+      const ym=`${year}-${String(month).padStart(2,"0")}`;
+      const arr=(Array.isArray(all)?all:[]).filter(x=>(x.visit_date||"").startsWith(ym));
+      setFacVisits(arr);
+      setExisting(arr.filter(x=>x.child_id===childId));
+    }catch(_){ setExisting([]); }
+  };
+  const pickUser=id=>{ setSelUserId(id); loadExisting(id); };
+
+  // ── AI運営サポート: confirm表示後に非同期解析（OCR/入力をブロックしない）──
+  useEffect(()=>{
+    if(step!=="confirm"){ setAiChecks(null); setAiRunning(false); return; }
+    setAiRunning(true);
+    const h=setTimeout(()=>{
+      setAiChecks(analyzeSchedule({visits, selUserId, openMin, closeMin, facVisits}));
+      setAiRunning(false);
+    }, 350);
+    return ()=>clearTimeout(h);
+  },[step, visits, selUserId, facVisits, openMin, closeMin]);
 
   // 画像選択（カメラ撮影 or ファイル選択）
   const handleFile=e=>{
@@ -28573,7 +28786,8 @@ function ScheduleOCRScreen({user, store, onBack}){
 
   // OCR実行
   const runOCR=async()=>{
-    setStep("loading");setError("");
+    setStep("loading");setError("");setProgress(6);
+    const timer=setInterval(()=>setProgress(p=>Math.min(92,p+Math.random()*11)),550);
     try{
       const resp=await fetch("/api/ocr",{
         method:"POST",
@@ -28581,76 +28795,92 @@ function ScheduleOCRScreen({user, store, onBack}){
         body:JSON.stringify({imageBase64:imgB64,mediaType:"image/jpeg",mode:"yotei",year,month})
       });
       const d=await resp.json();
+      clearInterval(timer);setProgress(100);
       if(d.success&&d.data){
         const r=d.data;
-        setOcrInfo({childName:r.childName,facilityName:r.facilityName,year:r.year||year,month:r.month||month});
+        const yy=r.year||year, mm=r.month||month;
+        setOcrInfo({childName:r.childName,nameConfidence:r.nameConfidence,facilityName:r.facilityName,year:yy,month:mm});
         if(r.year) setYear(r.year);
         if(r.month) setMonth(r.month);
-        setVisits((r.visits||[]).map((v,i)=>({...v,_id:i,_checked:true})));
-        // 名前からユーザー自動マッチング
+        // status正規化・既存あり時の既定動作(update)を付与
+        setVisits((r.visits||[]).map((v,i)=>({...v,_id:i,_checked:true,
+          status:v.status==="欠席"?"欠席":"来所", _action:"update"})));
+        // 名前からユーザー自動マッチング（一致すれば既存予定も読込）
+        let matchedId="";
         if(r.childName){
-          const found=users.find(u=>u.name.replace(/\s/g,"").includes(r.childName.replace(/\s/g,""))||r.childName.replace(/\s/g,"").includes(u.name.replace(/\s/g,"")));
-          if(found) setSelUserId(found.id);
+          const q=_norm(r.childName);
+          const found=users.find(u=>_norm(u.name)===q)||users.find(u=>_norm(u.name).includes(q)||q.includes(_norm(u.name)));
+          if(found){ matchedId=found.id; setSelUserId(found.id); }
         }
+        // 既存planned_visits読込（当該児童＋施設横断チェック用に同月全件）
+        try{ const all=await sbLoad("planned_visits");
+          const ym=`${yy}-${String(mm).padStart(2,"0")}`;
+          const arr=(Array.isArray(all)?all:[]).filter(x=>(x.visit_date||"").startsWith(ym));
+          setFacVisits(arr);
+          setExisting(arr.filter(x=>x.child_id===matchedId));
+        }catch(_){ setExisting([]); setFacVisits([]); }
         setStep("confirm");
       }else{
         setError(d.error||"読み取りに失敗しました。もう一度撮影してください。");
         setStep("preview");
       }
-    }catch(e){setError("通信エラー: "+e.message);setStep("preview");}
+    }catch(e){ clearInterval(timer); setError("通信エラー: "+e.message);setStep("preview");}
   };
 
-  // 訪問日の編集
+  // 行の編集
   const updVisit=(idx,key,val)=>setVisits(p=>p.map((v,i)=>i===idx?{...v,[key]:val}:v));
+  // 欠席トグル（来所⇄欠席）
+  const toggleAbsent=(idx,checked)=>setVisits(p=>p.map((v,i)=>i===idx?{...v,status:checked?"欠席":"来所"}:v));
 
-  // 保存
+  // 保存（予定→planned_visits / 欠席→att_data に振り分け・既存はupdate/skip）
   const save=async()=>{
     if(!selUserId){alert("利用者を選択してください");return;}
     setSaving(true);
     const u=users.find(x=>x.id===selUserId);
-    const checked=visits.filter(v=>v._checked);
-    checked.forEach(v=>{
+    let ok=0,warn=0,err=0,skip=0;
+    for(const v of visits){
+      if(!v._checked) continue;
+      const iss=rowIssues(v);
+      if(iss.errs.length){ err++; continue; }               // エラー行(開始≥終了等)は登録しない
       const MM=String(month).padStart(2,"0");
       const DD=String(v.date).padStart(2,"0");
       const dateStr=`${year}-${MM}-${DD}`;
-      // ── scheduleDataキー（ScheduleScreenと同じ形式）
-      const key=selUserId+"_"+year+"_"+MM+"_"+DD;
-      // ── schedules テーブル用の行（送迎・時間を含む）
-      const schedRow={
-        id:key,
-        user_id:selUserId,
-        user_name:u?.name||"",
-        facility_id:facilityId,
-        date:dateStr,
-        status:"来所予定",
-        transport_to:v.pickup||false,   // 送迎（迎え）
-        transport_from:v.dropoff||false, // 送迎（送り）
-        start_time:v.startTime||null,
-        end_time:v.endTime||null,
-        memo:v.memo||null,
-        updated_at:new Date().toISOString(),
-      };
-      // ScheduleScreenが読むscheduleDataを更新
-      if(store.setScheduleData) store.setScheduleData(p=>({...p,[key]:schedRow}));
-      // Supabase schedules テーブルに保存
-      if(store.saveScheduleRow) store.saveScheduleRow(schedRow);
-      // 出欠管理にも「予定」として登録
-      store.setAtt(selUserId,dateStr,"予定");
-      // planned_visitsにも保存（互換性維持）
-      sbSave("planned_visits",{
-        id:selUserId+"_"+dateStr,
-        child_id:selUserId,
-        facility_id:facilityId,
-        visit_date:dateStr,
-        start_time:v.startTime||null,
-        end_time:v.endTime||null,
-        pickup_required:v.pickup||false,
-        dropoff_required:v.dropoff||false,
-        memo:v.memo||null,
-        event_name:v.event||null,
-        created_at:new Date().toISOString(),
-      });
-    });
+      const hasExisting=existing.some(x=>x.visit_date===dateStr);
+      if(hasExisting && v._action==="skip"){ skip++; continue; } // 既存ありでスキップ選択
+
+      if(v.status==="欠席"){
+        // ── 欠席 → 出欠管理(att_data) ──
+        store.setAtt(selUserId,dateStr,"欠席");
+      }else{
+        // ── 来所予定 → planned_visits（+ schedules / scheduleData / 出欠「予定」）──
+        const key=selUserId+"_"+year+"_"+MM+"_"+DD;
+        const schedRow={
+          id:key, user_id:selUserId, user_name:u?.name||"", facility_id:facilityId,
+          date:dateStr, status:"来所予定",
+          transport_to:v.pickup||false, transport_from:v.dropoff||false,
+          updated_at:new Date().toISOString(),
+        };
+        if(store.setScheduleData) store.setScheduleData(p=>({...p,[key]:schedRow}));
+        if(store.saveScheduleRow) store.saveScheduleRow(schedRow);
+        store.setAtt(selUserId,dateStr,"予定");
+        // 予約詳細の本命テーブル。既存更新時はcreated_atを保持
+        const prev=existing.find(x=>x.visit_date===dateStr);
+        sbSave("planned_visits",{
+          id:selUserId+"_"+dateStr,
+          child_id:selUserId, facility_id:facilityId, visit_date:dateStr,
+          start_time:v.startTime||null, end_time:v.endTime||null,
+          pickup_required:v.pickup||false, dropoff_required:v.dropoff||false,
+          memo:v.memo||null, event_name:v.event||null,
+          created_at:(prev&&prev.created_at)||new Date().toISOString(),
+          updated_at:new Date().toISOString(),
+        });
+      }
+      ok++;
+      if(iss.warns.length) warn++;
+    }
+    setResult({ok,warn,err,skip});
+    // AI施設運営レポートを非同期生成（登録処理をブロックしない）
+    setTimeout(()=>{ try{ setReport(buildScheduleReport({visits, selUserId, facVisits, openMin, closeMin, store, todayStr:todayISO()})); }catch(_){ setReport(null); } },0);
     setSaving(false);
     setStep("done");
   };
@@ -28659,9 +28889,19 @@ function ScheduleOCRScreen({user, store, onBack}){
   if(step==="done") return <div className="succ">
     <div className="si">✅</div>
     <div className="st">予定登録完了</div>
-    <div className="sd">{visits.filter(v=>v._checked).length}日分の来所予定を登録しました</div>
-    <div style={{display:"flex",gap:10,marginTop:14}}>
-      <button className="bpri" style={{maxWidth:180}} onClick={()=>{setStep("select");setImgB64("");setImgUrl("");setVisits([]);setOcrInfo(null);}}>続けて登録</button>
+    <div className="sd">{result.ok}件を登録しました</div>
+    <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap",justifyContent:"center"}}>
+      <span style={{fontSize:12,fontWeight:800,color:"var(--gr)",background:"rgba(44,170,96,0.12)",padding:"5px 12px",borderRadius:20}}>✅ 成功 {result.ok}</span>
+      <span style={{fontSize:12,fontWeight:800,color:"#c9971f",background:"rgba(201,151,31,0.12)",padding:"5px 12px",borderRadius:20}}>⚠ 警告 {result.warn}</span>
+      <span style={{fontSize:12,fontWeight:800,color:"var(--ro)",background:"rgba(224,56,56,0.1)",padding:"5px 12px",borderRadius:20}}>✕ エラー {result.err}</span>
+      <span style={{fontSize:12,fontWeight:800,color:"var(--tx3)",background:"rgba(120,120,120,0.12)",padding:"5px 12px",borderRadius:20}}>⏭ スキップ {result.skip}</span>
+    </div>
+
+    {/* ── AI施設運営レポート（登録完了後・共通コンポーネント）── */}
+    <AiReportCard report={report}/>
+
+    <div style={{display:"flex",gap:10,marginTop:16}}>
+      <button className="bpri" style={{maxWidth:180}} onClick={()=>{setStep("select");setImgB64("");setImgUrl("");setVisits([]);setOcrInfo(null);setExisting([]);setResult({ok:0,warn:0,err:0,skip:0});setProgress(0);setReport(null);}}>続けて登録</button>
       <button className="bpri" style={{maxWidth:150,background:"rgba(255,255,255,0.1)"}} onClick={onBack}>ホームへ</button>
     </div>
   </div>;
@@ -28709,11 +28949,15 @@ function ScheduleOCRScreen({user, store, onBack}){
       <button style={{width:"100%",padding:"10px",borderRadius:9,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}} onClick={()=>{setStep("select");setImgUrl("");setImgB64("");}}>撮り直す</button>
     </div>}
 
-    {/* ── STEP3: 読み取り中 ── */}
-    {step==="loading"&&<div style={{textAlign:"center",padding:"60px 20px"}}>
+    {/* ── STEP3: 読み取り中（Progress表示）── */}
+    {step==="loading"&&<div style={{textAlign:"center",padding:"56px 24px"}}>
       <div style={{fontSize:48,marginBottom:16}}>🤖</div>
-      <div style={{fontSize:14,fontWeight:700,color:"var(--tl)",marginBottom:8}}>AIが予定表を読み取り中...</div>
-      <div style={{fontSize:12,color:"var(--tx3)"}}>10〜20秒ほどお待ちください</div>
+      <div style={{fontSize:15,fontWeight:800,color:"var(--tl)",marginBottom:10}}>AI解析中...</div>
+      <div style={{width:"100%",maxWidth:320,height:10,margin:"0 auto 8px",background:"var(--bg2)",borderRadius:20,overflow:"hidden",border:"1px solid var(--bd)"}}>
+        <div style={{width:`${Math.round(progress)}%`,height:"100%",background:"linear-gradient(90deg,var(--ac),var(--gr))",borderRadius:20,transition:"width 0.5s ease"}}/>
+      </div>
+      <div style={{fontSize:12,fontWeight:700,color:"var(--ac)",marginBottom:4}}>{Math.round(progress)}%</div>
+      <div style={{fontSize:12,color:"var(--tx3)"}}>予定表を読み取っています（10〜20秒）</div>
     </div>}
 
     {/* ── STEP4: 確認・修正 ── */}
@@ -28726,40 +28970,85 @@ function ScheduleOCRScreen({user, store, onBack}){
         </div>
       </div>}
 
-      {/* 利用者選択 */}
-      <div className="slbl">利用者を選択（自動マッチング済み）</div>
-      <select className="fsm" style={{width:"100%",marginBottom:14,fontSize:14,padding:"10px 12px"}} value={selUserId} onChange={e=>setSelUserId(e.target.value)}>
+      {/* 利用者選択（名前候補＋信頼度） */}
+      <div className="slbl">利用者を選択
+        {ocrInfo?.childName&&<span style={{marginLeft:6,fontWeight:800,color:confColor(ocrInfo.nameConfidence)}}>（AI読取: {ocrInfo.childName} {confText(ocrInfo.nameConfidence)}）</span>}
+      </div>
+      <select className="fsm" style={{width:"100%",marginBottom:8,fontSize:14,padding:"10px 12px"}} value={selUserId} onChange={e=>pickUser(e.target.value)}>
         <option value="">-- 選択してください --</option>
         {users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
       </select>
+      {nameCandidates.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+        <span style={{fontSize:10,color:"var(--tx3)"}}>候補:</span>
+        {nameCandidates.map(c=><button key={c.u.id} onClick={()=>pickUser(c.u.id)} style={{fontSize:11,fontWeight:700,padding:"4px 10px",borderRadius:16,border:"1px solid "+(selUserId===c.u.id?"var(--ac)":"var(--bd)"),background:selUserId===c.u.id?"rgba(240,110,40,0.12)":"var(--bg)",color:selUserId===c.u.id?"var(--ac)":"var(--tx2)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>{c.u.name} {c.score}%</button>)}
+      </div>}
 
-      {/* 読み取り結果テーブル */}
-      <div className="slbl">{year}年{month}月 来所予定 — {visits.filter(v=>v._checked).length}日（チェックを外すと登録しない）</div>
+      {/* 読み取り結果テーブル（欠席・信頼度・検証・既存処理を含む） */}
+      <div className="slbl">{year}年{month}月 予定 — {visits.filter(v=>v._checked).length}件（チェックを外すと登録しない）</div>
       <div style={{overflowX:"auto",marginBottom:14}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:500}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:560}}>
           <thead><tr style={{background:"var(--bg2)"}}>
-            {["✓","日付","利用時間","送迎","備考/イベント"].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"left",color:"var(--tx2)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--bd)",whiteSpace:"nowrap"}}>{h}</th>)}
+            {["✓","日付","欠席","利用時間","送迎","備考/イベント","信頼度"].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"left",color:"var(--tx2)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--bd)",whiteSpace:"nowrap"}}>{h}</th>)}
           </tr></thead>
-          <tbody>{visits.map((v,i)=><tr key={i} style={{borderBottom:"1px solid var(--bd)",background:v._checked?"":"rgba(0,0,0,0.03)",opacity:v._checked?1:0.5}}>
-            <td style={{padding:"6px 8px"}}><input type="checkbox" checked={v._checked} onChange={e=>updVisit(i,"_checked",e.target.checked)}/></td>
-            <td style={{padding:"6px 8px",fontWeight:700,whiteSpace:"nowrap"}}>{month}/{v.date}({v.dayOfWeek})</td>
-            <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
-              <input type="time" value={v.startTime||""} onChange={e=>updVisit(i,"startTime",e.target.value)} style={{width:80,fontSize:11,padding:"2px 4px",border:"1px solid var(--bd)",borderRadius:4,background:"var(--bg)",color:"var(--tx)"}}/>
-              <span style={{margin:"0 4px",color:"var(--tx3)"}}>〜</span>
-              <input type="time" value={v.endTime||""} onChange={e=>updVisit(i,"endTime",e.target.value)} style={{width:80,fontSize:11,padding:"2px 4px",border:"1px solid var(--bd)",borderRadius:4,background:"var(--bg)",color:"var(--tx)"}}/>
+          <tbody>{visits.map((v,i)=>{ const iss=rowIssues(v); const absent=v.status==="欠席"; const hasEx=existing.some(x=>x.visit_date===dateOf(v)); return <tr key={i} style={{borderBottom:"1px solid var(--bd)",background:!v._checked?"rgba(0,0,0,0.03)":absent?"rgba(224,56,56,0.05)":"",opacity:v._checked?1:0.5}}>
+            <td style={{padding:"6px 8px",verticalAlign:"top"}}><input type="checkbox" checked={v._checked} onChange={e=>updVisit(i,"_checked",e.target.checked)}/></td>
+            <td style={{padding:"6px 8px",whiteSpace:"nowrap",verticalAlign:"top"}}>
+              <div style={{display:"flex",alignItems:"center",gap:2}}>
+                <span style={{color:"var(--tx3)",fontSize:11}}>{month}/</span>
+                <input type="number" min={1} max={31} value={v.date||""} onChange={e=>updVisit(i,"date",e.target.value?+e.target.value:"")} style={{width:42,fontSize:12,fontWeight:700,padding:"2px 4px",border:"1px solid var(--bd)",borderRadius:4,background:"var(--bg)",color:"var(--tx)"}}/>
+                <span style={{fontSize:10,color:"var(--tx3)"}}>({v.dayOfWeek})</span>
+              </div>
+              {(iss.errs.length>0||iss.warns.length>0)&&<div style={{display:"flex",gap:3,flexWrap:"wrap",marginTop:3,maxWidth:120}}>
+                {iss.errs.map(w=><span key={w} style={{fontSize:9,fontWeight:800,color:"#fff",background:"var(--ro)",padding:"1px 5px",borderRadius:8}}>{w}</span>)}
+                {iss.warns.map(w=><span key={w} style={{fontSize:9,fontWeight:800,color:"#8a6d00",background:"rgba(201,151,31,0.22)",padding:"1px 5px",borderRadius:8}}>{w}</span>)}
+              </div>}
             </td>
-            <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
-              <label style={{fontSize:10,marginRight:6}}><input type="checkbox" checked={v.pickup||false} onChange={e=>updVisit(i,"pickup",e.target.checked)}/> 迎</label>
-              <label style={{fontSize:10}}><input type="checkbox" checked={v.dropoff||false} onChange={e=>updVisit(i,"dropoff",e.target.checked)}/> 送</label>
+            <td style={{padding:"6px 8px",textAlign:"center",verticalAlign:"top"}}>
+              <input type="checkbox" checked={absent} onChange={e=>toggleAbsent(i,e.target.checked)} title="欠席"/>
             </td>
-            <td style={{padding:"6px 8px"}}>
-              <input value={v.event||v.memo||""} onChange={e=>updVisit(i,"memo",e.target.value)} placeholder="備考" style={{width:"100%",fontSize:11,padding:"2px 6px",border:"1px solid var(--bd)",borderRadius:4,background:"var(--bg)",color:"var(--tx)"}}/>
+            <td style={{padding:"6px 8px",whiteSpace:"nowrap",verticalAlign:"top",opacity:absent?0.35:1}}>
+              <input type="time" disabled={absent} value={v.startTime||""} onChange={e=>updVisit(i,"startTime",e.target.value)} style={{width:76,fontSize:11,padding:"2px 4px",border:"1px solid "+(iss.errs.includes("開始≥終了")?"var(--ro)":"var(--bd)"),borderRadius:4,background:"var(--bg)",color:"var(--tx)"}}/>
+              <span style={{margin:"0 3px",color:"var(--tx3)"}}>〜</span>
+              <input type="time" disabled={absent} value={v.endTime||""} onChange={e=>updVisit(i,"endTime",e.target.value)} style={{width:76,fontSize:11,padding:"2px 4px",border:"1px solid "+(iss.errs.includes("開始≥終了")?"var(--ro)":"var(--bd)"),borderRadius:4,background:"var(--bg)",color:"var(--tx)"}}/>
             </td>
-          </tr>)}</tbody>
+            <td style={{padding:"6px 8px",whiteSpace:"nowrap",verticalAlign:"top",opacity:absent?0.35:1}}>
+              <label style={{fontSize:10,marginRight:6}}><input type="checkbox" disabled={absent} checked={v.pickup||false} onChange={e=>updVisit(i,"pickup",e.target.checked)}/> 迎</label>
+              <label style={{fontSize:10}}><input type="checkbox" disabled={absent} checked={v.dropoff||false} onChange={e=>updVisit(i,"dropoff",e.target.checked)}/> 送</label>
+            </td>
+            <td style={{padding:"6px 8px",verticalAlign:"top"}}>
+              <input value={v.memo||v.event||""} onChange={e=>updVisit(i,"memo",e.target.value)} placeholder="備考" style={{width:"100%",minWidth:90,fontSize:11,padding:"2px 6px",border:"1px solid var(--bd)",borderRadius:4,background:"var(--bg)",color:"var(--tx)"}}/>
+            </td>
+            <td style={{padding:"6px 8px",whiteSpace:"nowrap",verticalAlign:"top"}}>
+              <span style={{fontSize:11,fontWeight:800,color:confColor(v.confidence)}}>{confText(v.confidence)}</span>
+              {hasEx&&<div style={{marginTop:4}}>
+                <select value={v._action||"update"} onChange={e=>updVisit(i,"_action",e.target.value)} style={{fontSize:10,padding:"1px 3px",border:"1px solid var(--bd)",borderRadius:4,background:"var(--bg)",color:"var(--tx2)"}}>
+                  <option value="update">既存を更新</option>
+                  <option value="skip">スキップ</option>
+                </select>
+              </div>}
+            </td>
+          </tr>;})}</tbody>
         </table>
       </div>
+
+      {/* ── AI運営サポート（確認画面下部・非同期解析）── */}
+      <div style={{margin:"2px 0 14px",border:"1px solid var(--bd)",borderRadius:12,overflow:"hidden"}}>
+        <div style={{background:"var(--bg2)",padding:"8px 12px",fontSize:12,fontWeight:900,color:"var(--tl)",letterSpacing:1,textAlign:"center"}}>━━ 🤖 AIチェック結果 ━━</div>
+        <div style={{padding:"10px 12px"}}>
+          {aiRunning&&<div style={{fontSize:12,color:"var(--tx3)",display:"flex",alignItems:"center",gap:8}}><span className="spin" style={{fontSize:15}}>🤖</span> AI運営チェック中...</div>}
+          {!aiRunning&&aiChecks&&aiChecks.length===0&&<div style={{fontSize:13,fontWeight:800,color:"var(--gr)"}}>✅ 問題なし（確認が必要な点は見つかりませんでした）</div>}
+          {!aiRunning&&aiChecks&&aiChecks.length>0&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {aiChecks.map((c,i)=>{ const col=c.level==="warn"?"#c9971f":c.level==="info"?"var(--ac)":"var(--gr)"; const bg=c.level==="warn"?"rgba(201,151,31,0.09)":c.level==="info"?"rgba(240,110,40,0.07)":"rgba(44,170,96,0.08)";
+              return <div key={i} style={{background:bg,border:"1px solid "+col+"44",borderRadius:9,padding:"8px 10px"}}>
+                <div style={{fontSize:12.5,fontWeight:800,color:col}}>{c.icon} {c.title}</div>
+                {c.detail&&<div style={{fontSize:11,color:"var(--tx2)",marginTop:2,lineHeight:1.5}}>{c.detail}</div>}
+              </div>; })}
+          </div>}
+        </div>
+      </div>
+
       <button className="bsave" disabled={!selUserId||saving||visits.filter(v=>v._checked).length===0} onClick={save} style={{marginBottom:8}}>
-        {saving?"登録中...":"✅ "+visits.filter(v=>v._checked).length+"日分を予定に登録する"}
+        {saving?"登録中...":"✅ "+visits.filter(v=>v._checked).length+"件を登録する"}
       </button>
       <button style={{width:"100%",padding:"10px",borderRadius:9,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}} onClick={()=>setStep("preview")}>← 撮り直す</button>
     </div>}
