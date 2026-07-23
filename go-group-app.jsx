@@ -28712,7 +28712,7 @@ function ScheduleOCRScreen({user, store, onBack}){
   const [error,setError]=useState("");
   const [progress,setProgress]=useState(0);      // OCR進捗(0-100)
   const [existing,setExisting]=useState([]);      // 既存planned_visits(当該児童・年月)
-  const [result,setResult]=useState({ok:0,warn:0,err:0,skip:0}); // 登録結果集計
+  const [result,setResult]=useState({ok:0,warn:0,err:0,skip:0,absent:0,transport:0,events:0,unchanged:0}); // 登録結果集計
   const [saveErrors,setSaveErrors]=useState([]);                 // 登録できなかった日と理由
   const [facVisits,setFacVisits]=useState([]);    // 同月・施設内の全予定（施設横断チェック用）
   const [aiChecks,setAiChecks]=useState(null);    // AI運営サポート結果
@@ -28760,8 +28760,25 @@ function ScheduleOCRScreen({user, store, onBack}){
     return {errs,warns};
   };
   // ── 信頼度バッジ ──
-  const confColor=c=> c==null?"var(--tx3)": c>=80?"var(--gr)": c>=60?"#c9971f":"var(--ro)";
-  const confText =c=> c==null?"—": c>=80?`${c}%`: c>=60?`${c}% ⚠`:`${c}% ⚠確認推奨`;
+  // ── 信頼度の色分け（95%以上=緑 / 85〜94%=黄 / 84%以下=赤）──
+  const CONF_HIGH=95, CONF_MID=85, CONF_REVIEW=90;   // REVIEW未満は「要確認」に数える
+  const confColor=c=> c==null?"var(--tx3)": c>=CONF_HIGH?"var(--gr)": c>=CONF_MID?"#e0a828":"var(--ro)";
+  const confBg   =c=> c==null?"rgba(120,120,120,0.12)": c>=CONF_HIGH?"rgba(44,170,96,0.15)": c>=CONF_MID?"rgba(224,168,40,0.18)":"rgba(224,56,56,0.15)";
+  const confText =c=> c==null?"—": c>=CONF_HIGH?`${c}%`: c>=CONF_MID?`${c}% ⚠`:`${c}% ⚠要確認`;
+  // 一目で分かるバッジ表示
+  const ConfBadge=({c})=><span style={{display:"inline-block",fontSize:11,fontWeight:800,whiteSpace:"nowrap",
+    color:confColor(c),background:confBg(c),border:`1px solid ${confColor(c)}55`,
+    borderRadius:12,padding:"2px 8px"}}>{confText(c)}</span>;
+
+  // ── AI読取サマリー（読取件数・成功率・要確認件数）──
+  const ocrSummary=(()=>{
+    const list=visits.filter(v=>v.confidence!=null);
+    const total=visits.length;
+    if(!total) return null;
+    const avg=list.length?Math.round(list.reduce((s,v)=>s+v.confidence,0)/list.length):null;
+    const review=visits.filter(v=>v.confidence==null||v.confidence<CONF_REVIEW).length;
+    return {total, rate:avg, review};
+  })();
 
   // ── 既存planned_visits読込（当該児童・年月）──
   const loadExisting=async(childId)=>{
@@ -28901,8 +28918,18 @@ function ScheduleOCRScreen({user, store, onBack}){
     setSaving(true);
     const u=users.find(x=>x.id===selUserId);
     let ok=0,warn=0,err=0,skip=0;
+    let absent=0,transport=0,events=0,unchanged=0;  // 完了画面の内訳／差分保存の集計
     const failed=[];            // 登録できなかった日と理由（画面＋consoleに出す）
     const seen=new Set();       // 同一日の二重登録を防止
+
+    // ★ 既存行と中身が同じなら書き込まない（変更した行だけ更新する）
+    const isSame=(prev,p)=>prev
+      && (prev.start_time||null)===p.start_time
+      && (prev.end_time||null)===p.end_time
+      && !!prev.pickup_required===p.pickup_required
+      && !!prev.dropoff_required===p.dropoff_required
+      && (prev.memo||null)===p.memo
+      && (prev.event_name||null)===p.event_name;
     // ── ログ6: Supabase保存開始 ──
     console.log(`[OCR] 6.Supabase保存開始 対象=${visits.filter(v=>v._checked).length}件 ${year}年${month}月`);
     for(const v of visits){
@@ -28925,6 +28952,7 @@ function ScheduleOCRScreen({user, store, onBack}){
         if(v.status==="欠席"){
           // ── 欠席 → 出欠管理(att_data) ──
           store.setAtt(selUserId,dateStr,"欠席");
+          absent++;
         }else{
           // ── 来所予定 → planned_visits（+ schedules / scheduleData / 出欠「予定」）──
           const key=selUserId+"_"+year+"_"+MM+"_"+DD;
@@ -28934,22 +28962,30 @@ function ScheduleOCRScreen({user, store, onBack}){
             transport_to:!!v.pickup, transport_from:!!v.dropoff,
             updated_at:new Date().toISOString(),
           };
-          if(store.setScheduleData) store.setScheduleData(p=>({...p,[key]:schedRow}));
-          if(store.saveScheduleRow) store.saveScheduleRow(schedRow);
-          store.setAtt(selUserId,dateStr,"予定");
           // 予約詳細の本命テーブル。既存更新時はcreated_atを保持
           const prev=existing.find(x=>x.visit_date===dateStr);
-          // ★ awaitで結果を確認（sbSaveは失敗時にstatus/bodyをconsole.errorへ出力する）
-          const saved=await sbSave("planned_visits",{
+          const payload={
             id:selUserId+"_"+dateStr,
             child_id:selUserId, facility_id:facilityId, visit_date:dateStr,
             start_time:st, end_time:et,
             pickup_required:!!v.pickup, dropoff_required:!!v.dropoff,
             memo:v.memo||null, event_name:v.event||null,
+          };
+          // ★ 既存行と完全に同じなら書き込みを省略（変更した行だけ更新）
+          if(isSame(prev,payload)){ unchanged++; skip++; continue; }
+
+          if(store.setScheduleData) store.setScheduleData(p=>({...p,[key]:schedRow}));
+          if(store.saveScheduleRow) store.saveScheduleRow(schedRow);
+          store.setAtt(selUserId,dateStr,"予定");
+          // ★ awaitで結果を確認（sbSaveは失敗時にstatus/bodyをconsole.errorへ出力する）
+          const saved=await sbSave("planned_visits",{
+            ...payload,
             created_at:(prev&&prev.created_at)||new Date().toISOString(),
             updated_at:new Date().toISOString(),
           });
           if(saved===false){ err++; failed.push(`${dateStr}: 予定表の保存に失敗しました`); continue; }
+          if(v.pickup||v.dropoff) transport++;
+          if(v.event||v.memo)     events++;
         }
         ok++;
         if(iss.warns.length) warn++;
@@ -28960,10 +28996,11 @@ function ScheduleOCRScreen({user, store, onBack}){
       }
     }
     // ── ログ7: Supabase保存成功 ──
-    console.log(`[OCR] 7.Supabase保存完了 成功=${ok} 警告=${warn} 失敗=${err} スキップ=${skip}`);
+    console.log(`[OCR] 7.Supabase保存完了 成功=${ok} 警告=${warn} 失敗=${err} スキップ=${skip}（うち変更なし=${unchanged}）`);
+    console.log(`[OCR] 内訳 欠席=${absent} 送迎あり=${transport} イベント=${events}`);
     if(failed.length) console.warn(`[OCR] 登録できなかった日 ${failed.length}件`, failed);
     setSaveErrors(failed);
-    setResult({ok,warn,err,skip});
+    setResult({ok,warn,err,skip,absent,transport,events,unchanged});
     // AI施設運営レポートを非同期生成（登録処理をブロックしない）
     setTimeout(()=>{ try{ setReport(buildScheduleReport({visits, selUserId, facVisits, openMin, closeMin, store, todayStr:todayISO()})); }catch(_){ setReport(null); } },0);
     setSaving(false);
@@ -28975,6 +29012,25 @@ function ScheduleOCRScreen({user, store, onBack}){
     <div className="si">✅</div>
     <div className="st">予定登録完了</div>
     <div className="sd">{result.ok}件を登録しました</div>
+
+    {/* ── 登録内訳（登録件数・欠席・送迎あり・イベント）── */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginTop:14,width:"100%",maxWidth:420}}>
+      {[
+        {lbl:"登録件数",  val:result.ok,                 col:"var(--gr)", bg:"rgba(44,170,96,0.12)"},
+        {lbl:"欠席",      val:result.absent||0,          col:"var(--ro)", bg:"rgba(224,56,56,0.10)"},
+        {lbl:"送迎あり",  val:result.transport||0,       col:"var(--tl)", bg:"rgba(58,160,216,0.12)"},
+        {lbl:"イベント",  val:result.events||0,          col:"var(--ac)", bg:"rgba(240,110,40,0.12)"},
+      ].map(s=>(
+        <div key={s.lbl} style={{background:s.bg,border:`1px solid ${s.col}44`,borderRadius:10,padding:"9px 4px",textAlign:"center"}}>
+          <div style={{fontSize:9.5,fontWeight:700,color:"var(--tx2)",marginBottom:3}}>{s.lbl}</div>
+          <div style={{fontSize:19,fontWeight:900,color:s.col,lineHeight:1.1}}>{s.val}</div>
+        </div>
+      ))}
+    </div>
+    {result.unchanged>0&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:8}}>
+      💡 {result.unchanged}件は前回と内容が同じだったため、更新をスキップしました
+    </div>}
+
     <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap",justifyContent:"center"}}>
       <span style={{fontSize:12,fontWeight:800,color:"var(--gr)",background:"rgba(44,170,96,0.12)",padding:"5px 12px",borderRadius:20}}>✅ 成功 {result.ok}</span>
       <span style={{fontSize:12,fontWeight:800,color:"#c9971f",background:"rgba(201,151,31,0.12)",padding:"5px 12px",borderRadius:20}}>⚠ 警告 {result.warn}</span>
@@ -28996,7 +29052,7 @@ function ScheduleOCRScreen({user, store, onBack}){
     <AiReportCard report={report}/>
 
     <div style={{display:"flex",gap:10,marginTop:16}}>
-      <button className="bpri" style={{maxWidth:180}} onClick={()=>{setStep("select");setImgB64("");setImgUrl("");setVisits([]);setOcrInfo(null);setExisting([]);setResult({ok:0,warn:0,err:0,skip:0});setSaveErrors([]);setProgress(0);setReport(null);setError("");}}>続けて登録</button>
+      <button className="bpri" style={{maxWidth:180}} onClick={()=>{setStep("select");setImgB64("");setImgUrl("");setVisits([]);setOcrInfo(null);setExisting([]);setResult({ok:0,warn:0,err:0,skip:0,absent:0,transport:0,events:0,unchanged:0});setSaveErrors([]);setProgress(0);setReport(null);setError("");}}>続けて登録</button>
       <button className="bpri" style={{maxWidth:150,background:"rgba(255,255,255,0.1)"}} onClick={onBack}>ホームへ</button>
     </div>
   </div>;
@@ -29065,6 +29121,26 @@ function ScheduleOCRScreen({user, store, onBack}){
         </div>
       </div>}
 
+      {/* ── AI読取サマリー（読取件数・成功率・要確認）── */}
+      {ocrSummary&&<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+        {[
+          {lbl:"読取件数", val:`${ocrSummary.total}件`, col:"var(--tl)",  bg:"rgba(58,160,216,0.12)"},
+          {lbl:"成功率",   val:ocrSummary.rate==null?"—":`${ocrSummary.rate}%`,
+            col:confColor(ocrSummary.rate), bg:confBg(ocrSummary.rate)},
+          {lbl:"要確認",   val:`${ocrSummary.review}件`,
+            col:ocrSummary.review===0?"var(--gr)":"#e0a828",
+            bg:ocrSummary.review===0?"rgba(44,170,96,0.12)":"rgba(224,168,40,0.16)"},
+        ].map(s=>(
+          <div key={s.lbl} style={{background:s.bg,border:`1px solid ${s.col}44`,borderRadius:10,padding:"9px 6px",textAlign:"center"}}>
+            <div style={{fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:3}}>{s.lbl}</div>
+            <div style={{fontSize:18,fontWeight:900,color:s.col,lineHeight:1.1}}>{s.val}</div>
+          </div>
+        ))}
+      </div>}
+      {ocrSummary&&ocrSummary.review>0&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:-8,marginBottom:12}}>
+        ⚠ 信頼度{CONF_REVIEW}%未満の{ocrSummary.review}件は、下の表で内容をご確認ください。
+      </div>}
+
       {/* 利用者選択（名前候補＋信頼度） */}
       <div className="slbl">利用者を選択
         {ocrInfo?.childName&&<span style={{marginLeft:6,fontWeight:800,color:confColor(ocrInfo.nameConfidence)}}>（AI読取: {ocrInfo.childName} {confText(ocrInfo.nameConfidence)}）</span>}
@@ -29114,7 +29190,7 @@ function ScheduleOCRScreen({user, store, onBack}){
               <input value={v.memo||v.event||""} onChange={e=>updVisit(i,"memo",e.target.value)} placeholder="備考" style={{width:"100%",minWidth:90,fontSize:11,padding:"2px 6px",border:"1px solid var(--bd)",borderRadius:4,background:"var(--bg)",color:"var(--tx)"}}/>
             </td>
             <td style={{padding:"6px 8px",whiteSpace:"nowrap",verticalAlign:"top"}}>
-              <span style={{fontSize:11,fontWeight:800,color:confColor(v.confidence)}}>{confText(v.confidence)}</span>
+              <ConfBadge c={v.confidence}/>
               {hasEx&&<div style={{marginTop:4}}>
                 <select value={v._action||"update"} onChange={e=>updVisit(i,"_action",e.target.value)} style={{fontSize:10,padding:"1px 3px",border:"1px solid var(--bd)",borderRadius:4,background:"var(--bg)",color:"var(--tx2)"}}>
                   <option value="update">既存を更新</option>
@@ -29142,10 +29218,19 @@ function ScheduleOCRScreen({user, store, onBack}){
         </div>
       </div>
 
-      <button className="bsave" disabled={!selUserId||saving||visits.filter(v=>v._checked).length===0} onClick={save} style={{marginBottom:8}}>
-        {saving?"登録中...":"✅ "+visits.filter(v=>v._checked).length+"件を登録する"}
-      </button>
-      <button style={{width:"100%",padding:"10px",borderRadius:9,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}} onClick={()=>setStep("preview")}>← 撮り直す</button>
+      {/* Sticky Footerの高さぶんの余白（ボタンが内容に重ならないようにする）*/}
+      <div style={{height:96}}/>
+
+      {/* ── 保存ボタンは画面下に固定（スマホでスクロールしても常に押せる）── */}
+      <div style={{position:"sticky",bottom:0,left:0,right:0,zIndex:20,
+                   margin:"0 -14px -14px",padding:"10px 14px calc(10px + env(safe-area-inset-bottom))",
+                   background:"var(--bg)",borderTop:"1px solid var(--bd)",
+                   boxShadow:"0 -6px 20px rgba(0,0,0,0.45)"}}>
+        <button className="bsave" disabled={!selUserId||saving||visits.filter(v=>v._checked).length===0} onClick={save} style={{marginBottom:8}}>
+          {saving?"登録中...":"✅ "+visits.filter(v=>v._checked).length+"件を登録する"}
+        </button>
+        <button style={{width:"100%",padding:"9px",borderRadius:9,border:"1.5px solid var(--bd)",background:"var(--bg2)",color:"var(--tx3)",fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}} onClick={()=>setStep("preview")}>← 撮り直す</button>
+      </div>
     </div>}
   </div>;
 }
