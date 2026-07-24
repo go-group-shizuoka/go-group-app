@@ -2339,6 +2339,9 @@ select.fi option{background:var(--bg2);color:var(--tx);}
 .form-actions{display:flex;gap:10px;align-items:center;margin-top:14px;position:sticky;bottom:0;background:var(--wh);padding:12px 0 calc(6px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--bd);z-index:5;}
 .form-actions .bsave{margin-top:0;}
 .req-hint{font-size:11px;color:var(--am);font-weight:700;margin:8px 0 0;text-align:right;line-height:1.5;}
+/* トースト: 長文でも画面内で折り返し、モバイルでは下部ナビ/ホームバーの上に出す */
+.toast-fixed{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(28px + env(safe-area-inset-bottom,0px));max-width:calc(100vw - 32px);white-space:normal;word-break:break-word;text-align:center;line-height:1.6;}
+@media(max-width:768px){.toast-fixed{bottom:calc(80px + env(safe-area-inset-bottom,0px));}}
 .bsave:hover{background:var(--ac2);box-shadow:0 4px 14px rgba(240,112,32,0.4);}
 .bsave:disabled{background:var(--bda);cursor:not-allowed;}
 .succ{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;gap:12px;text-align:center;padding:20px;}
@@ -14431,10 +14434,9 @@ function Toast({msg, type}){
   if(!msg) return null;
   const bg = type==="error" ? "var(--ro)" : type==="warn" ? "var(--am)" : "var(--gr)";
   const icon = type==="error" ? "❌" : type==="warn" ? "⚠️" : "✅";
-  return <div style={{
-    position:"fixed",bottom:28,left:"50%",transform:"translateX(-50%)",
+  return <div className="toast-fixed" style={{
     background:bg,color:"#fff",padding:"12px 24px",borderRadius:14,
-    fontWeight:700,fontSize:13,zIndex:99999,whiteSpace:"nowrap",
+    fontWeight:700,fontSize:13,zIndex:99999,
     boxShadow:"0 6px 24px rgba(0,0,0,0.35)",
     fontFamily:"'Noto Sans JP',sans-serif",
     animation:"toastIn .25s cubic-bezier(.4,0,.2,1)"

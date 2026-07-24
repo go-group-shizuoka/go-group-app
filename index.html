@@ -5,6 +5,9 @@
 <!-- viewport-fit=cover: env(safe-area-inset-*) を有効化（iPhoneのノッチ/ホームバー対応）。
      これが無いと safe-area 値が常に0になり、下部固定ナビ等がホームバーに隠れる。 -->
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
+<!-- Webフォントの接続を前倒しして初回描画のちらつき・遅延を軽減 -->
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <title>GO GROUP 勤怠・利用記録システム</title>
 </head>
 <body>
