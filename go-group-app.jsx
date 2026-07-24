@@ -10294,6 +10294,7 @@ function JukyushaTab({u, user, store}) {
   const [userConfirmedType, setUserConfirmedType] = useState(""); // ユーザーが手動で選択した種別
   // 受給者証カード折りたたみ管理（docId → expanded boolean）
   const [expandedDocId, setExpandedDocId] = useState(null); // null=全部閉じ
+  const [editingDocId, setEditingDocId] = useState(null);   // 編集中の受給者証ID（null=新規登録）
   const fileRef2   = useRef(null); // 写真2 カメラ
   const fileRef2Alb= useRef(null); // 写真2 アルバム
   const fileRef3   = useRef(null); // 写真3 カメラ
@@ -10671,6 +10672,72 @@ function JukyushaTab({u, user, store}) {
     setPhotos(p => p.filter((_,i)=>i!==idx));
   };
 
+  // ── 登録済み受給者証の編集 ──
+  // 従来は一覧に削除ボタンしか無く、登録後に内容を直す手段が無かった。
+  // 既存レコードをフォームへ読み込み、結果確認と同じ入力画面を再利用する。
+  const startEdit = (doc) => {
+    setEditingDocId(doc.id);
+    setForm({
+      name:               doc.name               || "",
+      jukyushaNo:         doc.jukyushaNo         || "",
+      city:               doc.city               || "",
+      expiryDate:         doc.expiryDate         || "",
+      startDate:          doc.startDate          || "",
+      grantDate:          doc.grantDate          || "",
+      guardianName:       doc.guardianName       || "",
+      serviceType:        doc.serviceType        || "",
+      serviceAmount:      doc.serviceAmount      || "",
+      maxBurden:          doc.maxBurden != null ? String(doc.maxBurden) : "",
+      monitoringInterval: doc.monitoringInterval || "",
+      specialNotes:       doc.specialNotes       || "",
+    });
+    setOcrResult(doc.ocrData || null);
+    setOcrError("");
+    setPhotos([]);            // 写真は据え置き（未選択なら既存画像を保持する）
+    setMode("result");        // 結果確認＝入力画面を編集用に再利用
+    window.scrollTo?.(0, 0);
+  };
+
+  // 編集内容を保存（写真を選び直していなければ既存画像を維持）
+  const handleUpdate = () => {
+    if (!editingDocId) return;
+    const prev = myDocs.find(d => d.id === editingDocId);
+    const patch = {
+      name: form.name, jukyushaNo: form.jukyushaNo,
+      city: form.city, expiryDate: form.expiryDate,
+      serviceType: form.serviceType, serviceAmount: form.serviceAmount,
+      maxBurden: form.maxBurden ? parseInt(form.maxBurden) : null,
+      startDate: form.startDate || null,
+      grantDate: form.grantDate || null,
+      guardianName: form.guardianName || null,
+      monitoringInterval: form.monitoringInterval || null,
+      specialNotes: form.specialNotes || null,
+    };
+    // 写真を選び直した場合のみ画像を差し替える（未選択なら既存を残す）
+    if (photos.length > 0) {
+      patch.imagePreview  = photos[0]?.base64 || null;
+      patch.imagePreviews = photos.map(p => p.base64);
+    }
+    store.updJukyushaDoc(editingDocId, patch);
+
+    // users_data 側にも反映（フェイスシート・詳細タブが参照する一元データ）
+    const existing = store.loadJukyushaCertificate(u.id);
+    store.saveJukyushaCertificate(u.id, {
+      jukyushaNo:      form.jukyushaNo || "",
+      jukyushaExpiry:  form.expiryDate || "",
+      jukyushaCity:    form.city       || "",
+      maxBurden:       form.maxBurden ? parseInt(form.maxBurden) : null,
+      isLimitMgmtOffice: u.isLimitMgmtOffice ?? false,
+      hasTransport:      u.hasTransport ?? false,
+      imagePreview: photos[0]?.base64
+        ? "data:image/jpeg;base64," + photos[0].base64
+        : (existing?.imagePreview || (prev?.imagePreview ? "data:image/jpeg;base64," + prev.imagePreview : null)),
+      ocrParsed: ocrResult ? { ...ocrResult } : null,
+    });
+    store.showToast("✅ 受給者証を更新しました");
+    setEditingDocId(null); setMode("list"); setPhotos([]); setOcrResult(null);
+  };
+
   // 保存（新フィールド monitoringInterval, guardianName, grantDate, specialNotes も保存）
   const handleSave = () => {
     // ─── 二重登録確認 ───
@@ -10955,8 +11022,12 @@ function JukyushaTab({u, user, store}) {
                   </div>
                 </div>
 
-                {/* 削除ボタン */}
-                <div style={{marginTop:12}}>
+                {/* 編集・削除ボタン */}
+                <div style={{marginTop:12,display:"flex",gap:8}}>
+                  <button onClick={()=>startEdit(doc)}
+                    style={{padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:700,border:"1px solid rgba(58,160,216,0.45)",background:"rgba(58,160,216,0.1)",color:"var(--tl)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
+                    ✏️ 編集
+                  </button>
                   <button onClick={()=>{if(!window.confirm("この受給者証を削除しますか？\nこの操作は取り消せません。"))return;store.delJukyushaDoc(doc.id);}}
                     style={{padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:700,border:"1px solid rgba(224,56,56,0.4)",background:"rgba(224,56,56,0.08)",color:"var(--ro)",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>
                     🗑️ 削除
@@ -11073,9 +11144,9 @@ function JukyushaTab({u, user, store}) {
   if (mode === "result") return (
     <div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
-        <button className="bback" onClick={()=>{setMode("list");setPhotos([]);setOcrResult(null);setOcrError("");}} style={{padding:"6px 12px",fontSize:12}}>← 戻る</button>
+        <button className="bback" onClick={()=>{setEditingDocId(null);setMode("list");setPhotos([]);setOcrResult(null);setOcrError("");}} style={{padding:"6px 12px",fontSize:12}}>← 戻る</button>
         <div style={{fontSize:13,fontWeight:700}}>
-          {ocrResult ? "📋 読み取り結果を確認" : "📷 写真を追加してAI解析"}
+          {editingDocId ? "✏️ 受給者証を編集" : ocrResult ? "📋 読み取り結果を確認" : "📷 写真を追加してAI解析"}
         </div>
       </div>
 
@@ -11394,9 +11465,17 @@ function JukyushaTab({u, user, store}) {
           </div>
         ))}
       </div>
-      <button className="bsave" style={{marginTop:14,width:"100%"}} onClick={handleSave}>
-        💾 保存する（写真{photos.length}枚）
+      {/* 編集中は更新、新規登録時は保存。編集で写真未選択なら既存画像を維持する */}
+      <button className="bsave" style={{marginTop:14,width:"100%"}} onClick={editingDocId?handleUpdate:handleSave}>
+        {editingDocId
+          ? (photos.length>0 ? `💾 変更を保存する（写真${photos.length}枚を差し替え）` : "💾 変更を保存する")
+          : `💾 保存する（写真${photos.length}枚）`}
       </button>
+      {editingDocId&&<button
+        style={{marginTop:8,width:"100%",padding:"10px",borderRadius:9,border:"1.5px solid var(--bd)",background:"var(--bg2)",color:"var(--tx3)",fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}
+        onClick={()=>{setEditingDocId(null);setMode("list");setPhotos([]);setOcrResult(null);setOcrError("");}}>
+        キャンセル
+      </button>}
     </div>
   );
 

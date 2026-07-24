@@ -7,6 +7,7 @@
  */
 
 import { requireUser } from "./_auth.js";
+import { extractJson } from "./_json.js";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -98,18 +99,51 @@ export default async function handler(req, res) {
 
 必ずJSONのみを返してください。`,
 
-    id_document: `この身分証明書（運転免許証・マイナンバーカード等）を解析してください。
-個人情報保護のため、氏名・有効期限・身分証種別のみ抽出してください。
-住所・番号等の詳細情報は抽出不要です。
+    // ★ 身分証モード
+    // 【重要】以前は「個人情報保護のため住所・番号は抽出不要」とだけ書いていたため、
+    // モデルが身分証の読み取り自体を控えて説明文を返し、JSONが得られず
+    // 「JSON解析失敗」になっていた。用途（事業所が自社職員の必須書類を管理する
+    // 法令上の義務）と、何を出し何を出さないかを明示して解消する。
+    id_document: `あなたは障害福祉サービス事業所の労務担当を補助するシステムです。
+これは、事業所が自社の職員から提出を受けた身分証明書です。事業所には職員の
+本人確認書類と有効期限を管理する法令上の義務があり、その台帳登録のために
+記載事項を読み取ります。正規の業務利用です。
+
+【抽出する項目（これだけ）】
+- 氏名
+- 身分証の種別
+- 有効期限
+- 生年月日
+
+【抽出しない項目】
+住所、免許証番号、マイナンバー（個人番号）、旅券番号、在留カード番号、
+本籍、顔写真の特徴、臓器提供意思表示。これらは読み取らず、出力にも含めないこと。
+
+【対応する身分証の例と、有効期限の見つけ方】
+- 運転免許証: 「平成◯年◯月◯日まで有効」の帯（多くは券面下部・色帯の中）
+- マイナンバーカード（個人番号カード）: 表面の「電子証明書の有効期限」ではなく
+  「有効期限」欄を優先。個人番号は裏面にあるが読み取らないこと
+- 健康保険証（被保険者証）: 「有効期限」欄。記載が無い場合は null
+- パスポート: 「有効期間満了日 / Date of expiry」
+- 在留カード: 「在留期間（満了日）」
+- 住民基本台帳カード・身体障害者手帳等その他の公的身分証も同様に扱う
+
+【和暦の変換】
+令和◯年＝2018+◯年（令和8年=2026年）、平成◯年＝1988+◯年（平成31年=2019年）。
+必ず西暦のYYYY-MM-DD形式にすること。
+
+【読み取れない場合】
+画像が不鮮明・該当欄が写っていない項目は、その項目だけ null にする。
+文章での説明や断りは書かず、必ず下記のJSONだけを返すこと。
 
 {
-  "detectedName": "氏名",
-  "documentKind": "身分証種別（運転免許証/マイナンバーカード/パスポート/在留カード/その他）",
-  "expiryDate": "有効期限（YYYY-MM-DD）",
-  "birthDate": "生年月日（YYYY-MM-DD、記載があれば）"
+  "detectedName": "氏名（姓名。フリガナは含めない）",
+  "documentKind": "身分証種別（運転免許証/マイナンバーカード/健康保険証/パスポート/在留カード/その他）",
+  "expiryDate": "有効期限（YYYY-MM-DD、無ければnull）",
+  "birthDate": "生年月日（YYYY-MM-DD、無ければnull）"
 }
 
-必ずJSONのみを返してください。`,
+必ずJSONのみを返してください。説明文は不要です。`,
 
     other: `この書類を解析して、以下の項目をJSONで抽出してください。
 読み取れない項目はnullとしてください。
@@ -128,6 +162,12 @@ export default async function handler(req, res) {
 
   const prompt = extractPrompts[documentType] || extractPrompts.other;
 
+  // 身分証は個人情報を含むため、応答全文は OCR_DEBUG=1 のときのみ出力する
+  const DEBUG = process.env.OCR_DEBUG === "1";
+  // ── ログ1・2: 受信とClaude送信 ──
+  console.log(`[STAFFDOC] 1.画像受信 type=${documentType} mediaType=${mediaType} base64=${Math.round(imageBase64.length/1024)}KB`);
+  console.log(`[STAFFDOC] 2.Claude送信 model=claude-opus-4-5 max_tokens=2048 promptLen=${prompt.length}`);
+
   try {
     // ① OCR抽出
     const ocrResp = await fetch("https://api.anthropic.com/v1/messages", {
@@ -139,7 +179,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: "claude-opus-4-5",
-        max_tokens: 1024,
+        max_tokens: 2048,
         messages: [{
           role: "user",
           content: [
@@ -152,21 +192,37 @@ export default async function handler(req, res) {
 
     if (!ocrResp.ok) {
       const errText = await ocrResp.text();
+      console.error(`[STAFFDOC] 3.Claude応答エラー status=${ocrResp.status} body=${errText.slice(0, 500)}`);
       return res.status(500).json({ error: "Claude API エラー: " + errText });
     }
 
     const ocrData = await ocrResp.json();
     const ocrText = ocrData.content?.[0]?.text || "";
+    const stopReason = ocrData.stop_reason;
 
-    // JSONを抽出
-    const jsonMatch = ocrText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      return res.json({ success: false, rawText: ocrText, error: "JSON解析失敗", aiStatus: "error", aiWarnings: ["OCR解析に失敗しました"] });
+    // ── ログ3: Claude応答 ──（身分証は個人情報のため全文は DEBUG 時のみ）
+    console.log(`[STAFFDOC] 3.Claude応答 type=${documentType} stop_reason=${stopReason} textLen=${ocrText.length} usage=${JSON.stringify(ocrData.usage||{})}`);
+    if (DEBUG) console.log(`[STAFFDOC] 3-full.応答全文\n${ocrText}`);
+
+    // ```json除去 → 説明文除去 → 途中切れの修復（api/_json.js の共通処理）
+    const ext = extractJson(ocrText);
+    if (!ext.ok) {
+      // ★ モデルが「個人情報のため回答できません」等の説明文を返した場合をここで検出する。
+      //   身分証OCRが動かなかった原因がこれだったため、拒否と判読不能を区別して返す。
+      const looksRefusal = /申し訳|できません|お答えできない|個人情報|プライバシー|cannot|unable|sorry/i.test(ocrText);
+      console.error(`[STAFFDOC] 5.JSON解析失敗 type=${documentType} reason=${ext.reason} refusal=${looksRefusal} stop_reason=${stopReason}`);
+      console.error(`[STAFFDOC] 5.解析対象(先頭300字)=${(ext.cleaned || ocrText).slice(0, 300).replace(/\n/g, "\\n")}`);
+      return res.json({
+        success: false, rawText: ocrText,
+        error: looksRefusal
+          ? "AIが読み取りを控えました。もう一度お試しいただくか、有効期限を手入力してください。"
+          : (stopReason === "max_tokens" ? "読み取り結果が途中で切れました。もう一度お試しください。" : ext.reason),
+        aiStatus: "error",
+        aiWarnings: [looksRefusal ? "AIが読み取りを控えました（手入力で登録できます）" : "OCR解析に失敗しました"],
+      });
     }
-
-    let extracted;
-    try { extracted = JSON.parse(jsonMatch[0]); }
-    catch (e) { return res.json({ success: false, rawText: ocrText, error: "JSON解析エラー", aiStatus: "error", aiWarnings: ["データの読み取りに失敗しました"] }); }
+    const extracted = ext.data;
+    console.log(`[STAFFDOC] ✅ 解析成功 type=${documentType} repaired=${!!ext.repaired} keys=${Object.keys(extracted||{}).join(",")}`);
 
     // ② AI判定（期限・氏名一致・必須項目チェック）
     const warnings = [];
