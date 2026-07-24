@@ -2206,7 +2206,7 @@ const CSS = `
 :root{--bg:#0d0d12;--bg2:#13131a;--bg3:#1c1c26;--bg4:#24242f;--wh:#1e1e2a;--tx:#eeeef5;--tx2:#9898b8;--tx3:#8888aa;--ac:#f07020;--ac2:#ff8a38;--tl:#3aa0d8;--tl2:#52b8f0;--gr:#2caa60;--gr2:#3dc870;--am:#e0a828;--ro:#e03838;--pu:#9048d8;--bd:#28283a;--bda:#38384e;--sh:0 2px 12px rgba(0,0,0,0.6);--sh2:0 6px 28px rgba(0,0,0,0.85);--sidebar-w:230px;--header-h:56px;}
 *{box-sizing:border-box;margin:0;padding:0;}
 button,a,[role="button"]{touch-action:manipulation;}
-body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;overflow-x:hidden;}
+body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;overflow-x:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
 /* ===== APP SHELL ===== */
 .app{min-height:100vh;background:var(--bg);}
 .app-shell{display:flex;min-height:100vh;}
@@ -2247,7 +2247,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--tx);
 .hmb{display:none;width:38px;height:38px;background:none;border:1px solid var(--bd);border-radius:8px;cursor:pointer;color:var(--tx2);font-size:18px;align-items:center;justify-content:center;flex-shrink:0;}
 .main-content{padding:20px;flex:1;}
 /* ===== BOTTOM NAV (mobile) ===== */
-.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;height:62px;background:var(--bg2);border-top:1px solid var(--bd);z-index:250;}
+.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;height:calc(62px + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);background:var(--bg2);border-top:1px solid var(--bd);z-index:250;}
 .bn-row{display:flex;height:100%;}
 .bn-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;color:var(--tx3);font-size:10px;padding:4px 2px;transition:color .15s;position:relative;-webkit-tap-highlight-color:transparent;}
 .bn-item.active{color:var(--ac);}
@@ -2258,7 +2258,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--tx);
   .sidebar{transform:translateX(-100%);transition:transform .25s cubic-bezier(.4,0,.2,1);}
   .sidebar.open{transform:translateX(0);}
   .main-wrap{margin-left:0;}
-  .main-content{padding:12px;padding-bottom:74px;}
+  .main-content{padding:12px;padding-bottom:calc(74px + env(safe-area-inset-bottom,0px));}
   .bottom-nav{display:block;}
   .hmb{display:flex;}
   .top-bar-date{display:none;}
