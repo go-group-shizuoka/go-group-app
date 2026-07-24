@@ -173,14 +173,36 @@ async function _sbFetch(url, opts) {
   return r;
 }
 
+// ── ページング取得 ──
+// Supabase REST は1リクエストで最大1000行しか返さない（既定上限）。
+// 従来の select("*") は暗黙に先頭1000行で頭打ちになり、行数が増えると
+// 「一部の記録が表示されない」というサイレントなデータ欠損を起こしていた。
+// Range ヘッダで 0-999 / 1000-1999 … と全ページ取得し、欠損を無くす。
+// 1000行未満のテーブルは1リクエストのままなので、現状の速度・挙動は不変。
+const _SB_PAGE = 1000;
+async function _sbSelectPaged(url) {
+  let from = 0, all = null;
+  for (;;) {
+    const headers = { ..._authHeaders(), "Range-Unit": "items", "Range": `${from}-${from + _SB_PAGE - 1}` };
+    const r = await _sbFetch(url, { headers });
+    let batch;
+    try { batch = await r.json(); } catch { batch = all || []; break; }
+    if (!Array.isArray(batch)) return batch;      // エラーオブジェクト等はそのまま返す
+    all = all ? all.concat(batch) : batch;
+    if (batch.length < _SB_PAGE) break;           // 最終ページ
+    from += _SB_PAGE;
+    if (from > 2_000_000) break;                  // 暴走防止の安全弁
+  }
+  return all || [];
+}
+
 const sb = {
   from: function(table) {
     const base = SUPABASE_URL + "/rest/v1/" + table;
     return {
       select: async function(cols) {
         cols = cols || "*";
-        const r = await _sbFetch(base + "?select=" + cols, {headers: _authHeaders()});
-        return r.json();
+        return _sbSelectPaged(base + "?select=" + cols);
       },
       insert: async function(data) {
         const r = await _sbFetch(base, {method:"POST", headers: _authHeaders(), body: JSON.stringify(data)});
@@ -200,14 +222,38 @@ const sb = {
         return {
           select: async function(cols) {
             cols = cols || "*";
-            const r = await _sbFetch(base + "?select=" + cols + "&" + col + "=eq." + encodeURIComponent(val), {headers: _authHeaders()});
-            return r.json();
+            return _sbSelectPaged(base + "?select=" + cols + "&" + col + "=eq." + encodeURIComponent(val));
           }
         };
       }
     };
   }
 };
+
+// ── スコープ付き取得（列選択・施設・期間・検索・ページング）──
+// 「全件ロードしてJS側で絞る」代わりに、クエリ段階で必要行だけ取得する。
+// 既に呼び出し側で同じ条件で絞っている箇所に適用すれば、結果は同一のまま
+// 転送量・メモリ・パース時間を削減できる（＝非破壊の最適化）。
+//   opts: { columns, eq:{col:val}, gte:{col:val}, lte:{col:val},
+//           like:{col:val}, order, limit }
+async function sbSelectScoped(table, opts = {}) {
+  const { columns = "*", eq = {}, gte = {}, lte = {}, like = {}, order, limit } = opts;
+  let q = SUPABASE_URL + "/rest/v1/" + table + "?select=" + columns;
+  const add = (op, obj) => { for (const [k, v] of Object.entries(obj)) if (v != null && v !== "") q += `&${k}=${op}.${encodeURIComponent(v)}`; };
+  add("eq", eq); add("gte", gte); add("lte", lte); add("like", like);
+  if (order) q += "&order=" + order;
+  try {
+    if (limit) {
+      // 上限付き（検索・一覧の先頭N件など）は1リクエストで取得
+      const r = await _sbFetch(q, { headers: { ..._authHeaders(), "Range-Unit": "items", "Range": `0-${limit - 1}` } });
+      const j = await r.json();
+      const arr = Array.isArray(j) ? j : [];
+      return arr.filter(row => !row.is_deleted);
+    }
+    const arr = await _sbSelectPaged(q);
+    return Array.isArray(arr) ? arr.filter(row => !row.is_deleted) : [];
+  } catch (e) { console.error("sbSelectScoped error:", table, e); return []; }
+}
 
 // ==================== 安定化ユーティリティ ====================
 
@@ -28974,9 +29020,11 @@ function ScheduleOCRScreen({user, store, onBack}){
   // ── 既存planned_visits読込（当該児童・年月）──
   const loadExisting=async(childId)=>{
     if(!childId){ setExisting([]); return; }
-    try{ const all=await sbLoad("planned_visits");
+    try{
+      // 全件ロード→JS側で年月フィルタ から、月スコープのクエリ取得に変更（結果は同一）
       const ym=`${year}-${String(month).padStart(2,"0")}`;
-      const arr=(Array.isArray(all)?all:[]).filter(x=>(x.visit_date||"").startsWith(ym));
+      const last=new Date(year,month,0).getDate();
+      const arr=await sbSelectScoped("planned_visits",{gte:{visit_date:`${ym}-01`},lte:{visit_date:`${ym}-${String(last).padStart(2,"0")}`}});
       setFacVisits(arr);
       setExisting(arr.filter(x=>x.child_id===childId));
     }catch(_){ setExisting([]); }
@@ -29087,9 +29135,11 @@ function ScheduleOCRScreen({user, store, onBack}){
         setStep("confirm");
         // 既存planned_visits読込（当該児童＋施設横断チェック用に同月全件）は後追い
         (async()=>{
-          try{ const all=await sbLoad("planned_visits");
+          try{
+            // 月スコープのクエリ取得（従来の全件ロード→年月フィルタと同一結果）
             const ym=`${yy}-${String(mm).padStart(2,"0")}`;
-            const arr=(Array.isArray(all)?all:[]).filter(x=>(x.visit_date||"").startsWith(ym));
+            const last=new Date(yy,mm,0).getDate();
+            const arr=await sbSelectScoped("planned_visits",{gte:{visit_date:`${ym}-01`},lte:{visit_date:`${ym}-${String(last).padStart(2,"0")}`}});
             setFacVisits(arr);
             setExisting(arr.filter(x=>x.child_id===matchedId));
           }catch(_){ setExisting([]); setFacVisits([]); }
