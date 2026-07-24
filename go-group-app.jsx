@@ -2335,6 +2335,10 @@ select.fi option{background:var(--bg2);color:var(--tx);}
 .fta{width:100%;padding:10px 12px;background:var(--bg3);border:1.5px solid var(--bd);border-radius:8px;color:var(--tx);font-family:'Noto Sans JP',sans-serif;font-size:13px;resize:vertical;min-height:64px;outline:none;}
 .fta:focus{border-color:var(--ac);}
 .bsave{width:100%;padding:13px;background:var(--ac);border:none;border-radius:10px;color:#fff;font-family:'Noto Sans JP',sans-serif;font-size:14px;font-weight:900;cursor:pointer;transition:all .2s;margin-top:6px;}
+/* 長いフォームでも保存ボタンに常に手が届くよう、下部アクション行を画面下に貼り付ける */
+.form-actions{display:flex;gap:10px;align-items:center;margin-top:14px;position:sticky;bottom:0;background:var(--wh);padding:12px 0 calc(6px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--bd);z-index:5;}
+.form-actions .bsave{margin-top:0;}
+.req-hint{font-size:11px;color:var(--am);font-weight:700;margin:8px 0 0;text-align:right;line-height:1.5;}
 .bsave:hover{background:var(--ac2);box-shadow:0 4px 14px rgba(240,112,32,0.4);}
 .bsave:disabled{background:var(--bda);cursor:not-allowed;}
 .succ{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;gap:12px;text-align:center;padding:20px;}
@@ -2376,7 +2380,7 @@ select.fi option{background:var(--bg2);color:var(--tx);}
 .md{background:var(--bg2);border:1px solid var(--bd);border-radius:14px;padding:22px;width:100%;max-width:500px;box-shadow:var(--sh2);}
 .mdtit{font-size:15px;font-weight:900;margin-bottom:14px;color:var(--tx);}
 .mda{display:flex;gap:9px;justify-content:flex-end;margin-top:16px;}
-.bcancel{padding:8px 16px;border-radius:8px;background:var(--bg3);border:1.5px solid var(--bd);color:var(--tx2);font-size:13px;font-weight:700;cursor:pointer;font-family:'Noto Sans JP',sans-serif;}
+.bcancel{padding:8px 16px;min-height:44px;border-radius:8px;background:var(--bg3);border:1.5px solid var(--bd);color:var(--tx2);font-size:13px;font-weight:700;cursor:pointer;font-family:'Noto Sans JP',sans-serif;white-space:nowrap;}
 .bconf{padding:8px 16px;border-radius:8px;background:var(--ac);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:'Noto Sans JP',sans-serif;}
 .bconf:disabled{background:var(--bda);cursor:not-allowed;}
 .ch{display:flex;align-items:center;justify-content:space-between;margin-bottom:11px;}
@@ -14908,7 +14912,11 @@ function IspPlanForm({record, u, user, store, onSave, onCancel}){
       <div className="fg"><label className="fl">作成・更新メモ（監査用）</label>
         <textarea className="fta" rows={2} value={note} onChange={e=>setNote(e.target.value)} placeholder="変更理由や特記事項があれば記入"/></div>
 
-      <div style={{display:"flex",gap:10,marginTop:8}}>
+      {/* 必須未入力で保存できないとき、何が足りないかを明示する */}
+      {(!f.longGoal||!f.shortGoal||!f.supportContent)&&<div className="req-hint">
+        ⚠ 保存には次の入力が必要です：{[!f.longGoal&&"長期目標",!f.shortGoal&&"短期目標",!f.supportContent&&"支援内容"].filter(Boolean).join("・")}
+      </div>}
+      <div className="form-actions">
         <button className="bcancel" onClick={onCancel}>キャンセル</button>
         <button className="bsave" onClick={handleSave}
           disabled={saving||!f.longGoal||!f.shortGoal||!f.supportContent}
@@ -15137,7 +15145,11 @@ function IspMonitoringForm({record, u, user, store, onSave, onCancel}){
         </div>
       ))}
 
-      <div style={{display:"flex",gap:10,marginTop:8}}>
+      {/* 必須未入力で保存できないとき、何が足りないかを明示する */}
+      {(!f.longGoalResult||!f.shortGoalResult)&&<div className="req-hint">
+        ⚠ 保存には次の入力が必要です：{[!f.longGoalResult&&"長期目標の達成状況",!f.shortGoalResult&&"短期目標の達成状況"].filter(Boolean).join("・")}
+      </div>}
+      <div className="form-actions">
         <button className="bcancel" onClick={onCancel}>キャンセル</button>
         <button className="bsave" onClick={handleSave}
           disabled={saving||!f.longGoalResult||!f.shortGoalResult}
