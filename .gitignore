@@ -3,5 +3,9 @@ dist/
 .vercel
 *.local
 
+.env
+.env.*
 .env*.local
+.saas-env
+*.env
 go-group-app.jsx.pre-phase1.bak

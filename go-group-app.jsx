@@ -323,6 +323,14 @@ async function sbSave(table, data, { retry = 3 } = {}) {
   _sbErrCb?.(toastMsg, "error");
   return false;
 }
+// DB由来のJSON文字列を安全にパースする。
+// 壊れたJSON（AI/OCRが書き込んだ列など）が1件混ざっても例外で画面が落ちないよう、
+// 失敗時は fallback を返す。既にオブジェクト/配列ならそのまま返す。
+function _pj(v, fallback) {
+  if (v == null) return fallback;
+  if (typeof v !== "string") return v;
+  try { return JSON.parse(v); } catch { return fallback; }
+}
 async function sbLoad(table) {
   try {
     const r = await sb.from(table).select("*");
@@ -2737,7 +2745,7 @@ function useStore() {
       } catch(e) { /* 失敗時は既定 FACILITIES を維持（GO GROUP本番を壊さない） */ }
       if(pContacts&&pContacts.length>0) setParentContacts(pContacts.map(r=>({...r,...(r.data||{})})));
       if(stAtt&&stAtt.length>0) setStaffAttendance(stAtt.map(r=>({...r,...(r.data||{})})));
-      if(ispLogs&&ispLogs.length>0) setIspAuditLogs(ispLogs.map(l=>({...l,before_data:typeof l.before_data==="string"?JSON.parse(l.before_data||"{}"):l.before_data||{},after_data:typeof l.after_data==="string"?JSON.parse(l.after_data||"{}"):l.after_data||{}})));
+      if(ispLogs&&ispLogs.length>0) setIspAuditLogs(ispLogs.map(l=>({...l,before_data:_pj(l.before_data,{}),after_data:_pj(l.after_data,{})})));
       if(billItems&&billItems.length>0) setBillingItems(billItems.map(r=>({...r,...(r.data||{})})));
       if(addItems&&addItems.length>0) setAdditionItems(addItems.map(r=>({...r,...(r.data||{})})));
       if(kintaiCorr&&kintaiCorr.length>0) setKintaiCorrections(kintaiCorr.map(r=>({...r,...(r.data||{})})));
@@ -2760,9 +2768,9 @@ function useStore() {
           delayMin:   d.delayMin   || r.delay_min   || 0,
         };
       }));
-      if(anncs&&anncs.length>0) setAnnouncements(anncs.map(r=>({...r,...(r.data||{}),targetIds:typeof r.target_ids==="string"?JSON.parse(r.target_ids||"[]"):r.target_ids||[]})));
+      if(anncs&&anncs.length>0) setAnnouncements(anncs.map(r=>({...r,...(r.data||{}),targetIds:_pj(r.target_ids,[])})));
       if(anncReads&&anncReads.length>0) setAnnouncementReads(anncReads.map(r=>({...r,...(r.data||{})})));
-      if(survs&&survs.length>0) setSurveys(survs.map(r=>({...r,...(r.data||{}),options:typeof r.options==="string"?JSON.parse(r.options||"[]"):r.options||[]})));
+      if(survs&&survs.length>0) setSurveys(survs.map(r=>({...r,...(r.data||{}),options:_pj(r.options,[])})));
       if(survResps&&survResps.length>0) setSurveyResponses(survResps.map(r=>({...r,...(r.data||{})})));
       if(absRpts&&absRpts.length>0) setAbsenceReports(absRpts.map(r=>({...r,...(r.data||{})})));
       if(spPlans&&spPlans.length>0) setSupportPlans(spPlans.map(r=>({...r,...(r.data||{})})));
@@ -2778,7 +2786,7 @@ function useStore() {
         qualificationName:r.qualification_name, registrationNumber:r.registration_number,
         issuingAuthority:r.issuing_authority, employmentType:r.employment_type,
         aiStatus:r.ai_status||"pending",
-        aiWarnings:typeof r.ai_warnings==="string"?JSON.parse(r.ai_warnings||"[]"):(r.ai_warnings||[]),
+        aiWarnings:_pj(r.ai_warnings,[]),
         adminStatus:r.admin_status||"unreviewed",
         adminCheckedBy:r.admin_checked_by, adminCheckedAt:r.admin_checked_at,
       })));
@@ -2787,7 +2795,7 @@ function useStore() {
         ...r,...(r.data||{}),
         facilityId:r.facility_id, takenDate:r.taken_date, isShared:r.is_shared||false,
         sharedAt:r.shared_at, createdBy:r.created_by, createdAt:r.created_at,
-        childIds:typeof r.child_ids==="string"?JSON.parse(r.child_ids||"[]"):(r.child_ids||[]),
+        childIds:_pj(r.child_ids,[]),
       })));
       if(staffDocNotifsDb&&staffDocNotifsDb.length>0) setStaffDocNotifs(staffDocNotifsDb.map(r=>({
         ...r, staffId:r.staff_id, staffDocId:r.staff_doc_id,
@@ -2810,9 +2818,7 @@ function useStore() {
         description: r.description   || (r.data||{}).description  || "",
         eventType:   r.event_type    || (r.data||{}).eventType    || "activity",
         isAllFacilities: r.is_all_facilities ?? (r.data||{}).isAllFacilities ?? false,
-        targetFacilityIds: typeof r.target_facility_ids==="string"
-          ? JSON.parse(r.target_facility_ids||"[]")
-          : (r.target_facility_ids||(r.data||{}).targetFacilityIds||[]),
+        targetFacilityIds: _pj(r.target_facility_ids, (r.data||{}).targetFacilityIds||[]),
         staffId:     r.staff_id      || (r.data||{}).staffId      || "",
         createdBy:   r.created_by    || (r.data||{}).createdBy    || "",
         createdAt:   r.created_at    || (r.data||{}).createdAt    || "",
@@ -2830,7 +2836,7 @@ function useStore() {
       }
       // 監査ログ
       if(auditLogsDb && auditLogsDb.length>0){
-        setAuditLogs2(auditLogsDb.map(l=>({...l,before_data:typeof l.before_data==="string"?JSON.parse(l.before_data||"{}"):l.before_data,after_data:typeof l.after_data==="string"?JSON.parse(l.after_data||"{}"):l.after_data})));
+        setAuditLogs2(auditLogsDb.map(l=>({...l,before_data:_pj(l.before_data,{}),after_data:_pj(l.after_data,{})})));
       }
       if(recs && recs.length > 0) setRecs(recs.map(r => ({...r, ...(r.data||{})})));
       if(msgs && msgs.length > 0) setMsgs(msgs.map(m => {
@@ -24551,7 +24557,7 @@ function StaffDocDetailModal({doc, store, user, getStaffName, getDocTypeInfo, ge
     onClose();
   };
 
-  const extracted = typeof doc.extractedText==="string"?JSON.parse(doc.extractedText||"{}"):doc.extractedText||{};
+  const extracted = _pj(doc.extractedText, {});
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9000,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
