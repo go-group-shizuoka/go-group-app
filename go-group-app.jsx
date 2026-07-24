@@ -28881,6 +28881,7 @@ function ScheduleOCRScreen({user, store, onBack}){
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState("");
   const [progress,setProgress]=useState(0);      // OCR進捗(0-100)
+  const [loadStage,setLoadStage]=useState("");   // 読み取り中の処理段階（体感の分かりやすさ用）
   const [existing,setExisting]=useState([]);      // 既存planned_visits(当該児童・年月)
   const [result,setResult]=useState({ok:0,warn:0,err:0,skip:0,absent:0,transport:0,events:0,unchanged:0}); // 登録結果集計
   const [saveErrors,setSaveErrors]=useState([]);                 // 登録できなかった日と理由
@@ -28999,12 +29000,14 @@ function ScheduleOCRScreen({user, store, onBack}){
 
   // OCR実行
   const runOCR=async()=>{
-    setStep("loading");setError("");setProgress(6);
+    setStep("loading");setError("");setProgress(6);setLoadStage("画像を送信しています");
     const timer=setInterval(()=>setProgress(p=>Math.min(92,p+Math.random()*11)),550);
     let stage="画像送信";
     try{
       if(!imgB64) throw _ocrErr(stage,"画像が読み込まれていません。撮影し直してください。");
       if(_OCR_DEV) console.log(`[OCR] stage=${stage} path=/api/ocr mode=yotei b64KB=${Math.round(imgB64.length/1024)}`);
+      // 送信直後にAI解析中へ表示を進める（応答待ちの大半はこの段階）
+      setTimeout(()=>setLoadStage("AIが予定表を読み取っています"),700);
       const resp=await fetch("/api/ocr",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
@@ -29012,7 +29015,7 @@ function ScheduleOCRScreen({user, store, onBack}){
       });
       // ★ resp.json() を直接呼ばない：413(text/plain)等でSafariが不可解な例外を投げるため
       const d=await _ocrReadJson(resp);
-      stage="OCR結果の解析";
+      stage="OCR結果の解析";setLoadStage("読み取り結果を整えています");
       if(_OCR_DEV) console.log(`[OCR] stage=${stage} responseType=${Array.isArray(d?.data?.visits)?"array":typeof d?.data} visits=${d?.data?.visits?.length??0}`);
       clearInterval(timer);setProgress(100);
       if(!(d&&d.success&&d.data)){
@@ -29058,14 +29061,19 @@ function ScheduleOCRScreen({user, store, onBack}){
           const found=users.find(u=>_norm(u.name)===q)||users.find(u=>_norm(u.name).includes(q)||q.includes(_norm(u.name)));
           if(found){ matchedId=found.id; setSelUserId(found.id); }
         }
-        // 既存planned_visits読込（当該児童＋施設横断チェック用に同月全件）
-        try{ const all=await sbLoad("planned_visits");
-          const ym=`${yy}-${String(mm).padStart(2,"0")}`;
-          const arr=(Array.isArray(all)?all:[]).filter(x=>(x.visit_date||"").startsWith(ym));
-          setFacVisits(arr);
-          setExisting(arr.filter(x=>x.child_id===matchedId));
-        }catch(_){ setExisting([]); setFacVisits([]); }
+        // ★ 体感速度改善: 既存予定の読込を待たずに確認画面へ即遷移する。
+        //   重複警告(既存あり)とAI運営チェックは facVisits/existing の反映後に
+        //   自動で再計算される（useEffectがfacVisits変化を監視）。
         setStep("confirm");
+        // 既存planned_visits読込（当該児童＋施設横断チェック用に同月全件）は後追い
+        (async()=>{
+          try{ const all=await sbLoad("planned_visits");
+            const ym=`${yy}-${String(mm).padStart(2,"0")}`;
+            const arr=(Array.isArray(all)?all:[]).filter(x=>(x.visit_date||"").startsWith(ym));
+            setFacVisits(arr);
+            setExisting(arr.filter(x=>x.child_id===matchedId));
+          }catch(_){ setExisting([]); setFacVisits([]); }
+        })();
       }
     }catch(e){
       clearInterval(timer);
@@ -29265,7 +29273,9 @@ function ScheduleOCRScreen({user, store, onBack}){
     {/* ── STEP2: プレビュー ── */}
     {step==="preview"&&<div className="fc">
       {imgUrl&&<img src={imgUrl} alt="予定表" style={{width:"100%",borderRadius:10,marginBottom:14,border:"1px solid var(--bd)"}}/>}
-      {error&&<div style={{color:"var(--ro)",fontSize:12,marginBottom:10,padding:"8px 12px",background:"rgba(224,56,56,0.08)",borderRadius:8}}>{error}</div>}
+      {error&&<div style={{display:"flex",gap:8,alignItems:"flex-start",color:"var(--ro)",fontSize:12.5,fontWeight:600,lineHeight:1.6,marginBottom:12,padding:"10px 12px",background:"rgba(224,56,56,0.09)",border:"1px solid rgba(224,56,56,0.35)",borderRadius:10}}>
+        <span style={{fontSize:15,flexShrink:0}}>⚠️</span><span>{error}</span>
+      </div>}
       <button className="bsave" onClick={runOCR} style={{marginBottom:10}}>🤖 AIで自動読み取り</button>
       <button style={{width:"100%",padding:"10px",borderRadius:9,border:"1.5px solid var(--bd)",background:"var(--bg)",color:"var(--tx3)",fontSize:12,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}} onClick={()=>{setStep("select");setImgUrl("");setImgB64("");}}>撮り直す</button>
     </div>}
@@ -29277,8 +29287,9 @@ function ScheduleOCRScreen({user, store, onBack}){
       <div style={{width:"100%",maxWidth:320,height:10,margin:"0 auto 8px",background:"var(--bg2)",borderRadius:20,overflow:"hidden",border:"1px solid var(--bd)"}}>
         <div style={{width:`${Math.round(progress)}%`,height:"100%",background:"linear-gradient(90deg,var(--ac),var(--gr))",borderRadius:20,transition:"width 0.5s ease"}}/>
       </div>
-      <div style={{fontSize:12,fontWeight:700,color:"var(--ac)",marginBottom:4}}>{Math.round(progress)}%</div>
-      <div style={{fontSize:12,color:"var(--tx3)"}}>予定表を読み取っています（10〜20秒）</div>
+      <div style={{fontSize:12,fontWeight:700,color:"var(--ac)",marginBottom:6}}>{Math.round(progress)}%</div>
+      <div style={{fontSize:12.5,fontWeight:700,color:"var(--tx2)",marginBottom:2}}>{loadStage||"予定表を読み取っています"}</div>
+      <div style={{fontSize:11,color:"var(--tx3)"}}>10〜20秒ほどお待ちください</div>
     </div>}
 
     {/* ── STEP4: 確認・修正 ── */}
